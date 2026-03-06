@@ -1,0 +1,16 @@
+{
+  "tasks": {
+    "dev": "deno run --watch --allow-net --allow-read --allow-env --allow-ffi src/main.ts"
+  },
+  "imports": {
+    "@db/postgres": "jsr:@db/postgres@^0.19.5",
+    "@hono/hono": "jsr:@hono/hono@^4.12.5",
+    "@std/dotenv": "jsr:@std/dotenv@^0.225.6",
+    "@std/path": "jsr:@std/path@^1.1.4",
+    "@std/uuid": "jsr:@std/uuid@^1.1.0",
+    "argon2": "npm:argon2@^0.44.0"
+  },
+  "compilerOptions": {
+    "checkJs": true
+  }
+}
