@@ -1,14 +1,23 @@
 import "@std/dotenv/load";
 import { Pool, type PoolClient } from "@db/postgres";
 
-const DATABASE_URL = Deno.env.get("DATABASE_URL");
-if (!DATABASE_URL) {
-  throw new Error("Missing DATABASE_URL in environment.");
+const host = Deno.env.get("POSTGRES_HOST") || "localhost";
+const db = Deno.env.get("POSTGRES_DB");
+const port = Deno.env.get("POSTGRES_PORT") || "5432";
+const user = Deno.env.get("POSTGRES_USER");
+const password = Deno.env.get("POSTGRES_PASSWORD");
+
+const poolSize = Number(Deno.env.get("PG_POOL_SIZE") ?? "10");
+
+if (!db || !user || !password) {
+  throw new Error(
+    "Missing required PostgreSQL environment variables: POSTGRES_DB, POSTGRES_USER, or POSTGRES_PASSWORD",
+  );
 }
 
-const POOL_SIZE = Number(Deno.env.get("PG_POOL_SIZE") ?? "10");
+const DATABASE_URL = `postgres://${user}:${password}@${host}:${port}/${db}`;
 
-export const postgresPool = new Pool(DATABASE_URL, POOL_SIZE, true);
+export const postgresPool = new Pool(DATABASE_URL, poolSize, true);
 
 export async function withDb<T>(
   fn: (client: PoolClient) => Promise<T>,

@@ -18,5 +18,24 @@ services:
       timeout: 3s
       retries: 30
 
+  minio:
+    image: minio/minio:latest
+    container_name: solari-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin1234}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_WEBCONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    command: server /data --console-address ":${MINIO_WEBCONSOLE_PORT:-9001}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${MINIO_PORT:-9000}/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   pgdata:
+  miniodata:

@@ -1,18 +1,29 @@
 import { Client } from "@db/postgres";
+import {
+  CreateBucketCommand,
+  HeadBucketCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import "@std/dotenv/load";
 import { dirname, fromFileUrl, join } from "@std/path";
 
 const MIGRATIONS_DIR = dirname(fromFileUrl(import.meta.url));
-console.log(MIGRATIONS_DIR);
 
 function getDatabaseUrl(): string {
-  const url = Deno.env.get("DATABASE_URL");
-  if (!url) {
+  const user = Deno.env.get("POSTGRES_USER");
+  const password = Deno.env.get("POSTGRES_PASSWORD");
+  const db = Deno.env.get("POSTGRES_DB");
+  const host = Deno.env.get("POSTGRES_HOST") || "localhost";
+  const port = Deno.env.get("POSTGRES_PORT") || "5432";
+  const poolSize = Deno.env.get("PG_POOL_SIZE") || "10";
+
+  if (!user || !password || !db) {
     throw new Error(
-      "Missing DATABASE_URL. Example: DATABASE_URL=postgres://solari:password@localhost:5432/solari",
+      "Missing required environment variables for PostgreSQL.",
     );
   }
-  return url;
+
+  return `postgres://${user}:${password}@${host}:${port}/${db}?poolSize=${poolSize}`;
 }
 
 function sleep(ms: number) {
@@ -77,7 +88,45 @@ async function applyMigration(client: Client, filename: string) {
   }
 }
 
+async function ensureMinioBucket() {
+  const host = Deno.env.get("MINIO_HOST") || "localhost";
+  const port = Deno.env.get("MINIO_PORT") || "9000";
+  const accessKeyId = Deno.env.get("MINIO_ROOT_USER");
+  const secretAccessKey = Deno.env.get("MINIO_ROOT_PASSWORD");
+  const bucketName = Deno.env.get("MINIO_BUCKET_NAME") || "solari-media";
+
+  if (!accessKeyId || !secretAccessKey) {
+    console.warn("MinIO credentials missing. Skipping bucket initialization.");
+    return;
+  }
+
+  const s3Client = new S3Client({
+    region: "us-east-1",
+    endpoint: `http://${host}:${port}`,
+    forcePathStyle: true,
+    credentials: { accessKeyId, secretAccessKey },
+  });
+
+  try {
+    await s3Client.send(new HeadBucketCommand({ Bucket: bucketName }));
+    console.log(`MinIO bucket '${bucketName}' already exists.`);
+  } catch (error: unknown) {
+    const err = error as Error & {
+      name?: string;
+      $metadata?: { httpStatusCode?: number };
+    };
+    if (err.name === "NotFound" || err.$metadata?.httpStatusCode === 404) {
+      await s3Client.send(new CreateBucketCommand({ Bucket: bucketName }));
+      console.log(`Created MinIO bucket '${bucketName}'.`);
+    } else {
+      throw error;
+    }
+  }
+}
+
 if (import.meta.main) {
+  await ensureMinioBucket();
+
   const client = new Client(getDatabaseUrl());
   await connectWithRetry(client);
 

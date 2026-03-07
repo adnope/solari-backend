@@ -378,7 +378,7 @@ export async function logOut(sessionId: string): Promise<boolean> {
   }
 }
 
-export async function getMe(userId: string): Promise<PublicUser> {
+export async function me(userId: string): Promise<PublicUser> {
   userId = userId.trim();
 
   if (!userId) {

@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS users (
   CONSTRAINT username_len CHECK (length(username::text) BETWEEN 4 AND 32)
 );
 
+CREATE INDEX IF NOT EXISTS idx_users_email
+  ON users (email);
+
+CREATE INDEX IF NOT EXISTS idx_users_username
+  ON users (username);
+
 
 
 CREATE TABLE IF NOT EXISTS sessions (

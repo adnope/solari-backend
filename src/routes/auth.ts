@@ -1,5 +1,5 @@
 import { Hono } from "@hono/hono";
-import { AuthError, getMe, logOut, signIn, signUp } from "../usecases/auth.ts";
+import { AuthError, logOut, me, signIn, signUp } from "../usecases/auth.ts";
 import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 
 const authRouter = new Hono<{
@@ -24,7 +24,14 @@ authRouter.post("/users", async (c) => {
     return c.json(
       {
         message: "Account created successfully.",
-        user,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          display_name: user.displayName,
+          avatar_key: user.avatarKey,
+          created_at: user.createdAt,
+        },
       },
       201,
     );
@@ -205,7 +212,7 @@ authRouter.get("/me", requireAuth, async (c) => {
   try {
     const userId = c.get("authUserId");
     const sessionId = c.get("authSessionId");
-    const result = await getMe(userId);
+    const result = await me(userId);
 
     return c.json(
       {
