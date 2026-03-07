@@ -63,9 +63,7 @@ export async function extractMediaMetadata(
         mediaType: "video",
         width: Number(stream.width),
         height: Number(stream.height),
-        durationMs: stream.duration
-          ? Math.round(Number(stream.duration) * 1000)
-          : undefined,
+        durationMs: stream.duration ? Math.round(Number(stream.duration) * 1000) : undefined,
       };
     } finally {
       await Deno.remove(tempFilePath);

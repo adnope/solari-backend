@@ -164,9 +164,7 @@ authRouter.delete("/sessions/current", requireAuth, async (c) => {
 
     return c.json(
       {
-        message: deleted
-          ? "Logged out successfully."
-          : "Logged out successfully.",
+        message: deleted ? "Logged out successfully." : "Logged out successfully.",
       },
       200,
     );

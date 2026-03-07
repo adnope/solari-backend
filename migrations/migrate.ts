@@ -1,9 +1,5 @@
 import { Client } from "@db/postgres";
-import {
-  CreateBucketCommand,
-  HeadBucketCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
+import { CreateBucketCommand, HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import "@std/dotenv/load";
 import { dirname, fromFileUrl, join } from "@std/path";
 

@@ -197,9 +197,7 @@ export async function viewFriendRequests(
       );
 
       return {
-        items: result.rows.map((row) =>
-          mapFriendRequestListItem(normalizedUserId, row)
-        ),
+        items: result.rows.map((row) => mapFriendRequestListItem(normalizedUserId, row)),
         offset: pagination.offset,
         limit: pagination.limit,
         direction: normalizedDirection,

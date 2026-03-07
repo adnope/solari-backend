@@ -1,13 +1,7 @@
 import { Hono } from "@hono/hono";
 import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
-import {
-  sendFriendRequest,
-  SendFriendRequestError,
-} from "../usecases/send_friend_request.ts";
-import {
-  viewFriendRequests,
-  ViewFriendRequestsError,
-} from "../usecases/view_friend_requests.ts";
+import { sendFriendRequest, SendFriendRequestError } from "../usecases/send_friend_request.ts";
+import { viewFriendRequests, ViewFriendRequestsError } from "../usecases/view_friend_requests.ts";
 import {
   acceptFriendRequest,
   AcceptFriendRequestError,

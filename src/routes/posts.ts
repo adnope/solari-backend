@@ -40,9 +40,7 @@ postsRouter.post("/posts", requireAuth, async (c) => {
 
     const metadata = await extractMediaMetadata(buffer, contentType);
 
-    const caption = typeof body["caption"] === "string"
-      ? body["caption"]
-      : undefined;
+    const caption = typeof body["caption"] === "string" ? body["caption"] : undefined;
 
     let viewerIds: string[] | undefined = undefined;
     const rawViewerIds = body["viewer_ids"];
@@ -59,8 +57,7 @@ postsRouter.post("/posts", requireAuth, async (c) => {
         {
           error: {
             type: "INVALID_AUDIENCE",
-            message:
-              "At least 1 viewer id must be specified if audience type is 'selected'",
+            message: "At least 1 viewer id must be specified if audience type is 'selected'",
           },
         },
         400,
@@ -72,8 +69,7 @@ postsRouter.post("/posts", requireAuth, async (c) => {
         {
           error: {
             type: "INVALID_AUDIENCE",
-            message:
-              "No viewer ids should be specified when audience type is 'all'",
+            message: "No viewer ids should be specified when audience type is 'all'",
           },
         },
         400,

@@ -17,5 +17,10 @@
   },
   "compilerOptions": {
     "checkJs": true
-  }
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "semiColons": true,
+    "include": ["src/", "migrations/migrate.ts"]
+  },
 }
