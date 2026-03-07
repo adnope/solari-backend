@@ -1,12 +1,13 @@
 import { Hono } from "@hono/hono";
 import authRouter from "./auth.ts";
+import friendRouter from "./friends.ts";
+import { AuthVariables } from "../middleware/require_auth.ts";
 
-const app = new Hono();
+const app = new Hono<{
+  Variables: AuthVariables;
+}>();
 
-app.get("/", (c) => {
-  return c.text("Solari backend is running.");
-});
-
-app.route("/auth", authRouter);
+app.route("/", authRouter);
+app.route("/", friendRouter);
 
 export default app;

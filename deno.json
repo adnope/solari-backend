@@ -8,7 +8,8 @@
     "@std/dotenv": "jsr:@std/dotenv@^0.225.6",
     "@std/path": "jsr:@std/path@^1.1.4",
     "@std/uuid": "jsr:@std/uuid@^1.1.0",
-    "argon2": "npm:argon2@^0.44.0"
+    "argon2": "npm:argon2@^0.44.0",
+    "jsonwebtoken": "npm:jsonwebtoken@^9.0.3"
   },
   "compilerOptions": {
     "checkJs": true

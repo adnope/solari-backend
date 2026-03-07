@@ -1,5 +1,7 @@
 import argon2 from "argon2";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../db/postgres_client.ts";
+import { createAccessToken } from "../lib/jwt.ts";
 import { isPgError } from "./postgres_error.ts";
 
 export type SignupInput = {
@@ -13,10 +15,6 @@ export type SigninInput = {
   password: string;
 };
 
-export type LogoutInput = {
-  refreshToken: string;
-};
-
 export type PublicUser = {
   id: string;
   username: string;
@@ -27,13 +25,47 @@ export type PublicUser = {
 };
 
 export type SigninResult = {
-  user: PublicUser;
   sessionId: string;
+  accessToken: string;
   refreshToken: string;
   expiresAt: Date;
 };
 
-type InsertedUserRow = {
+export type AuthErrorType =
+  | "MISSING_USERNAME"
+  | "INVALID_USERNAME"
+  | "MISSING_EMAIL"
+  | "INVALID_EMAIL"
+  | "MISSING_IDENTIFIER"
+  | "MISSING_PASSWORD"
+  | "WEAK_PASSWORD"
+  | "USERNAME_TAKEN"
+  | "EMAIL_TAKEN"
+  | "IDENTIFIER_ALREADY_IN_USE"
+  | "INVALID_CREDENTIALS"
+  | "MISSING_SESSION_ID"
+  | "SESSION_NOT_FOUND"
+  | "MISSING_USER_ID"
+  | "USER_NOT_FOUND"
+  | "INTERNAL_ERROR";
+
+export class AuthError extends Error {
+  readonly type: AuthErrorType;
+  readonly statusCode: ContentfulStatusCode;
+
+  constructor(
+    type: AuthErrorType,
+    message: string,
+    statusCode: ContentfulStatusCode,
+  ) {
+    super(message);
+    this.name = "AuthError";
+    this.type = type;
+    this.statusCode = statusCode;
+  }
+}
+
+type UserRow = {
   id: string;
   username: string;
   email: string;
@@ -42,7 +74,7 @@ type InsertedUserRow = {
   created_at: Date;
 };
 
-type UserAuthRow = InsertedUserRow & {
+type UserAuthRow = UserRow & {
   password_hash: string;
 };
 
@@ -51,13 +83,23 @@ const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 function normalizeUsername(username: string): string {
   const value = username.trim();
 
+  if (value.length === 0) {
+    throw new AuthError("MISSING_USERNAME", "Username is required.", 400);
+  }
+
   if (value.length < 4 || value.length > 32) {
-    throw new Error("Username must be between 4 and 32 characters.");
+    throw new AuthError(
+      "INVALID_USERNAME",
+      "Username must be between 4 and 32 characters.",
+      400,
+    );
   }
 
   if (!/^[a-zA-Z0-9_.]+$/.test(value)) {
-    throw new Error(
+    throw new AuthError(
+      "INVALID_USERNAME",
       "Username may contain only letters, numbers, underscores, and dots.",
+      400,
     );
   }
 
@@ -67,8 +109,12 @@ function normalizeUsername(username: string): string {
 function normalizeEmail(email: string): string {
   const value = email.trim().toLowerCase();
 
+  if (value.length === 0) {
+    throw new AuthError("MISSING_EMAIL", "Email is required.", 400);
+  }
+
   if (!/^\S+@\S+\.\S+$/.test(value)) {
-    throw new Error("Invalid email format.");
+    throw new AuthError("INVALID_EMAIL", "Invalid email format.", 400);
   }
 
   return value;
@@ -78,15 +124,27 @@ function normalizeIdentifier(identifier: string): string {
   const value = identifier.trim();
 
   if (value.length === 0) {
-    throw new Error("Username or email is required.");
+    throw new AuthError(
+      "MISSING_IDENTIFIER",
+      "Username or email is required.",
+      400,
+    );
   }
 
   return value;
 }
 
 function validatePassword(password: string): string {
+  if (password.length === 0) {
+    throw new AuthError("MISSING_PASSWORD", "Password is required.", 400);
+  }
+
   if (password.length < 6) {
-    throw new Error("Password must be at least 6 characters.");
+    throw new AuthError(
+      "WEAK_PASSWORD",
+      "Password must be at least 6 characters.",
+      400,
+    );
   }
 
   return password;
@@ -94,13 +152,13 @@ function validatePassword(password: string): string {
 
 function requirePassword(password: string): string {
   if (password.length === 0) {
-    throw new Error("Password is required.");
+    throw new AuthError("MISSING_PASSWORD", "Password is required.", 400);
   }
 
   return password;
 }
 
-function mapUser(row: InsertedUserRow): PublicUser {
+function mapUser(row: UserRow): PublicUser {
   return {
     id: row.id,
     username: row.username,
@@ -140,7 +198,7 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
 
   try {
     return await withDb(async (client) => {
-      const result = await client.queryObject<InsertedUserRow>(
+      const result = await client.queryObject<UserRow>(
         `
         INSERT INTO users (
           id,
@@ -162,23 +220,39 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
 
       const row = result.rows[0];
       if (!row) {
-        throw new Error("Failed to create user.");
+        throw new AuthError(
+          "INTERNAL_ERROR",
+          "Failed to create user.",
+          500,
+        );
       }
 
       return mapUser(row);
     });
   } catch (error) {
-    if (isPgError(error) && error.fields.code === "23505") {
-      if (error.fields.constraint === "users_username_key") {
-        throw new Error("Username is already taken.");
-      }
-      if (error.fields.constraint === "users_email_key") {
-        throw new Error("Email is already in use.");
-      }
-      throw new Error("Username or email is already in use.");
+    if (error instanceof AuthError) {
+      throw error;
     }
 
-    throw error;
+    if (isPgError(error) && error.fields.code === "23505") {
+      if (error.fields.constraint === "users_username_key") {
+        throw new AuthError(
+          "USERNAME_TAKEN",
+          "Username is already taken.",
+          409,
+        );
+      }
+      if (error.fields.constraint === "users_email_key") {
+        throw new AuthError("EMAIL_TAKEN", "Email is already in use.", 409);
+      }
+      throw new AuthError(
+        "IDENTIFIER_ALREADY_IN_USE",
+        "Username or email is already in use.",
+        409,
+      );
+    }
+
+    throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }
 
@@ -186,84 +260,161 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
   const identifier = normalizeIdentifier(input.identifier);
   const password = requirePassword(input.password);
 
-  return await withDb(async (client) => {
-    const userResult = await client.queryObject<UserAuthRow>(
-      `
-      SELECT
-        id,
-        username,
-        email,
-        display_name,
-        avatar_key,
-        password_hash,
-        created_at
-      FROM users
-      WHERE username = $1 OR email = $1
-      LIMIT 1
-      `,
-      [identifier],
-    );
+  try {
+    return await withDb(async (client) => {
+      const userResult = await client.queryObject<UserAuthRow>(
+        `
+        SELECT
+          id,
+          username,
+          email,
+          display_name,
+          avatar_key,
+          password_hash,
+          created_at
+        FROM users
+        WHERE username = $1 OR email = $1
+        LIMIT 1
+        `,
+        [identifier],
+      );
 
-    const row = userResult.rows[0];
-    if (!row) {
-      throw new Error("Invalid username/email or password.");
+      const row = userResult.rows[0];
+      if (!row) {
+        throw new AuthError(
+          "INVALID_CREDENTIALS",
+          "Invalid username/email or password.",
+          401,
+        );
+      }
+
+      const ok = await argon2.verify(row.password_hash, password);
+      if (!ok) {
+        throw new AuthError(
+          "INVALID_CREDENTIALS",
+          "Invalid username/email or password.",
+          401,
+        );
+      }
+
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS);
+
+      const sessionId = crypto.randomUUID();
+      const refreshToken = generateSecureToken();
+      const refreshTokenHash = await sha256Hex(refreshToken);
+
+      await client.queryArray(
+        `
+        INSERT INTO sessions (
+          id,
+          user_id,
+          refresh_token_hash,
+          created_at,
+          last_used_at,
+          expires_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        `,
+        [sessionId, row.id, refreshTokenHash, now, now, expiresAt],
+      );
+
+      const accessToken = createAccessToken({
+        sub: row.id,
+        sid: sessionId,
+        type: "access",
+      });
+
+      return {
+        sessionId,
+        accessToken,
+        refreshToken,
+        expiresAt,
+      };
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      throw error;
     }
 
-    const ok = await argon2.verify(row.password_hash, password);
-    if (!ok) {
-      throw new Error("Invalid username/email or password.");
-    }
-
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS);
-
-    const sessionId = crypto.randomUUID();
-    const refreshToken = generateSecureToken();
-    const refreshTokenHash = await sha256Hex(refreshToken);
-
-    await client.queryArray(
-      `
-      INSERT INTO sessions (
-        id,
-        user_id,
-        refresh_token_hash,
-        created_at,
-        last_used_at,
-        expires_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      `,
-      [sessionId, row.id, refreshTokenHash, now, now, expiresAt],
-    );
-
-    return {
-      user: mapUser(row),
-      sessionId,
-      refreshToken,
-      expiresAt,
-    };
-  });
+    throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
+  }
 }
 
-export async function logOut(input: LogoutInput): Promise<boolean> {
-  const refreshToken = input.refreshToken.trim();
+export async function logOut(sessionId: string): Promise<boolean> {
+  sessionId = sessionId.trim();
 
-  if (refreshToken.length === 0) {
-    throw new Error("Refresh token is required.");
+  if (!sessionId) {
+    throw new AuthError(
+      "MISSING_SESSION_ID",
+      "Session id is missing.",
+      400,
+    );
   }
 
-  const refreshTokenHash = await sha256Hex(refreshToken);
+  try {
+    return await withDb(async (client) => {
+      const result = await client.queryObject<{ id: string }>(
+        `
+        DELETE FROM sessions
+        WHERE id = $1
+        RETURNING id
+        `,
+        [sessionId],
+      );
 
-  return await withDb(async (client) => {
-    const result = await client.queryObject<{ id: string }>(
-      `
-      DELETE FROM sessions
-      WHERE refresh_token_hash = $1
-      RETURNING id
-      `,
-      [refreshTokenHash],
-    );
+      if (result.rows.length === 0) {
+        throw new AuthError("SESSION_NOT_FOUND", "Session not found.", 404);
+      }
 
-    return result.rows.length > 0;
-  });
+      return true;
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      throw error;
+    }
+
+    throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
+  }
+}
+
+export async function getMe(userId: string): Promise<PublicUser> {
+  userId = userId.trim();
+
+  if (!userId) {
+    throw new AuthError("MISSING_USER_ID", "User id is missing.", 400);
+  }
+
+  try {
+    return await withDb(async (client) => {
+      const result = await client.queryObject<UserRow>(
+        `
+        SELECT
+          id,
+          username,
+          email,
+          display_name,
+          avatar_key,
+          created_at
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [userId],
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        throw new AuthError("USER_NOT_FOUND", "User not found.", 404);
+      }
+
+      return mapUser(row);
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      throw error;
+    }
+
+    throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
+  }
 }

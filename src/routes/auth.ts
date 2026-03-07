@@ -1,9 +1,13 @@
 import { Hono } from "@hono/hono";
-import { logOut, signIn, signUp } from "../usecases/auth.ts";
+import { AuthError, getMe, logOut, signIn, signUp } from "../usecases/auth.ts";
+import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 
-const authRouter = new Hono();
+const authRouter = new Hono<{
+  Variables: AuthVariables;
+}>();
 
-authRouter.post("/signup", async (c) => {
+// Create a new account
+authRouter.post("/users", async (c) => {
   try {
     const body = await c.req.json<{
       username: string;
@@ -26,18 +30,55 @@ authRouter.post("/signup", async (c) => {
     );
   } catch (error) {
     if (error instanceof SyntaxError) {
-      return c.json({ error: "Invalid JSON body." }, 400);
+      return c.json(
+        {
+          error: {
+            type: "INVALID_JSON",
+            message: "Invalid JSON body.",
+          },
+        },
+        400,
+      );
+    }
+
+    if (error instanceof AuthError) {
+      return c.json(
+        {
+          error: {
+            type: error.type,
+            message: error.message,
+          },
+        },
+        error.statusCode,
+      );
     }
 
     if (error instanceof Error) {
-      return c.json({ error: error.message }, 400);
+      return c.json(
+        {
+          error: {
+            type: "INTERNAL_ERROR",
+            message: error.message,
+          },
+        },
+        500,
+      );
     }
 
-    return c.json({ error: "Internal server error." }, 500);
+    return c.json(
+      {
+        error: {
+          type: "INTERNAL_ERROR",
+          message: "Internal server error.",
+        },
+      },
+      500,
+    );
   }
 });
 
-authRouter.post("/signin", async (c) => {
+// Sign in (create new session)
+authRouter.post("/sessions", async (c) => {
   try {
     const body = await c.req.json<{
       identifier: string;
@@ -52,56 +93,169 @@ authRouter.post("/signin", async (c) => {
     return c.json(
       {
         message: "Signed in successfully.",
-        user: result.user,
-        sessionId: result.sessionId,
-        refreshToken: result.refreshToken,
-        expiresAt: result.expiresAt,
+        session_id: result.sessionId,
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+        expires_at: result.expiresAt,
       },
       200,
     );
   } catch (error) {
     if (error instanceof SyntaxError) {
-      return c.json({ error: "Invalid JSON body." }, 400);
+      return c.json(
+        {
+          error: {
+            type: "INVALID_JSON",
+            message: "Invalid JSON body.",
+          },
+        },
+        400,
+      );
+    }
+
+    if (error instanceof AuthError) {
+      return c.json(
+        {
+          error: {
+            type: error.type,
+            message: error.message,
+          },
+        },
+        error.statusCode,
+      );
     }
 
     if (error instanceof Error) {
-      return c.json({ error: error.message }, 400);
-    }
-
-    return c.json({ error: "Internal server error." }, 500);
-  }
-});
-
-authRouter.post("/logout", async (c) => {
-  try {
-    const body = await c.req.json<{
-      refreshToken: string;
-    }>();
-
-    const deleted = await logOut({
-      refreshToken: body.refreshToken,
-    });
-
-    if (!deleted) {
-      return c.json({ error: "Session not found." }, 404);
+      return c.json(
+        {
+          error: {
+            type: "INTERNAL_ERROR",
+            message: error.message,
+          },
+        },
+        500,
+      );
     }
 
     return c.json(
       {
-        message: "Logged out successfully.",
+        error: {
+          type: "INTERNAL_ERROR",
+          message: "Internal server error.",
+        },
+      },
+      500,
+    );
+  }
+});
+
+// Log out of current session
+authRouter.delete("/sessions/current", requireAuth, async (c) => {
+  try {
+    const sessionId = c.get("authSessionId");
+    const deleted = await logOut(sessionId);
+
+    return c.json(
+      {
+        message: deleted
+          ? "Logged out successfully."
+          : "Logged out successfully.",
       },
       200,
     );
   } catch (error) {
-    if (error instanceof SyntaxError) {
-      return c.json({ error: "Invalid JSON body." }, 400);
+    if (error instanceof AuthError) {
+      return c.json(
+        {
+          error: {
+            type: error.type,
+            message: error.message,
+          },
+        },
+        error.statusCode,
+      );
     }
 
     if (error instanceof Error) {
-      return c.json({ error: error.message }, 400);
+      return c.json(
+        {
+          error: {
+            type: "INTERNAL_ERROR",
+            message: error.message,
+          },
+        },
+        500,
+      );
     }
 
-    return c.json({ error: "Internal server error." }, 500);
+    return c.json(
+      {
+        error: {
+          type: "INTERNAL_ERROR",
+          message: "Internal server error.",
+        },
+      },
+      500,
+    );
+  }
+});
+
+// Get current user info
+authRouter.get("/me", requireAuth, async (c) => {
+  try {
+    const userId = c.get("authUserId");
+    const sessionId = c.get("authSessionId");
+    const result = await getMe(userId);
+
+    return c.json(
+      {
+        message: "Got me",
+        session_id: sessionId,
+        user: {
+          id: result.id,
+          username: result.username,
+          email: result.email,
+          display_name: result.displayName,
+          avatar_key: result.avatarKey,
+          created_at: result.createdAt,
+        },
+      },
+      200,
+    );
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return c.json(
+        {
+          error: {
+            type: error.type,
+            message: error.message,
+          },
+        },
+        error.statusCode,
+      );
+    }
+
+    if (error instanceof Error) {
+      return c.json(
+        {
+          error: {
+            type: "INTERNAL_ERROR",
+            message: error.message,
+          },
+        },
+        500,
+      );
+    }
+
+    return c.json(
+      {
+        error: {
+          type: "INTERNAL_ERROR",
+          message: "Internal server error.",
+        },
+      },
+      500,
+    );
   }
 });
 
