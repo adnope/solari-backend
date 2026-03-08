@@ -155,3 +155,98 @@ CREATE TABLE IF NOT EXISTS post_visibility (
 
 CREATE INDEX IF NOT EXISTS idx_post_visibility_viewer_id_post_id
   ON post_visibility(viewer_id, post_id);
+
+
+
+CREATE TABLE IF NOT EXISTS post_reactions (
+  id          uuid PRIMARY KEY,
+  post_id     uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  emoji       text NOT NULL,
+  note        text NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT post_reactions_emoji_check CHECK (length(emoji) > 0 AND length(emoji) <= 10),
+  CONSTRAINT post_reactions_note_check CHECK (length(note) <= 20)
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_reactions_post_id_created_at
+  ON post_reactions(post_id, created_at DESC);
+
+
+
+CREATE TABLE IF NOT EXISTS post_views (
+  post_id uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  viewed_at timestamptz NOT NULL DEFAULT now(),
+
+  PRIMARY KEY (post_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_views_post_id_viewed_at
+  ON post_views(post_id, viewed_at DESC);
+
+
+
+CREATE TABLE IF NOT EXISTS conversations (
+  id                    uuid PRIMARY KEY,
+  user_low              uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_high             uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  user_low_cleared_at   timestamptz NULL,
+  user_high_cleared_at  timestamptz NULL,
+
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now(),
+
+ CONSTRAINT conversations_no_self
+ CHECK (user_low <> user_high),
+
+ CONSTRAINT conversations_canonical_order
+ CHECK (user_low < user_high),
+
+ CONSTRAINT conversations_unique_pair
+ UNIQUE (user_low, user_high)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_user_low ON conversations(user_low);
+CREATE INDEX IF NOT EXISTS idx_conversations_user_high ON conversations(user_high);
+CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+
+
+
+CREATE TABLE IF NOT EXISTS messages (
+  id                  uuid PRIMARY KEY,
+  conversation_id     uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  sender_id           uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  content             text NOT NULL,
+  referenced_post_id  uuid NULL REFERENCES posts(id) ON DELETE SET NULL,
+
+  created_at          timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT messages_content_check
+    CHECK (length(trim(content)) > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_id_created_at
+  ON messages(conversation_id, created_at DESC);
+
+
+
+CREATE TABLE IF NOT EXISTS message_reactions (
+  id          uuid PRIMARY KEY,
+  message_id  uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  emoji       text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT message_reactions_emoji_check
+  CHECK (length(emoji) > 0 AND length(emoji) <= 10),
+
+  CONSTRAINT message_reactions_unique_user_message
+    UNIQUE (message_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_reactions_message_id
+  ON message_reactions(message_id);

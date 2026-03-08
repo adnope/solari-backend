@@ -1,5 +1,5 @@
 import { Hono } from "@hono/hono";
-import { AuthError, logOut, me, signIn, signUp } from "../usecases/auth.ts";
+import { AuthError, logOut, me, signIn, signUp } from "../usecases/auth/auth.ts";
 import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 
 const authRouter = new Hono<{

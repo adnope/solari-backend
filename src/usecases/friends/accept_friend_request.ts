@@ -1,5 +1,5 @@
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../db/postgres_client.ts";
+import { withDb } from "../../db/postgres_client.ts";
 
 export type AcceptFriendRequestResult = {
   id: string;

@@ -1,5 +1,5 @@
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../db/postgres_client.ts";
+import { withDb } from "../../db/postgres_client.ts";
 
 // Custom error type for unfriend action
 export type UnfriendErrorType =

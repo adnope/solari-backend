@@ -1,8 +1,9 @@
-import argon2 from "argon2";
 import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../db/postgres_client.ts";
-import { createAccessToken } from "../lib/jwt.ts";
-import { isPgError } from "./postgres_error.ts";
+import argon2 from "argon2";
+import { withDb } from "../../db/postgres_client.ts";
+import { createAccessToken } from "../../lib/jwt.ts";
+import { isPgError } from "../postgres_error.ts";
+import { newUUIDv7 } from "../../utils/uuid.ts";
 
 export type SignupInput = {
   username: string;
@@ -113,7 +114,10 @@ function normalizeEmail(email: string): string {
     throw new AuthError("MISSING_EMAIL", "Email is required.", 400);
   }
 
-  if (!/^\S+@\S+\.\S+$/.test(value)) {
+  const rfc2822Regex =
+    /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
+
+  if (!rfc2822Regex.test(value)) {
     throw new AuthError("INVALID_EMAIL", "Invalid email format.", 400);
   }
 
@@ -194,7 +198,7 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
     type: argon2.argon2id,
   });
 
-  const userId = crypto.randomUUID();
+  const userId = newUUIDv7();
 
   try {
     return await withDb(async (client) => {
@@ -300,7 +304,7 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
       const now = new Date();
       const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS);
 
-      const sessionId = crypto.randomUUID();
+      const sessionId = newUUIDv7();
       const refreshToken = generateSecureToken();
       const refreshTokenHash = await sha256Hex(refreshToken);
 

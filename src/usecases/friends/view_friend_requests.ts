@@ -1,4 +1,4 @@
-import { withDb } from "../db/postgres_client.ts";
+import { withDb } from "../../db/postgres_client.ts";
 import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 
 export type FriendRequestUser = {

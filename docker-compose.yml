@@ -32,9 +32,9 @@ services:
     command: server /data --console-address ":${MINIO_WEBCONSOLE_PORT:-9001}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${MINIO_PORT:-9000}/minio/health/live"]
-      interval: 5s
+      interval: 2s
       timeout: 3s
-      retries: 5
+      retries: 30
 
 volumes:
   pgdata:

@@ -1,17 +1,23 @@
 import { Hono } from "@hono/hono";
 import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
-import { sendFriendRequest, SendFriendRequestError } from "../usecases/send_friend_request.ts";
-import { viewFriendRequests, ViewFriendRequestsError } from "../usecases/view_friend_requests.ts";
+import {
+  sendFriendRequest,
+  SendFriendRequestError,
+} from "../usecases/friends/send_friend_request.ts";
+import {
+  viewFriendRequests,
+  ViewFriendRequestsError,
+} from "../usecases/friends/view_friend_requests.ts";
 import {
   acceptFriendRequest,
   AcceptFriendRequestError,
-} from "../usecases/accept_friend_request.ts";
-import { unfriend, UnfriendError } from "../usecases/unfriend.ts";
-import { viewFriends, ViewFriendsError } from "../usecases/view_friends.ts";
+} from "../usecases/friends/accept_friend_request.ts";
+import { unfriend, UnfriendError } from "../usecases/friends/unfriend.ts";
+import { viewFriends, ViewFriendsError } from "../usecases/friends/view_friends.ts";
 import {
   cancelOrRejectFriendRequest,
   CancelOrRejectFriendRequestError,
-} from "../usecases/cancel_or_reject_friend_request.ts";
+} from "../usecases/friends/cancel_or_reject_friend_request.ts";
 
 const friendsRouter = new Hono<{
   Variables: AuthVariables;

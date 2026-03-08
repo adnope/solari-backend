@@ -1,7 +1,8 @@
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../db/postgres_client.ts";
-import { isPgError } from "./postgres_error.ts";
-import { uploadFile } from "../storage/minio.ts";
+import { withDb } from "../../db/postgres_client.ts";
+import { isPgError } from "../postgres_error.ts";
+import { uploadFile } from "../../storage/minio.ts";
+import { newUUIDv7 } from "../../utils/uuid.ts";
 
 export type UploadPostInput = {
   authorId: string;
@@ -105,7 +106,7 @@ export async function uploadPost(
 ): Promise<UploadPostResult> {
   validatePostInput(input);
 
-  const postId = crypto.randomUUID();
+  const postId = newUUIDv7();
   const fileExtension = input.contentType.split("/")[1] || "bin";
   const objectKey = `posts/${postId}.${fileExtension}`;
 

@@ -1,4 +1,9 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import "@std/dotenv/load";
 
@@ -53,4 +58,13 @@ export async function getFileUrl(
   });
 
   return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
+}
+
+export async function deleteFile(objectKey: string): Promise<void> {
+  const command = new DeleteObjectCommand({
+    Bucket: minioBucketName,
+    Key: objectKey,
+  });
+
+  await s3Client.send(command);
 }

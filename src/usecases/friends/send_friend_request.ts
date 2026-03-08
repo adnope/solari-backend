@@ -1,6 +1,7 @@
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../db/postgres_client.ts";
-import { isPgError } from "./postgres_error.ts";
+import { withDb } from "../../db/postgres_client.ts";
+import { isPgError } from "../postgres_error.ts";
+import { newUUIDv7 } from "../../utils/uuid.ts";
 
 export type FriendRequestResult = {
   id: string;
@@ -187,7 +188,7 @@ export async function sendFriendRequest(
           );
         }
 
-        const requestId = crypto.randomUUID();
+        const requestId = newUUIDv7();
 
         const insertResult = await client.queryObject<FriendRequestRow>(
           `
