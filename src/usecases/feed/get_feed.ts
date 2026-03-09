@@ -1,4 +1,4 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { getFileUrl } from "../../storage/minio.ts";
 import { isPgError } from "../postgres_error.ts";
@@ -41,11 +41,7 @@ export class GetFeedError extends Error {
   readonly type: GetFeedErrorType;
   readonly statusCode: ContentfulStatusCode;
 
-  constructor(
-    type: GetFeedErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: GetFeedErrorType, message: string, statusCode: ContentfulStatusCode) {
     super(message);
     this.name = "GetFeedError";
     this.type = type;
@@ -79,11 +75,7 @@ export async function getFeed(
   if (cursor) {
     parsedCursor = new Date(cursor);
     if (isNaN(parsedCursor.getTime())) {
-      throw new GetFeedError(
-        "INVALID_CURSOR",
-        "Cursor must be a valid ISO date string.",
-        400,
-      );
+      throw new GetFeedError("INVALID_CURSOR", "Cursor must be a valid ISO date string.", 400);
     }
   }
 
@@ -91,25 +83,21 @@ export async function getFeed(
 
   try {
     return await withDb(async (client) => {
-      if (authorIds && authorIds.length > 0) {
-        const uniqueAuthorIds = [...new Set(authorIds)];
+      const validAuthorIds = authorIds && authorIds.length > 0 ? authorIds : null;
 
-        const userCheckResult = await client.queryObject<{ count: bigint }>(
-          `SELECT COUNT(id) FROM users WHERE id = ANY($1::uuid[])`,
-          [uniqueAuthorIds],
-        );
+      if (validAuthorIds) {
+        const uniqueAuthorIds = [...new Set(validAuthorIds)];
 
-        if (Number(userCheckResult.rows[0].count) !== uniqueAuthorIds.length) {
-          throw new GetFeedError(
-            "INVALID_AUTHORS",
-            "One or more author IDs do not exist.",
-            404,
-          );
+        const userCheckResult = await client<{ count: bigint }[]>`
+          SELECT COUNT(id) FROM users WHERE id = ANY(${uniqueAuthorIds}::uuid[])
+        `;
+
+        if (Number(userCheckResult[0]!.count) !== uniqueAuthorIds.length) {
+          throw new GetFeedError("INVALID_AUTHORS", "One or more author IDs do not exist.", 404);
         }
       }
 
-      const result = await client.queryObject<FeedRow>(
-        `
+      const result = await client<FeedRow[]>`
         SELECT
           p.id,
           p.created_at,
@@ -128,28 +116,21 @@ export async function getFeed(
         JOIN post_media pm ON pm.post_id = p.id
         WHERE
           (
-            p.author_id = $1
+            p.author_id = ${viewerId}
             OR
             EXISTS (
               SELECT 1 FROM post_visibility pv
-              WHERE pv.post_id = p.id AND pv.viewer_id = $1
+              WHERE pv.post_id = p.id AND pv.viewer_id = ${viewerId}
             )
           )
-          AND ($2::uuid[] IS NULL OR p.author_id = ANY($2::uuid[]))
-          AND ($3::timestamptz IS NULL OR p.created_at < $3)
+          AND (${validAuthorIds}::uuid[] IS NULL OR p.author_id = ANY(${validAuthorIds}::uuid[]))
+          AND (${parsedCursor}::timestamptz IS NULL OR p.created_at < ${parsedCursor})
         ORDER BY p.created_at DESC
-        LIMIT $4
-        `,
-        [
-          viewerId,
-          authorIds && authorIds.length > 0 ? authorIds : null,
-          parsedCursor,
-          normalizedLimit,
-        ],
-      );
+        LIMIT ${normalizedLimit}
+      `;
 
       const items: FeedPost[] = await Promise.all(
-        result.rows.map(async (row) => {
+        result.map(async (row) => {
           const signedUrl = await getFileUrl(row.object_key);
 
           return {
@@ -173,28 +154,20 @@ export async function getFeed(
         }),
       );
 
-      const nextCursor = items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
+      const nextCursor = items.length > 0 ? items[items.length - 1]!.createdAt.toISOString() : null;
 
       return {
         items,
         nextCursor,
       };
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof GetFeedError) throw error;
 
-    if (isPgError(error) && error.fields.code === "22P02") {
-      throw new GetFeedError(
-        "INVALID_AUTHORS",
-        "One or more author IDs are invalid UUIDs.",
-        400,
-      );
+    if (isPgError(error) && error.code === "22P02") {
+      throw new GetFeedError("INVALID_AUTHORS", "One or more author IDs are invalid UUIDs.", 400);
     }
 
-    throw new GetFeedError(
-      "INTERNAL_ERROR",
-      "Internal server error fetching feed.",
-      500,
-    );
+    throw new GetFeedError("INTERNAL_ERROR", "Internal server error fetching feed.", 500);
   }
 }

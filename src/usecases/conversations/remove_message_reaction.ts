@@ -1,4 +1,4 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -23,10 +23,7 @@ export class RemoveMessageReactionError extends Error {
   }
 }
 
-export async function removeMessageReaction(
-  userId: string,
-  messageId: string,
-): Promise<void> {
+export async function removeMessageReaction(userId: string, messageId: string): Promise<void> {
   if (!userId || !messageId) {
     throw new RemoveMessageReactionError(
       "MISSING_INPUT",
@@ -37,23 +34,20 @@ export async function removeMessageReaction(
 
   try {
     await withDb(async (client) => {
-      const authCheckResult = await client.queryObject<{ exists: boolean }>(
-        `
+      const authCheckResult = await client<{ exists: boolean }[]>`
         SELECT EXISTS (
           SELECT 1 FROM messages m
           JOIN conversations c ON c.id = m.conversation_id
-          WHERE m.id = $1
+          WHERE m.id = ${messageId}
             AND (
-              (c.user_low = $2 AND (c.user_low_cleared_at IS NULL OR m.created_at >= c.user_low_cleared_at))
+              (c.user_low = ${userId} AND (c.user_low_cleared_at IS NULL OR m.created_at >= c.user_low_cleared_at))
               OR
-              (c.user_high = $2 AND (c.user_high_cleared_at IS NULL OR m.created_at >= c.user_high_cleared_at))
+              (c.user_high = ${userId} AND (c.user_high_cleared_at IS NULL OR m.created_at >= c.user_high_cleared_at))
             )
         ) AS exists
-        `,
-        [messageId, userId],
-      );
+      `;
 
-      if (!authCheckResult.rows[0].exists) {
+      if (!authCheckResult[0]!.exists) {
         throw new RemoveMessageReactionError(
           "REACTION_NOT_FOUND",
           "Message not found, deleted, or you are not authorized.",
@@ -61,32 +55,21 @@ export async function removeMessageReaction(
         );
       }
 
-      const result = await client.queryObject<{ id: string }>(
-        `
+      const result = await client<{ id: string }[]>`
         DELETE FROM message_reactions
-        WHERE message_id = $1 AND user_id = $2
+        WHERE message_id = ${messageId} AND user_id = ${userId}
         RETURNING id
-        `,
-        [messageId, userId],
-      );
+      `;
 
-      if (result.rows.length === 0) {
-        throw new RemoveMessageReactionError(
-          "REACTION_NOT_FOUND",
-          "Reaction not found.",
-          404,
-        );
+      if (result.length === 0) {
+        throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Reaction not found.", 404);
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof RemoveMessageReactionError) throw error;
 
-    if (isPgError(error) && error.fields.code === "22P02") {
-      throw new RemoveMessageReactionError(
-        "REACTION_NOT_FOUND",
-        "Invalid message ID format.",
-        404,
-      );
+    if (isPgError(error) && error.code === "22P02") {
+      throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Invalid message ID format.", 404);
     }
 
     throw new RemoveMessageReactionError(

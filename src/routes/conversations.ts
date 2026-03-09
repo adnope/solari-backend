@@ -1,5 +1,5 @@
-import { Hono } from "@hono/hono";
-import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { Hono } from "hono";
+import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 import {
   clearConversation,
   ClearConversationError,
@@ -55,23 +55,14 @@ conversationsRouter.post("/conversations", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof CreateConversationError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof SyntaxError) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Invalid JSON body." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -112,23 +103,14 @@ conversationsRouter.post("/conversations/:conversationId/messages", requireAuth,
     );
   } catch (error) {
     if (error instanceof SendMessageError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof SyntaxError) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Invalid JSON body." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -148,12 +130,7 @@ conversationsRouter.get("/conversations/:conversationId/messages", requireAuth, 
     const limit = c.req.query("limit") ? Number(c.req.query("limit")) : 50;
     const cursor = c.req.query("cursor");
 
-    const result = await viewConversationMessages(
-      viewerId,
-      conversationId,
-      limit,
-      cursor,
-    );
+    const result = await viewConversationMessages(viewerId, conversationId, limit, cursor);
 
     return c.json(
       {
@@ -174,16 +151,10 @@ conversationsRouter.get("/conversations/:conversationId/messages", requireAuth, 
     );
   } catch (error) {
     if (error instanceof ViewConversationMessagesError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -219,16 +190,10 @@ conversationsRouter.get("/conversations", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof GetConversationsError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -250,16 +215,10 @@ conversationsRouter.delete("/conversations/:conversationId", requireAuth, async 
     return c.json({ message: "Conversation cleared successfully." }, 200);
   } catch (error) {
     if (error instanceof ClearConversationError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -271,10 +230,7 @@ conversationsRouter.post("/messages/:messageId/reactions", requireAuth, async (c
     const body = await c.req.json();
 
     if (!messageId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Message ID is required." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Message ID is required." } }, 400);
     }
 
     const result = await reactMessage({
@@ -298,23 +254,14 @@ conversationsRouter.post("/messages/:messageId/reactions", requireAuth, async (c
     );
   } catch (error) {
     if (error instanceof ReactMessageError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof SyntaxError) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Invalid JSON body." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -325,10 +272,7 @@ conversationsRouter.delete("/messages/:messageId/reactions", requireAuth, async 
     const messageId = c.req.param("messageId");
 
     if (!messageId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Message ID is required." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Message ID is required." } }, 400);
     }
 
     await removeMessageReaction(userId, messageId);
@@ -336,16 +280,10 @@ conversationsRouter.delete("/messages/:messageId/reactions", requireAuth, async 
     return c.json({ message: "Reaction removed successfully." }, 200);
   } catch (error) {
     if (error instanceof RemoveMessageReactionError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 

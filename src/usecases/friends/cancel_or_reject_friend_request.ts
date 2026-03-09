@@ -1,4 +1,4 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 
 export type CancelOrRejectFriendRequestErrorType =
@@ -30,27 +30,21 @@ type FriendRequestRow = {
   created_at: Date;
 };
 
-// This function can be used to both cancel and reject a friend request
 export async function cancelOrRejectFriendRequest(
-  userId: string, // This can be either the requester or receiver
+  userId: string,
   requestId: string,
 ): Promise<void> {
   try {
     return await withDb(async (client) => {
-      await client.queryArray("BEGIN");
-
-      try {
-        const requestResult = await client.queryObject<FriendRequestRow>(
-          `
+      await client.begin(async (tx) => {
+        const requestResult = await tx`
           SELECT id, requester_id, receiver_id, created_at
           FROM friend_requests
-          WHERE id = $1
+          WHERE id = ${requestId}
           LIMIT 1
-          `,
-          [requestId],
-        );
+        `;
 
-        const requestRow = requestResult.rows[0];
+        const requestRow = requestResult[0] as FriendRequestRow | undefined;
         if (!requestRow) {
           throw new CancelOrRejectFriendRequestError(
             "REQUEST_NOT_FOUND",
@@ -59,17 +53,11 @@ export async function cancelOrRejectFriendRequest(
           );
         }
 
-        if (
-          requestRow.requester_id === userId ||
-          requestRow.receiver_id === userId
-        ) {
-          await client.queryArray(
-            `
+        if (requestRow.requester_id === userId || requestRow.receiver_id === userId) {
+          await tx`
             DELETE FROM friend_requests
-            WHERE id = $1
-            `,
-            [requestId],
-          );
+            WHERE id = ${requestId}
+          `;
         } else {
           throw new CancelOrRejectFriendRequestError(
             "NOT_REQUESTER_OR_RECEIVER",
@@ -77,22 +65,13 @@ export async function cancelOrRejectFriendRequest(
             403,
           );
         }
-
-        await client.queryArray("COMMIT");
-      } catch (error) {
-        await client.queryArray("ROLLBACK");
-        throw error;
-      }
+      });
     });
   } catch (error) {
     if (error instanceof CancelOrRejectFriendRequestError) {
       throw error;
     }
 
-    throw new CancelOrRejectFriendRequestError(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    throw new CancelOrRejectFriendRequestError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

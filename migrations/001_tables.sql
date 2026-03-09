@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS post_media (
 
   CONSTRAINT post_media_duration_check
     CHECK (
-      (media_type = 'video' AND duration_ms IS NOT NULL AND duration_ms > 0 AND duration_ms <= 3000)
+      (media_type = 'video' AND duration_ms IS NOT NULL AND duration_ms > 0 AND duration_ms <= 4000)
       OR
       (media_type = 'image' AND duration_ms IS NULL)
     )

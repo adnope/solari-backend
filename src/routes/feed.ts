@@ -1,5 +1,5 @@
-import { Hono } from "@hono/hono";
-import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { Hono } from "hono";
+import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 import { getFeed, GetFeedError } from "../usecases/feed/get_feed.ts";
 
 const feedRouter = new Hono<{ Variables: AuthVariables }>();
@@ -48,16 +48,10 @@ feedRouter.get("/feed", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof GetFeedError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 

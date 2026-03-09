@@ -1,4 +1,4 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -33,11 +33,7 @@ export class ViewPostReactionsError extends Error {
   readonly type: ViewPostReactionsErrorType;
   readonly statusCode: ContentfulStatusCode;
 
-  constructor(
-    type: ViewPostReactionsErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: ViewPostReactionsErrorType, message: string, statusCode: ContentfulStatusCode) {
     super(message);
     this.name = "ViewPostReactionsError";
     this.type = type;
@@ -63,11 +59,7 @@ export async function viewPostReactions(
   cursor?: string,
 ): Promise<ViewPostReactionsResult> {
   if (!viewerId || !postId) {
-    throw new ViewPostReactionsError(
-      "MISSING_INPUT",
-      "Viewer ID and Post ID are required.",
-      400,
-    );
+    throw new ViewPostReactionsError("MISSING_INPUT", "Viewer ID and Post ID are required.", 400);
   }
 
   let parsedCursor: Date | null = null;
@@ -86,17 +78,14 @@ export async function viewPostReactions(
 
   try {
     return await withDb(async (client) => {
-      const authCheckResult = await client.queryObject<{ exists: boolean }>(
-        `
+      const authCheckResult = await client<{ exists: boolean }[]>`
         SELECT EXISTS (
           SELECT 1 FROM posts
-          WHERE id = $1 AND author_id = $2
+          WHERE id = ${postId} AND author_id = ${viewerId}
         ) AS exists
-        `,
-        [postId, viewerId],
-      );
+      `;
 
-      if (!authCheckResult.rows[0].exists) {
+      if (!authCheckResult[0]!.exists) {
         throw new ViewPostReactionsError(
           "UNAUTHORIZED",
           "You are not authorized to view reactions for this post, or it does not exist.",
@@ -104,8 +93,7 @@ export async function viewPostReactions(
         );
       }
 
-      const result = await client.queryObject<ReactionRow>(
-        `
+      const result = await client<ReactionRow[]>`
         SELECT
           pr.id,
           pr.emoji,
@@ -117,15 +105,13 @@ export async function viewPostReactions(
           u.avatar_key
         FROM post_reactions pr
         JOIN users u ON u.id = pr.user_id
-        WHERE pr.post_id = $1
-          AND ($2::timestamptz IS NULL OR pr.created_at < $2)
+        WHERE pr.post_id = ${postId}
+          AND (${parsedCursor}::timestamptz IS NULL OR pr.created_at < ${parsedCursor})
         ORDER BY pr.created_at DESC
-        LIMIT $3
-        `,
-        [postId, parsedCursor, normalizedLimit],
-      );
+        LIMIT ${normalizedLimit}
+      `;
 
-      const items: PostReaction[] = result.rows.map((row) => ({
+      const items: PostReaction[] = result.map((row) => ({
         id: row.id,
         emoji: row.emoji,
         note: row.note,
@@ -138,17 +124,17 @@ export async function viewPostReactions(
         },
       }));
 
-      const nextCursor = items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
+      const nextCursor = items.length > 0 ? items[items.length - 1]!.createdAt.toISOString() : null;
 
       return {
         items,
         nextCursor,
       };
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof ViewPostReactionsError) throw error;
 
-    if (isPgError(error) && error.fields.code === "22P02") {
+    if (isPgError(error) && error.code === "22P02") {
       throw new ViewPostReactionsError("POST_NOT_FOUND", "Post not found.", 404);
     }
 

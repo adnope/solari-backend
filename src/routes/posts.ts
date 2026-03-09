@@ -1,5 +1,5 @@
-import { Hono } from "@hono/hono";
-import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { Hono } from "hono";
+import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 import { uploadPost, UploadPostError } from "../usecases/posts/upload_post.ts";
 import { extractMediaMetadata } from "../utils/media_parser.ts";
 import { deletePost, DeletePostError } from "../usecases/posts/delete_posts.ts";
@@ -32,21 +32,31 @@ postsRouter.post("/posts", requireAuth, async (c) => {
       );
     }
 
-    if (
-      body["audience_type"] !== "selected" && body["audience_type"] !== "all"
-    ) {
-      return c.json({
-        error: {
-          type: "INVALID_AUDIENCE",
-          message: `Invalid audience type, it should be 'all' or 'selected'`,
+    if (body["audience_type"] !== "selected" && body["audience_type"] !== "all") {
+      return c.json(
+        {
+          error: {
+            type: "INVALID_AUDIENCE",
+            message: `Invalid audience type, it should be 'all' or 'selected'`,
+          },
         },
-      }, 400);
+        400,
+      );
     }
     const audienceType = body["audience_type"];
 
     const buffer = new Uint8Array(await mediaFile.arrayBuffer());
     const contentType = mediaFile.type;
     const byteSize = mediaFile.size;
+
+    if (!contentType.startsWith("image/") && !contentType.startsWith("video/")) {
+      return c.json(
+        {
+          error: { type: "INVALID_MEDIA", message: "Only image and video files are allowed." },
+        },
+        400,
+      );
+    }
 
     const metadata = await extractMediaMetadata(buffer, contentType);
 
@@ -121,28 +131,30 @@ postsRouter.post("/posts", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof UploadPostError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (
       error instanceof Error &&
-      (error.message.includes("Could not parse") ||
-        error.message.includes("ffprobe"))
+      (error.message.includes("Could not parse") || error.message.includes("ffprobe"))
     ) {
-      return c.json({
-        error: {
-          type: "INVALID_MEDIA",
-          message: "The uploaded media file is invalid or corrupt.",
+      return c.json(
+        {
+          error: {
+            type: "INVALID_MEDIA",
+            message: "The uploaded media file is invalid or corrupt.",
+          },
         },
-      }, 400);
+        400,
+      );
     }
 
-    return c.json({
-      error: { type: "INTERNAL_ERROR", message: "Internal server error." },
-    }, 500);
+    return c.json(
+      {
+        error: { type: "INTERNAL_ERROR", message: "Internal server error." },
+      },
+      500,
+    );
   }
 });
 
@@ -153,10 +165,7 @@ postsRouter.delete("/posts/:postId", requireAuth, async (c) => {
     const postId = c.req.param("postId");
 
     if (!postId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Post ID is required." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Post ID is required." } }, 400);
     }
 
     await deletePost(authorId, postId);
@@ -164,16 +173,10 @@ postsRouter.delete("/posts/:postId", requireAuth, async (c) => {
     return c.json({ message: "Post deleted successfully." }, 200);
   } catch (error) {
     if (error instanceof DeletePostError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -207,23 +210,14 @@ postsRouter.post("/posts/:postId/reactions", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof SendReactionError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof SyntaxError) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Invalid JSON body." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -246,16 +240,10 @@ postsRouter.delete("/posts/:postId/reactions/:reactionId", requireAuth, async (c
     return c.json({ message: "Reaction deleted successfully." }, 200);
   } catch (error) {
     if (error instanceof DeleteReactionError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -266,10 +254,7 @@ postsRouter.get("/posts/:postId/reactions", requireAuth, async (c) => {
     const postId = c.req.param("postId");
 
     if (!postId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Post ID is required." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Post ID is required." } }, 400);
     }
 
     const limit = c.req.query("limit") ? Number(c.req.query("limit")) : 100;
@@ -297,16 +282,10 @@ postsRouter.get("/posts/:postId/reactions", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof ViewPostReactionsError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -317,10 +296,7 @@ postsRouter.post("/posts/:postId/views", requireAuth, async (c) => {
     const postId = c.req.param("postId");
 
     if (!postId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Post ID is required." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Post ID is required." } }, 400);
     }
 
     await viewPost(viewerId, postId);
@@ -328,16 +304,10 @@ postsRouter.post("/posts/:postId/views", requireAuth, async (c) => {
     return c.json({ message: "Post view recorded successfully." }, 200);
   } catch (error) {
     if (error instanceof ViewPostError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -348,10 +318,7 @@ postsRouter.get("/posts/:postId/viewers", requireAuth, async (c) => {
     const postId = c.req.param("postId");
 
     if (!postId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Post ID is required." } },
-        400,
-      );
+      return c.json({ error: { type: "MISSING_INPUT", message: "Post ID is required." } }, 400);
     }
 
     const limit = c.req.query("limit") ? Number(c.req.query("limit")) : 50;
@@ -374,16 +341,10 @@ postsRouter.get("/posts/:postId/viewers", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof GetPostViewersError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
-    return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 

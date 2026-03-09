@@ -1,7 +1,7 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
-import { newUUIDv7 } from "../../utils/uuid.ts";
 
 export type FriendRequestResult = {
   id: string;
@@ -24,11 +24,7 @@ export class SendFriendRequestError extends Error {
   readonly type: SendFriendRequestErrorType;
   readonly statusCode: ContentfulStatusCode;
 
-  constructor(
-    type: SendFriendRequestErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: SendFriendRequestErrorType, message: string, statusCode: ContentfulStatusCode) {
     super(message);
     this.name = "SendFriendRequestError";
     this.type = type;
@@ -50,11 +46,7 @@ type FriendRequestRow = {
 function normalizeRequesterId(requesterId: string): string {
   const value = requesterId.trim();
   if (value.length === 0) {
-    throw new SendFriendRequestError(
-      "MISSING_INPUT",
-      "Requester id is required.",
-      400,
-    );
+    throw new SendFriendRequestError("MISSING_INPUT", "Requester id is required.", 400);
   }
   return value;
 }
@@ -62,11 +54,7 @@ function normalizeRequesterId(requesterId: string): string {
 function normalizeIdentifier(identifier: string): string {
   const value = identifier.trim();
   if (value.length === 0) {
-    throw new SendFriendRequestError(
-      "INVALID_IDENTIFIER",
-      "Username or email is required.",
-      400,
-    );
+    throw new SendFriendRequestError("INVALID_IDENTIFIER", "Username or email is required.", 400);
   }
   return value;
 }
@@ -97,26 +85,17 @@ export async function sendFriendRequest(
 
   try {
     return await withDb(async (client) => {
-      await client.queryArray("BEGIN");
-
-      try {
-        const receiverResult = await client.queryObject<UserLookupRow>(
-          `
+      return await client.begin(async (tx) => {
+        const receiverResult = await tx`
           SELECT id
           FROM users
-          WHERE username = $1 OR email = $1
+          WHERE username = ${normalizedIdentifier} OR email = ${normalizedIdentifier}
           LIMIT 1
-          `,
-          [normalizedIdentifier],
-        );
+        `;
 
-        const receiver = receiverResult.rows[0];
+        const receiver = receiverResult[0] as UserLookupRow | undefined;
         if (!receiver) {
-          throw new SendFriendRequestError(
-            "USER_NOT_FOUND",
-            "User not found.",
-            404,
-          );
+          throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
         }
 
         if (receiver.id === normalizedRequesterId) {
@@ -127,20 +106,17 @@ export async function sendFriendRequest(
           );
         }
 
-        const friendshipResult = await client.queryObject<{ exists: boolean }>(
-          `
+        const friendshipResult = await tx`
           SELECT TRUE AS exists
           FROM friendships
           WHERE
-            (user_low = $1 AND user_high = $2)
+            (user_low = ${normalizedRequesterId} AND user_high = ${receiver.id})
             OR
-            (user_low = $2 AND user_high = $1)
+            (user_low = ${receiver.id} AND user_high = ${normalizedRequesterId})
           LIMIT 1
-          `,
-          [normalizedRequesterId, receiver.id],
-        );
+        `;
 
-        if (friendshipResult.rows.length > 0) {
+        if (friendshipResult.length > 0) {
           throw new SendFriendRequestError(
             "ALREADY_FRIENDS",
             "You are already friends with this user.",
@@ -148,19 +124,14 @@ export async function sendFriendRequest(
           );
         }
 
-        const existingOutgoingResult = await client.queryObject<
-          { exists: boolean }
-        >(
-          `
+        const existingOutgoingResult = await tx`
           SELECT TRUE AS exists
           FROM friend_requests
-          WHERE requester_id = $1 AND receiver_id = $2
+          WHERE requester_id = ${normalizedRequesterId} AND receiver_id = ${receiver.id}
           LIMIT 1
-          `,
-          [normalizedRequesterId, receiver.id],
-        );
+        `;
 
-        if (existingOutgoingResult.rows.length > 0) {
+        if (existingOutgoingResult.length > 0) {
           throw new SendFriendRequestError(
             "REQUEST_ALREADY_SENT",
             "Friend request already sent.",
@@ -168,19 +139,14 @@ export async function sendFriendRequest(
           );
         }
 
-        const existingIncomingResult = await client.queryObject<
-          { exists: boolean }
-        >(
-          `
+        const existingIncomingResult = await tx`
           SELECT TRUE AS exists
           FROM friend_requests
-          WHERE requester_id = $1 AND receiver_id = $2
+          WHERE requester_id = ${receiver.id} AND receiver_id = ${normalizedRequesterId}
           LIMIT 1
-          `,
-          [receiver.id, normalizedRequesterId],
-        );
+        `;
 
-        if (existingIncomingResult.rows.length > 0) {
+        if (existingIncomingResult.length > 0) {
           throw new SendFriendRequestError(
             "REQUEST_ALREADY_RECEIVED",
             "This user has already sent you a friend request.",
@@ -188,26 +154,23 @@ export async function sendFriendRequest(
           );
         }
 
-        const requestId = newUUIDv7();
+        const requestId = v7();
 
-        const insertResult = await client.queryObject<FriendRequestRow>(
-          `
+        const insertResult = await tx`
           INSERT INTO friend_requests (
             id,
             requester_id,
             receiver_id
           )
-          VALUES ($1, $2, $3)
+          VALUES (${requestId}, ${normalizedRequesterId}, ${receiver.id})
           RETURNING
             id,
             requester_id,
             receiver_id,
             created_at
-          `,
-          [requestId, normalizedRequesterId, receiver.id],
-        );
+        `;
 
-        const row = insertResult.rows[0];
+        const row = insertResult[0] as FriendRequestRow | undefined;
         if (!row) {
           throw new SendFriendRequestError(
             "INTERNAL_ERROR",
@@ -216,30 +179,19 @@ export async function sendFriendRequest(
           );
         }
 
-        await client.queryArray("COMMIT");
         return mapFriendRequest(row);
-      } catch (error) {
-        await client.queryArray("ROLLBACK");
-        throw error;
-      }
+      });
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof SendFriendRequestError) {
       throw error;
     }
 
-    if (isPgError(error) && error.fields.code === "23505") {
-      throw new SendFriendRequestError(
-        "REQUEST_ALREADY_SENT",
-        "Friend request already sent.",
-        409,
-      );
+    // Refactored isPgError check for Bun SQL
+    if (isPgError(error) && error.code === "23505") {
+      throw new SendFriendRequestError("REQUEST_ALREADY_SENT", "Friend request already sent.", 409);
     }
 
-    throw new SendFriendRequestError(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    throw new SendFriendRequestError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

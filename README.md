@@ -2,7 +2,7 @@
 
 ## Prerequisites
 Ensure you have the following installed on your system:
-* [Deno](https://deno.land/)
+* [Bun](https://bun.com/)
 * [Docker & Docker Compose](https://www.docker.com/)
 * [FFmpeg](https://www.ffmpeg.org/) (included in PATH)
 
@@ -49,11 +49,11 @@ docker compose up -d
 ## 3. Initialize database & storage
 Run the migration script to set up the necessary database tables and create the MinIO storage bucket:
 ```bash
-deno task migrate
+bun run migrate
 ```
 
 ## 4. Run the server
 Start the development server. The backend will listen on the SERVER_PORT specified in your .env file:
 ```bash
-deno task dev
+bun run dev
 ```

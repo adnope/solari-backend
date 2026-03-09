@@ -1,21 +1,14 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
-export type DeleteReactionErrorType =
-  | "MISSING_INPUT"
-  | "REACTION_NOT_FOUND"
-  | "INTERNAL_ERROR";
+export type DeleteReactionErrorType = "MISSING_INPUT" | "REACTION_NOT_FOUND" | "INTERNAL_ERROR";
 
 export class DeleteReactionError extends Error {
   readonly type: DeleteReactionErrorType;
   readonly statusCode: ContentfulStatusCode;
 
-  constructor(
-    type: DeleteReactionErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: DeleteReactionErrorType, message: string, statusCode: ContentfulStatusCode) {
     super(message);
     this.name = "DeleteReactionError";
     this.type = type;
@@ -38,16 +31,13 @@ export async function deleteReaction(
 
   try {
     await withDb(async (client) => {
-      const result = await client.queryObject<{ id: string }>(
-        `
+      const result = await client<{ id: string }[]>`
         DELETE FROM post_reactions
-        WHERE id = $1 AND post_id = $2 AND user_id = $3
+        WHERE id = ${reactionId} AND post_id = ${postId} AND user_id = ${userId}
         RETURNING id
-        `,
-        [reactionId, postId, userId],
-      );
+      `;
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         throw new DeleteReactionError(
           "REACTION_NOT_FOUND",
           "Reaction not found or you do not have permission to delete it.",
@@ -55,10 +45,10 @@ export async function deleteReaction(
         );
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof DeleteReactionError) throw error;
 
-    if (isPgError(error) && error.fields.code === "22P02") {
+    if (isPgError(error) && error.code === "22P02") {
       throw new DeleteReactionError(
         "REACTION_NOT_FOUND",
         "Reaction not found or invalid ID format.",

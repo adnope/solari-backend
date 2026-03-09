@@ -1,21 +1,13 @@
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import "@std/dotenv/load";
+import { S3Client } from "bun";
 
-const host = Deno.env.get("MINIO_HOST") || "localhost";
-const port = Deno.env.get("MINIO_PORT") || "9000";
+const host = process.env.MINIO_HOST || "localhost";
+const port = process.env.MINIO_PORT || "9000";
 const endpoint = `http://${host}:${port}`;
 const region = "us-east-1";
 
-const accessKeyId = Deno.env.get("MINIO_ROOT_USER");
-const secretAccessKey = Deno.env.get("MINIO_ROOT_PASSWORD");
-export const minioBucketName = Deno.env.get("MINIO_BUCKET_NAME") ||
-  "solari-media";
+const accessKeyId = process.env.MINIO_ROOT_USER;
+const secretAccessKey = process.env.MINIO_ROOT_PASSWORD;
+export const minioBucketName = process.env.MINIO_BUCKET_NAME || "solari-media";
 
 if (!accessKeyId || !secretAccessKey) {
   throw new Error(
@@ -24,13 +16,11 @@ if (!accessKeyId || !secretAccessKey) {
 }
 
 export const s3Client = new S3Client({
-  region,
+  accessKeyId,
+  secretAccessKey,
   endpoint,
-  forcePathStyle: true,
-  credentials: {
-    accessKeyId,
-    secretAccessKey,
-  },
+  region,
+  bucket: minioBucketName,
 });
 
 export async function uploadFile(
@@ -38,33 +28,16 @@ export async function uploadFile(
   buffer: Uint8Array,
   contentType: string,
 ): Promise<void> {
-  const command = new PutObjectCommand({
-    Bucket: minioBucketName,
-    Key: objectKey,
-    Body: buffer,
-    ContentType: contentType,
-  });
-
-  await s3Client.send(command);
+  const file = s3Client.file(objectKey, { type: contentType });
+  await file.write(buffer);
 }
 
-export async function getFileUrl(
-  objectKey: string,
-  expiresInSeconds = 3600,
-): Promise<string> {
-  const command = new GetObjectCommand({
-    Bucket: minioBucketName,
-    Key: objectKey,
-  });
-
-  return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
+export async function getFileUrl(objectKey: string, expiresInSeconds = 3600): Promise<string> {
+  const file = s3Client.file(objectKey);
+  return file.presign({ expiresIn: expiresInSeconds });
 }
 
 export async function deleteFile(objectKey: string): Promise<void> {
-  const command = new DeleteObjectCommand({
-    Bucket: minioBucketName,
-    Key: objectKey,
-  });
-
-  await s3Client.send(command);
+  const file = s3Client.file(objectKey);
+  await file.delete();
 }

@@ -1,4 +1,4 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 
 export type AcceptFriendRequestResult = {
@@ -45,9 +45,7 @@ type FriendshipRow = {
   created_at: Date;
 };
 
-function mapAcceptFriendRequest(
-  row: FriendRequestRow,
-): AcceptFriendRequestResult {
+function mapAcceptFriendRequest(row: FriendRequestRow): AcceptFriendRequestResult {
   return {
     id: row.id,
     requesterId: row.requester_id,
@@ -62,21 +60,17 @@ export async function acceptFriendRequest(
 ): Promise<AcceptFriendRequestResult> {
   try {
     return await withDb(async (client) => {
-      await client.queryArray("BEGIN");
-
-      try {
-        const requestResult = await client.queryObject<FriendRequestRow>(
-          `
+      // Bun natively handles the BEGIN, COMMIT, and ROLLBACK logic for us!
+      return await client.begin(async (tx) => {
+        const requestResult = await tx`
           SELECT id, requester_id, receiver_id, created_at
           FROM friend_requests
-          WHERE id = $1
-          AND receiver_id = $2
+          WHERE id = ${requestId}
+          AND receiver_id = ${receiverId}
           LIMIT 1
-          `,
-          [requestId, receiverId],
-        );
+        `;
 
-        const requestRow = requestResult.rows[0];
+        const requestRow = requestResult[0] as FriendRequestRow | undefined;
         if (!requestRow) {
           throw new AcceptFriendRequestError(
             "REQUEST_NOT_FOUND",
@@ -85,57 +79,40 @@ export async function acceptFriendRequest(
           );
         }
 
-        const userLow = requestRow.requester_id < requestRow.receiver_id
-          ? requestRow.requester_id
-          : requestRow.receiver_id;
+        const userLow =
+          requestRow.requester_id < requestRow.receiver_id
+            ? requestRow.requester_id
+            : requestRow.receiver_id;
 
-        const userHigh = requestRow.requester_id > requestRow.receiver_id
-          ? requestRow.requester_id
-          : requestRow.receiver_id;
+        const userHigh =
+          requestRow.requester_id > requestRow.receiver_id
+            ? requestRow.requester_id
+            : requestRow.receiver_id;
 
-        const friendshipResult = await client.queryObject<FriendshipRow>(
-          `
+        const friendshipResult = await tx`
           INSERT INTO friendships (user_low, user_high, created_at)
-          VALUES ($1, $2, now())
+          VALUES (${userLow}, ${userHigh}, now())
           RETURNING user_low, user_high, created_at
-          `,
-          [userLow, userHigh],
-        );
+        `;
 
-        const friendshipRow = friendshipResult.rows[0];
+        const friendshipRow = friendshipResult[0] as FriendshipRow | undefined;
         if (!friendshipRow) {
-          throw new AcceptFriendRequestError(
-            "INTERNAL_ERROR",
-            "Failed to create friendship.",
-            500,
-          );
+          throw new AcceptFriendRequestError("INTERNAL_ERROR", "Failed to create friendship.", 500);
         }
 
-        await client.queryArray(
-          `
+        await tx`
           DELETE FROM friend_requests
-          WHERE id = $1
-          `,
-          [requestId],
-        );
-
-        await client.queryArray("COMMIT");
+          WHERE id = ${requestId}
+        `;
 
         return mapAcceptFriendRequest(requestRow);
-      } catch (error) {
-        await client.queryArray("ROLLBACK");
-        throw error;
-      }
+      });
     });
   } catch (error) {
     if (error instanceof AcceptFriendRequestError) {
       throw error;
     }
 
-    throw new AcceptFriendRequestError(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    throw new AcceptFriendRequestError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

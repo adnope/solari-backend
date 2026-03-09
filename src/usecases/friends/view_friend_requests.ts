@@ -1,5 +1,5 @@
 import { withDb } from "../../db/postgres_client.ts";
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export type FriendRequestUser = {
   id: string;
@@ -69,19 +69,12 @@ type ViewFriendRequestsRow = {
 function normalizeRequesterId(requesterId: string): string {
   const value = requesterId.trim();
   if (value.length === 0) {
-    throw new ViewFriendRequestsError(
-      "MISSING_USER_ID",
-      "Requester id is required.",
-      400,
-    );
+    throw new ViewFriendRequestsError("MISSING_USER_ID", "Requester id is required.", 400);
   }
   return value;
 }
 
-function normalizePagination(
-  offset = 0,
-  limit = 20,
-): { offset: number; limit: number } {
+function normalizePagination(offset = 0, limit = 20): { offset: number; limit: number } {
   if (!Number.isInteger(offset) || offset < 0) {
     throw new ViewFriendRequestsError(
       "INVALID_OFFSET",
@@ -91,28 +84,15 @@ function normalizePagination(
   }
 
   if (!Number.isInteger(limit) || limit <= 0) {
-    throw new ViewFriendRequestsError(
-      "INVALID_LIMIT",
-      "Limit must be a positive integer.",
-      400,
-    );
+    throw new ViewFriendRequestsError("INVALID_LIMIT", "Limit must be a positive integer.", 400);
   }
 
-  return {
-    offset,
-    limit: Math.min(limit, 100),
-  };
+  return { offset, limit: Math.min(limit, 100) };
 }
 
-function normalizeDirection(
-  direction: string | undefined,
-): FriendRequestDirection {
-  if (!direction || direction.trim() === "") {
-    return "both";
-  }
-
+function normalizeDirection(direction: string | undefined): FriendRequestDirection {
+  if (!direction || direction.trim() === "") return "both";
   const value = direction.trim().toLowerCase();
-
   if (value === "incoming" || value === "outgoing" || value === "both") {
     return value;
   }
@@ -160,16 +140,9 @@ export async function viewFriendRequests(
     const pagination = normalizePagination(offset, limit);
     const normalizedDirection = normalizeDirection(direction);
 
-    let whereClause = "WHERE fr.requester_id = $1 OR fr.receiver_id = $1";
-    if (normalizedDirection === "incoming") {
-      whereClause = "WHERE fr.receiver_id = $1";
-    } else if (normalizedDirection === "outgoing") {
-      whereClause = "WHERE fr.requester_id = $1";
-    }
-
     return await withDb(async (client) => {
-      const result = await client.queryObject<ViewFriendRequestsRow>(
-        `
+      // Safe, injection-free logical condition mapping for dynamic filtering
+      const result = await client<ViewFriendRequestsRow[]>`
         SELECT
           fr.id,
           fr.created_at,
@@ -188,16 +161,21 @@ export async function viewFriendRequests(
         FROM friend_requests fr
         JOIN users ru ON ru.id = fr.requester_id
         JOIN users vu ON vu.id = fr.receiver_id
-        ${whereClause}
+        WHERE 
+          (${normalizedDirection} = 'incoming' AND fr.receiver_id = ${normalizedUserId})
+          OR 
+          (${normalizedDirection} = 'outgoing' AND fr.requester_id = ${normalizedUserId})
+          OR 
+          (${normalizedDirection} = 'both' AND (fr.receiver_id = ${normalizedUserId} OR fr.requester_id = ${normalizedUserId}))
         ORDER BY fr.created_at DESC
-        OFFSET $2
-        LIMIT $3
-        `,
-        [normalizedUserId, pagination.offset, pagination.limit],
-      );
+        OFFSET ${pagination.offset}
+        LIMIT ${pagination.limit}
+      `;
 
       return {
-        items: result.rows.map((row) => mapFriendRequestListItem(normalizedUserId, row)),
+        items: result.map((row) =>
+          mapFriendRequestListItem(normalizedUserId, row as ViewFriendRequestsRow),
+        ),
         offset: pagination.offset,
         limit: pagination.limit,
         direction: normalizedDirection,
@@ -208,10 +186,6 @@ export async function viewFriendRequests(
       throw error;
     }
 
-    throw new ViewFriendRequestsError(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    throw new ViewFriendRequestsError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

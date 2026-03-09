@@ -1,5 +1,5 @@
-import { Hono } from "@hono/hono";
-import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { Hono } from "hono";
+import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 import {
   sendFriendRequest,
   SendFriendRequestError,
@@ -48,50 +48,18 @@ friendsRouter.post("/friend-requests", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof SyntaxError) {
-      return c.json(
-        {
-          error: {
-            type: "INVALID_JSON",
-            message: "Invalid JSON body.",
-          },
-        },
-        400,
-      );
+      return c.json({ error: { type: "INVALID_JSON", message: "Invalid JSON body." } }, 400);
     }
 
     if (error instanceof SendFriendRequestError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof Error) {
-      return c.json(
-        {
-          error: {
-            type: "INTERNAL_ERROR",
-            message: error.message,
-          },
-        },
-        500,
-      );
+      return c.json({ error: { type: "INTERNAL_ERROR", message: error.message } }, 500);
     }
 
-    return c.json(
-      {
-        error: {
-          type: "INTERNAL_ERROR",
-          message: "Internal server error.",
-        },
-      },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -135,38 +103,14 @@ friendsRouter.get("/friend-requests", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof ViewFriendRequestsError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof Error) {
-      return c.json(
-        {
-          error: {
-            type: "INTERNAL_ERROR",
-            message: error.message,
-          },
-        },
-        500,
-      );
+      return c.json({ error: { type: "INTERNAL_ERROR", message: error.message } }, 500);
     }
 
-    return c.json(
-      {
-        error: {
-          type: "INTERNAL_ERROR",
-          message: "Internal server error.",
-        },
-      },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -179,10 +123,7 @@ friendsRouter.patch("/friend-requests/:requestId", requireAuth, async (c) => {
     if (!requestId) {
       return c.json(
         {
-          error: {
-            type: "MISSING_INPUT",
-            message: "Request ID is required.",
-          },
+          error: { type: "MISSING_INPUT", message: "Request ID is required." },
         },
         400,
       );
@@ -204,38 +145,14 @@ friendsRouter.patch("/friend-requests/:requestId", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof AcceptFriendRequestError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof Error) {
-      return c.json(
-        {
-          error: {
-            type: "INTERNAL_ERROR",
-            message: error.message,
-          },
-        },
-        400,
-      );
+      return c.json({ error: { type: "INTERNAL_ERROR", message: error.message } }, 400);
     }
 
-    return c.json(
-      {
-        error: {
-          type: "INTERNAL_ERROR",
-          message: "Internal server error.",
-        },
-      },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 
@@ -259,15 +176,7 @@ friendsRouter.delete("/friend-requests/:requestId", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof CancelOrRejectFriendRequestError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof Error) {
@@ -290,23 +199,10 @@ friendsRouter.delete("/friendships/:friendId", requireAuth, async (c) => {
 
     await unfriend(userId, friendId);
 
-    return c.json(
-      {
-        message: "Unfriended successfully.",
-      },
-      200,
-    );
+    return c.json({ message: "Unfriended successfully." }, 200);
   } catch (error) {
     if (error instanceof UnfriendError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof Error) {
@@ -342,38 +238,14 @@ friendsRouter.get("/friends", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof ViewFriendsError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     if (error instanceof Error) {
-      return c.json(
-        {
-          error: {
-            type: "INTERNAL_ERROR",
-            message: error.message,
-          },
-        },
-        400,
-      );
+      return c.json({ error: { type: "INTERNAL_ERROR", message: error.message } }, 400);
     }
 
-    return c.json(
-      {
-        error: {
-          type: "INTERNAL_ERROR",
-          message: "Internal server error.",
-        },
-      },
-      500,
-    );
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 

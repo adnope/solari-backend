@@ -1,4 +1,4 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -26,11 +26,7 @@ export class GetPostViewersError extends Error {
   readonly type: GetPostViewersErrorType;
   readonly statusCode: ContentfulStatusCode;
 
-  constructor(
-    type: GetPostViewersErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: GetPostViewersErrorType, message: string, statusCode: ContentfulStatusCode) {
     super(message);
     this.name = "GetPostViewersError";
     this.type = type;
@@ -53,11 +49,7 @@ export async function getPostViewers(
   cursor?: string,
 ): Promise<GetPostViewersResult> {
   if (!authorId || !postId) {
-    throw new GetPostViewersError(
-      "MISSING_INPUT",
-      "Author ID and Post ID are required.",
-      400,
-    );
+    throw new GetPostViewersError("MISSING_INPUT", "Author ID and Post ID are required.", 400);
   }
 
   let parsedCursor: Date | null = null;
@@ -76,17 +68,14 @@ export async function getPostViewers(
 
   try {
     return await withDb(async (client) => {
-      const authCheckResult = await client.queryObject<{ exists: boolean }>(
-        `
+      const authCheckResult = await client<{ exists: boolean }[]>`
         SELECT EXISTS (
           SELECT 1 FROM posts
-          WHERE id = $1 AND author_id = $2
+          WHERE id = ${postId} AND author_id = ${authorId}
         ) AS exists
-        `,
-        [postId, authorId],
-      );
+      `;
 
-      if (!authCheckResult.rows[0].exists) {
+      if (!authCheckResult[0]!.exists) {
         throw new GetPostViewersError(
           "UNAUTHORIZED",
           "You are not authorized to view this post's viewers (only the author can), or it does not exist.",
@@ -94,8 +83,7 @@ export async function getPostViewers(
         );
       }
 
-      const result = await client.queryObject<ViewerRow>(
-        `
+      const result = await client<ViewerRow[]>`
         SELECT
           pv.viewed_at,
           u.id AS user_id,
@@ -104,15 +92,13 @@ export async function getPostViewers(
           u.avatar_key
         FROM post_views pv
         JOIN users u ON u.id = pv.user_id
-        WHERE pv.post_id = $1
-          AND ($2::timestamptz IS NULL OR pv.viewed_at < $2)
+        WHERE pv.post_id = ${postId}
+          AND (${parsedCursor}::timestamptz IS NULL OR pv.viewed_at < ${parsedCursor})
         ORDER BY pv.viewed_at DESC
-        LIMIT $3
-        `,
-        [postId, parsedCursor, normalizedLimit],
-      );
+        LIMIT ${normalizedLimit}
+      `;
 
-      const items: PostViewerUser[] = result.rows.map((row) => ({
+      const items: PostViewerUser[] = result.map((row) => ({
         id: row.user_id,
         username: row.username,
         displayName: row.display_name,
@@ -120,17 +106,17 @@ export async function getPostViewers(
         viewedAt: row.viewed_at,
       }));
 
-      const nextCursor = items.length > 0 ? items[items.length - 1].viewedAt.toISOString() : null;
+      const nextCursor = items.length > 0 ? items[items.length - 1]!.viewedAt.toISOString() : null;
 
       return {
         items,
         nextCursor,
       };
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof GetPostViewersError) throw error;
 
-    if (isPgError(error) && error.fields.code === "22P02") {
+    if (isPgError(error) && error.code === "22P02") {
       throw new GetPostViewersError("POST_NOT_FOUND", "Post not found.", 404);
     }
 

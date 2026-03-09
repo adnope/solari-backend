@@ -1,4 +1,8 @@
 import { imageSize } from "image-size";
+import { unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 export type MediaMetadata = {
   mediaType: "image" | "video";
@@ -24,13 +28,17 @@ export async function extractMediaMetadata(
   }
 
   if (contentType.startsWith("video/")) {
-    // Write to a temp file because ffprobe requires a file to seek through atoms/headers safely
-    const tempFilePath = await Deno.makeTempFile({ suffix: ".media" });
-    try {
-      await Deno.writeFile(tempFilePath, buffer);
+    // Write to a temp file in the OS temp directory
+    const tempFilePath = join(tmpdir(), `${randomUUID()}.media`);
 
-      const command = new Deno.Command("ffprobe", {
-        args: [
+    try {
+      // Native Bun file writing
+      await Bun.write(tempFilePath, buffer);
+
+      // Native Bun process spawning
+      const proc = Bun.spawn(
+        [
+          "ffprobe",
           "-v",
           "error",
           "-select_streams",
@@ -41,17 +49,21 @@ export async function extractMediaMetadata(
           "json",
           tempFilePath,
         ],
-      });
+        {
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
 
-      const { code, stdout, stderr } = await command.output();
+      const exitCode = await proc.exited;
 
-      if (code !== 0) {
-        throw new Error(
-          `ffprobe failed. Error: ${new TextDecoder().decode(stderr)}`,
-        );
+      if (exitCode !== 0) {
+        // Idiomatic Bun way to read streams into text
+        const errorStr = await new Response(proc.stderr).text();
+        throw new Error(`ffprobe failed. Error: ${errorStr}`);
       }
 
-      const outputStr = new TextDecoder().decode(stdout);
+      const outputStr = await new Response(proc.stdout).text();
       const data = JSON.parse(outputStr);
       const stream = data.streams?.[0];
 
@@ -66,7 +78,8 @@ export async function extractMediaMetadata(
         durationMs: stream.duration ? Math.round(Number(stream.duration) * 1000) : undefined,
       };
     } finally {
-      await Deno.remove(tempFilePath);
+      // Clean up the temp file
+      await unlink(tempFilePath).catch(() => {});
     }
   }
 

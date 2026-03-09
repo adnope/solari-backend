@@ -1,11 +1,11 @@
-export type PgError = {
-  fields: {
-    code?: string;
-    message?: string;
-    constraint?: string;
-    [key: string]: unknown;
-  };
-  query?: unknown;
+export type PgError = Error & {
+  code?: string;
+  message?: string;
+  constraint?: string;
+  detail?: string;
+  table_name?: string;
+  column_name?: string;
+  [key: string]: unknown;
 };
 
 export function isPgError(error: unknown): error is PgError {
@@ -13,15 +13,5 @@ export function isPgError(error: unknown): error is PgError {
     return false;
   }
 
-  if (!("fields" in error)) {
-    return false;
-  }
-
-  const fields = (error as { fields?: unknown }).fields;
-
-  if (typeof fields !== "object" || fields === null) {
-    return false;
-  }
-
-  return "code" in fields;
+  return "code" in error && typeof (error as Record<string, unknown>).code === "string";
 }

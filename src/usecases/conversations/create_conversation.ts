@@ -1,7 +1,7 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
-import { newUUIDv7 } from "../../utils/uuid.ts";
 
 export type CreateConversationResult = {
   id: string;
@@ -53,15 +53,14 @@ export async function createConversation(
   }
 
   const [userLow, userHigh] = [userId, targetUserId].sort();
-  const newConversationId = newUUIDv7();
+  const newConversationId = v7();
 
   try {
     return await withDb(async (client) => {
-      const result = await client.queryObject<CreateConversationResult>(
-        `
+      const result = await client<CreateConversationResult[]>`
         WITH new_conv AS (
           INSERT INTO conversations (id, user_low, user_high)
-          VALUES ($1, $2, $3)
+          VALUES (${newConversationId}, ${userLow}, ${userHigh})
           ON CONFLICT (user_low, user_high) DO NOTHING
           RETURNING id, user_low AS "userLow", user_high AS "userHigh", created_at AS "createdAt"
         )
@@ -69,22 +68,20 @@ export async function createConversation(
         UNION ALL
         SELECT id, user_low AS "userLow", user_high AS "userHigh", created_at AS "createdAt"
         FROM conversations
-        WHERE user_low = $2 AND user_high = $3
+        WHERE user_low = ${userLow} AND user_high = ${userHigh}
         LIMIT 1;
-        `,
-        [newConversationId, userLow, userHigh],
-      );
+      `;
 
-      return result.rows[0];
+      return result[0]!;
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof CreateConversationError) throw error;
 
     if (isPgError(error)) {
-      if (error.fields.code === "23503") {
+      if (error.code === "23503") {
         throw new CreateConversationError("USER_NOT_FOUND", "Target user does not exist.", 404);
       }
-      if (error.fields.code === "22P02") {
+      if (error.code === "22P02") {
         throw new CreateConversationError("USER_NOT_FOUND", "Invalid user ID format.", 400);
       }
     }

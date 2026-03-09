@@ -1,7 +1,7 @@
-import { Hono } from "@hono/hono";
+import { Hono } from "hono";
 import authRouter from "./auth.ts";
 import friendsRouter from "./friends.ts";
-import { AuthVariables } from "../middleware/require_auth.ts";
+import type { AuthVariables } from "../middleware/require_auth.ts";
 import postsRouter from "./posts.ts";
 import feedRouter from "./feed.ts";
 import usersRouter from "./users.ts";

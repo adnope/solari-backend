@@ -1,4 +1,4 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 import { deleteFile, uploadFile } from "../../storage/minio.ts";
@@ -34,11 +34,7 @@ export class UpdateProfileError extends Error {
   readonly type: UpdateProfileErrorType;
   readonly statusCode: ContentfulStatusCode;
 
-  constructor(
-    type: UpdateProfileErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: UpdateProfileErrorType, message: string, statusCode: ContentfulStatusCode) {
     super(message);
     this.name = "UpdateProfileError";
     this.type = type;
@@ -46,28 +42,21 @@ export class UpdateProfileError extends Error {
   }
 }
 
-export async function updateProfile(
-  input: UpdateProfileInput,
-): Promise<UpdateProfileResult> {
+export async function updateProfile(input: UpdateProfileInput): Promise<UpdateProfileResult> {
   let newAvatarKey: string | undefined = undefined;
 
   try {
     return await withDb(async (client) => {
-      await client.queryArray("BEGIN");
+      return await client.begin(async (tx) => {
+        const currentUserResult = await tx<{ avatar_key: string | null }[]>`
+          SELECT avatar_key FROM users WHERE id = ${input.userId} FOR UPDATE
+        `;
 
-      try {
-        const currentUserResult = await client.queryObject<{
-          avatar_key: string | null;
-        }>(
-          `SELECT avatar_key FROM users WHERE id = $1 FOR UPDATE`,
-          [input.userId],
-        );
-
-        if (currentUserResult.rows.length === 0) {
+        if (currentUserResult.length === 0) {
           throw new UpdateProfileError("MISSING_USER", "User not found.", 404);
         }
 
-        const currentAvatarKey = currentUserResult.rows[0].avatar_key;
+        const currentAvatarKey = currentUserResult[0]!.avatar_key;
 
         if (input.avatar) {
           const allowedTypes = [
@@ -98,9 +87,7 @@ export async function updateProfile(
           }
         }
 
-        const updates: string[] = [];
-        const values: unknown[] = [input.userId];
-        let paramIndex = 2;
+        const updateObj: Record<string, unknown> = {};
 
         if (input.email !== undefined) {
           const trimmedEmail = input.email.trim();
@@ -108,15 +95,9 @@ export async function updateProfile(
             /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
 
           if (!rfc2822Regex.test(trimmedEmail)) {
-            throw new UpdateProfileError(
-              "INVALID_EMAIL",
-              "Invalid email address format.",
-              400,
-            );
+            throw new UpdateProfileError("INVALID_EMAIL", "Invalid email address format.", 400);
           }
-
-          updates.push(`email = $${paramIndex++}`);
-          values.push(trimmedEmail);
+          updateObj.email = trimmedEmail;
         }
 
         if (input.displayName !== undefined) {
@@ -129,66 +110,52 @@ export async function updateProfile(
                 400,
               );
             }
-            updates.push(`display_name = $${paramIndex++}`);
-            values.push(trimmedName);
+            updateObj.display_name = trimmedName;
           } else {
-            updates.push(`display_name = $${paramIndex++}`);
-            values.push(null);
+            updateObj.display_name = null;
           }
         }
 
         if (newAvatarKey !== undefined) {
-          updates.push(`avatar_key = $${paramIndex++}`);
-          values.push(newAvatarKey);
+          updateObj.avatar_key = newAvatarKey;
         }
 
-        if (updates.length > 0) {
-          updates.push(`updated_at = now()`);
+        if (Object.keys(updateObj).length > 0) {
+          updateObj.updated_at = new Date();
 
-          const updateQuery = `
+          const updatedUserResult = await tx<UpdateProfileResult[]>`
             UPDATE users
-            SET ${updates.join(", ")}
-            WHERE id = $1
+            SET ${tx(updateObj)}
+            WHERE id = ${input.userId}
             RETURNING id, username, email, display_name, avatar_key, updated_at
           `;
 
-          const updatedUserResult = await client.queryObject<UpdateProfileResult>(
-            updateQuery,
-            values,
-          );
-
-          await client.queryArray("COMMIT");
-
           if (newAvatarKey && currentAvatarKey) {
             deleteFile(currentAvatarKey).catch((err) =>
-              console.error(`Failed to delete old avatar ${currentAvatarKey}:`, err)
+              console.error(`Failed to delete old avatar ${currentAvatarKey}:`, err),
             );
           }
 
-          return updatedUserResult.rows[0];
+          return updatedUserResult[0]!;
         }
 
-        await client.queryArray("COMMIT");
-
-        const fallbackResult = await client.queryObject<UpdateProfileResult>(
-          `SELECT id, username, email, display_name, avatar_key, updated_at FROM users WHERE id = $1`,
-          [input.userId],
-        );
-        return fallbackResult.rows[0];
-      } catch (error) {
-        await client.queryArray("ROLLBACK");
-
-        if (newAvatarKey) {
-          deleteFile(newAvatarKey).catch(() => {});
-        }
-        throw error;
-      }
+        const fallbackResult = await tx<UpdateProfileResult[]>`
+          SELECT id, username, email, display_name, avatar_key, updated_at 
+          FROM users 
+          WHERE id = ${input.userId}
+        `;
+        return fallbackResult[0]!;
+      });
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof UpdateProfileError) throw error;
 
-    if (isPgError(error) && error.fields.code === "23505") {
+    if (isPgError(error) && error.code === "23505") {
       throw new UpdateProfileError("EMAIL_TAKEN", "Email address is already in use.", 409);
+    }
+
+    if (newAvatarKey) {
+      deleteFile(newAvatarKey).catch(() => {});
     }
 
     throw new UpdateProfileError(

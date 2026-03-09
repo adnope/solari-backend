@@ -1,4 +1,4 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 
 export type ViewFriendsErrorType =
@@ -12,11 +12,7 @@ export class ViewFriendsError extends Error {
   readonly type: ViewFriendsErrorType;
   readonly statusCode: ContentfulStatusCode;
 
-  constructor(
-    type: ViewFriendsErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: ViewFriendsErrorType, message: string, statusCode: ContentfulStatusCode) {
     super(message);
     this.name = "ViewFriendsError";
     this.type = type;
@@ -46,12 +42,6 @@ type FriendRow = {
   created_at: Date;
 };
 
-type FriendshipRow = {
-  user_low: string;
-  user_high: string;
-  created_at: Date;
-};
-
 function mapFriend(row: FriendRow): Friend {
   return {
     id: row.id,
@@ -62,30 +52,16 @@ function mapFriend(row: FriendRow): Friend {
   };
 }
 
-function normalizePagination(
-  offset = 0,
-  limit = 20,
-): { offset: number; limit: number } {
+function normalizePagination(offset = 0, limit = 20): { offset: number; limit: number } {
   if (!Number.isInteger(offset) || offset < 0) {
-    throw new ViewFriendsError(
-      "INVALID_OFFSET",
-      "Offset must be a non-negative integer.",
-      400,
-    );
+    throw new ViewFriendsError("INVALID_OFFSET", "Offset must be a non-negative integer.", 400);
   }
 
   if (!Number.isInteger(limit) || limit <= 0) {
-    throw new ViewFriendsError(
-      "INVALID_LIMIT",
-      "Limit must be a positive integer.",
-      400,
-    );
+    throw new ViewFriendsError("INVALID_LIMIT", "Limit must be a positive integer.", 400);
   }
 
-  return {
-    offset,
-    limit: Math.min(limit, 100),
-  };
+  return { offset, limit: Math.min(limit, 100) };
 }
 
 export async function viewFriends(
@@ -101,8 +77,7 @@ export async function viewFriends(
     const pagination = normalizePagination(offset, limit);
 
     return await withDb(async (client) => {
-      const result = await client.queryObject<FriendRow>(
-        `
+      const result = await client<FriendRow[]>`
         SELECT
           u.id,
           u.username,
@@ -111,17 +86,15 @@ export async function viewFriends(
           f.created_at
         FROM friendships f
         JOIN users u ON (u.id = f.user_low OR u.id = f.user_high)
-        WHERE (f.user_low = $1 OR f.user_high = $1)
-          AND u.id != $1  -- Exclude the logged-in user from the results
+        WHERE (f.user_low = ${userId} OR f.user_high = ${userId})
+          AND u.id != ${userId}
         ORDER BY f.created_at DESC
-        OFFSET $2
-        LIMIT $3
-        `,
-        [userId, pagination.offset, pagination.limit],
-      );
+        OFFSET ${pagination.offset}
+        LIMIT ${pagination.limit}
+      `;
 
       return {
-        items: result.rows.map(mapFriend),
+        items: result.map((row) => mapFriend(row as FriendRow)),
         offset: pagination.offset,
         limit: pagination.limit,
       };

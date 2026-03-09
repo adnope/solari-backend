@@ -1,8 +1,8 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 import { uploadFile } from "../../storage/minio.ts";
-import { newUUIDv7 } from "../../utils/uuid.ts";
 
 export type UploadPostInput = {
   authorId: string;
@@ -37,6 +37,7 @@ export type UploadPostErrorType =
   | "INVALID_DIMENSIONS"
   | "INVALID_DURATION"
   | "INVALID_AUDIENCE"
+  | "INVALID_MEDIA"
   | "STORAGE_ERROR"
   | "INTERNAL_ERROR";
 
@@ -44,11 +45,7 @@ export class UploadPostError extends Error {
   readonly type: UploadPostErrorType;
   readonly statusCode: ContentfulStatusCode;
 
-  constructor(
-    type: UploadPostErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: UploadPostErrorType, message: string, statusCode: ContentfulStatusCode) {
     super(message);
     this.name = "UploadPostError";
     this.type = type;
@@ -57,12 +54,12 @@ export class UploadPostError extends Error {
 }
 
 function validatePostInput(input: UploadPostInput) {
+  if (!input.contentType.startsWith("image/") && !input.contentType.startsWith("video/")) {
+    throw new UploadPostError("INVALID_MEDIA", "Only images and videos are allowed.", 400);
+  }
+
   if (!input.authorId || !input.buffer || !input.contentType) {
-    throw new UploadPostError(
-      "MISSING_INPUT",
-      "Missing required fields or media buffer.",
-      400,
-    );
+    throw new UploadPostError("MISSING_INPUT", "Missing required fields or media buffer.", 400);
   }
 
   if (input.width <= 0 || input.height <= 0 || input.width !== input.height) {
@@ -74,25 +71,14 @@ function validatePostInput(input: UploadPostInput) {
   }
 
   if (input.mediaType === "video") {
-    if (!input.durationMs || input.durationMs <= 0 || input.durationMs > 3000) {
-      throw new UploadPostError(
-        "INVALID_DURATION",
-        "Video duration must be between 1 and 3000 ms.",
-        400,
-      );
+    if (!input.durationMs || input.durationMs <= 0 || input.durationMs > 4000) {
+      throw new UploadPostError("INVALID_DURATION", "Video must be no longer than 3 seconds.", 400);
     }
   } else if (input.durationMs != null) {
-    throw new UploadPostError(
-      "INVALID_DURATION",
-      "Images cannot have a duration.",
-      400,
-    );
+    throw new UploadPostError("INVALID_DURATION", "Images cannot have a duration.", 400);
   }
 
-  if (
-    input.audienceType === "selected" &&
-    (!input.viewerIds || input.viewerIds.length === 0)
-  ) {
+  if (input.audienceType === "selected" && (!input.viewerIds || input.viewerIds.length === 0)) {
     throw new UploadPostError(
       "INVALID_AUDIENCE",
       "Selected audience requires at least one viewer ID.",
@@ -101,41 +87,30 @@ function validatePostInput(input: UploadPostInput) {
   }
 }
 
-export async function uploadPost(
-  input: UploadPostInput,
-): Promise<UploadPostResult> {
+export async function uploadPost(input: UploadPostInput): Promise<UploadPostResult> {
   validatePostInput(input);
 
-  const postId = newUUIDv7();
+  const postId = v7();
   const fileExtension = input.contentType.split("/")[1] || "bin";
   const objectKey = `posts/${postId}.${fileExtension}`;
 
   try {
     await uploadFile(objectKey, input.buffer, input.contentType);
   } catch (_error) {
-    throw new UploadPostError(
-      "STORAGE_ERROR",
-      "Failed to upload media to storage.",
-      502,
-    );
+    throw new UploadPostError("STORAGE_ERROR", "Failed to upload media to storage.", 502);
   }
 
   try {
     return await withDb(async (client) => {
-      await client.queryArray("BEGIN");
-
-      try {
+      return await client.begin(async (tx) => {
         if (input.audienceType === "selected" && input.viewerIds) {
           const uniqueViewerIds = [...new Set(input.viewerIds)];
 
-          const userCheckResult = await client.queryObject<{ count: bigint }>(
-            `SELECT COUNT(id) FROM users WHERE id = ANY($1::uuid[])`,
-            [uniqueViewerIds],
-          );
+          const userCheckResult = await tx<{ count: bigint }[]>`
+            SELECT COUNT(id) FROM users WHERE id = ANY(${uniqueViewerIds}::uuid[])
+          `;
 
-          if (
-            Number(userCheckResult.rows[0].count) !== uniqueViewerIds.length
-          ) {
+          if (Number(userCheckResult[0]!.count) !== uniqueViewerIds.length) {
             throw new UploadPostError(
               "INVALID_AUDIENCE",
               "One or more viewer IDs do not exist.",
@@ -144,70 +119,50 @@ export async function uploadPost(
           }
         }
 
-        const postResult = await client.queryObject<{ created_at: Date }>(
-          `
+        const postResult = await tx<{ created_at: Date }[]>`
           INSERT INTO posts (id, author_id, caption, audience_type)
-          VALUES ($1, $2, $3, $4)
+          VALUES (${postId}, ${input.authorId}, ${input.caption || null}, ${input.audienceType})
           RETURNING created_at
-          `,
-          [postId, input.authorId, input.caption || null, input.audienceType],
-        );
+        `;
 
-        await client.queryArray(
-          `
+        await tx`
           INSERT INTO post_media (
             post_id, media_type, object_key, content_type,
             byte_size, duration_ms, width, height
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          `,
-          [
-            postId,
-            input.mediaType,
-            objectKey,
-            input.contentType,
-            input.byteSize,
-            input.durationMs || null,
-            input.width,
-            input.height,
-          ],
-        );
+          VALUES (
+            ${postId}, ${input.mediaType}, ${objectKey}, ${input.contentType},
+            ${input.byteSize}, ${input.durationMs || null}, ${input.width}, ${input.height}
+          )
+        `;
 
         if (input.audienceType === "all") {
-          await client.queryArray(
-            `
+          await tx`
             INSERT INTO post_visibility (post_id, viewer_id)
-            SELECT $1, friend_id FROM (
-              SELECT user_high AS friend_id FROM friendships WHERE user_low = $2
+            SELECT ${postId}, friend_id FROM (
+              SELECT user_high AS friend_id FROM friendships WHERE user_low = ${input.authorId}
               UNION
-              SELECT user_low AS friend_id FROM friendships WHERE user_high = $2
+              SELECT user_low AS friend_id FROM friendships WHERE user_high = ${input.authorId}
             ) AS f
-            `,
-            [postId, input.authorId],
-          );
+          `;
         } else if (input.audienceType === "selected" && input.viewerIds) {
-          await client.queryArray(
-            `
+          await tx`
             INSERT INTO post_visibility (post_id, viewer_id)
-            SELECT $1, friend_id FROM (
-              SELECT user_high AS friend_id FROM friendships WHERE user_low = $2
+            SELECT ${postId}, friend_id FROM (
+              SELECT user_high AS friend_id FROM friendships WHERE user_low = ${input.authorId}
               UNION
-              SELECT user_low AS friend_id FROM friendships WHERE user_high = $2
+              SELECT user_low AS friend_id FROM friendships WHERE user_high = ${input.authorId}
             ) AS f
-            WHERE friend_id = ANY($3::uuid[])
-            `,
-            [postId, input.authorId, input.viewerIds],
-          );
+            WHERE friend_id = ANY(${input.viewerIds}::uuid[])
+          `;
         }
-
-        await client.queryArray("COMMIT");
 
         return {
           id: postId,
           authorId: input.authorId,
           caption: input.caption || null,
           audienceType: input.audienceType,
-          createdAt: postResult.rows[0].created_at,
+          createdAt: postResult[0]!.created_at,
           media: {
             objectKey: objectKey,
             mediaType: input.mediaType,
@@ -215,17 +170,14 @@ export async function uploadPost(
             height: input.height,
           },
         };
-      } catch (error) {
-        await client.queryArray("ROLLBACK");
-        throw error;
-      }
+      });
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof UploadPostError) {
       throw error;
     }
 
-    if (isPgError(error) && error.fields.code === "22P02") {
+    if (isPgError(error) && error.code === "22P02") {
       throw new UploadPostError(
         "INVALID_AUDIENCE",
         "One or more viewer IDs are invalid UUIDs.",
@@ -233,18 +185,10 @@ export async function uploadPost(
       );
     }
 
-    if (isPgError(error) && error.fields.code === "23503") {
-      throw new UploadPostError(
-        "MISSING_INPUT",
-        "Author or viewer ID does not exist.",
-        404,
-      );
+    if (isPgError(error) && error.code === "23503") {
+      throw new UploadPostError("MISSING_INPUT", "Author or viewer ID does not exist.", 404);
     }
 
-    throw new UploadPostError(
-      "INTERNAL_ERROR",
-      "Internal server error during post creation.",
-      500,
-    );
+    throw new UploadPostError("INTERNAL_ERROR", "Internal server error during post creation.", 500);
   }
 }

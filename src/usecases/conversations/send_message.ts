@@ -1,7 +1,7 @@
-import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
-import { newUUIDv7 } from "../../utils/uuid.ts";
 
 export type SendMessageInput = {
   senderId: string;
@@ -31,11 +31,7 @@ export class SendMessageError extends Error {
   readonly type: SendMessageErrorType;
   readonly statusCode: ContentfulStatusCode;
 
-  constructor(
-    type: SendMessageErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: SendMessageErrorType, message: string, statusCode: ContentfulStatusCode) {
     super(message);
     this.name = "SendMessageError";
     this.type = type;
@@ -43,42 +39,31 @@ export class SendMessageError extends Error {
   }
 }
 
-export async function sendMessage(
-  input: SendMessageInput,
-): Promise<SendMessageResult> {
+export async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
   const trimmedContent = input.content?.trim();
 
   if (!input.senderId || !input.conversationId) {
-    throw new SendMessageError(
-      "MISSING_INPUT",
-      "Sender ID and Conversation ID are required.",
-      400,
-    );
+    throw new SendMessageError("MISSING_INPUT", "Sender ID and Conversation ID are required.", 400);
   }
 
   if (!trimmedContent) {
-    throw new SendMessageError(
-      "EMPTY_CONTENT",
-      "Message content cannot be empty.",
-      400,
-    );
+    throw new SendMessageError("EMPTY_CONTENT", "Message content cannot be empty.", 400);
   }
 
-  const messageId = newUUIDv7();
+  const messageId = v7();
 
   try {
     return await withDb(async (client) => {
       if (input.referencedPostId) {
-        const postCheckResult = await client.queryObject<{ author_id: string }>(
-          `SELECT author_id FROM posts WHERE id = $1`,
-          [input.referencedPostId],
-        );
+        const postCheckResult = await client<{ author_id: string }[]>`
+          SELECT author_id FROM posts WHERE id = ${input.referencedPostId}
+        `;
 
-        if (postCheckResult.rows.length === 0) {
+        if (postCheckResult.length === 0) {
           throw new SendMessageError("POST_NOT_FOUND", "Referenced post does not exist.", 404);
         }
 
-        if (postCheckResult.rows[0].author_id === input.senderId) {
+        if (postCheckResult[0]!.author_id === input.senderId) {
           throw new SendMessageError(
             "CANNOT_REFERENCE_OWN_POST",
             "You cannot reference your own post in a message.",
@@ -87,15 +72,14 @@ export async function sendMessage(
         }
       }
 
-      const result = await client.queryObject<{ id: string; created_at: Date }>(
-        `
+      const result = await client<{ id: string; created_at: Date }[]>`
         WITH conv_check AS (
           SELECT id FROM conversations
-          WHERE id = $1 AND (user_low = $2 OR user_high = $2)
+          WHERE id = ${input.conversationId} AND (user_low = ${input.senderId} OR user_high = ${input.senderId})
         ),
         inserted_msg AS (
           INSERT INTO messages (id, conversation_id, sender_id, content, referenced_post_id)
-          SELECT $3, id, $2, $4, $5
+          SELECT ${messageId}, id, ${input.senderId}, ${trimmedContent}, ${input.referencedPostId || null}
           FROM conv_check
           RETURNING id, created_at
         ),
@@ -105,17 +89,9 @@ export async function sendMessage(
           WHERE id = (SELECT id FROM conv_check)
         )
         SELECT id, created_at FROM inserted_msg;
-        `,
-        [
-          input.conversationId,
-          input.senderId,
-          messageId,
-          trimmedContent,
-          input.referencedPostId || null,
-        ],
-      );
+      `;
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         throw new SendMessageError(
           "CONVERSATION_NOT_FOUND",
           "Conversation not found or you are not a participant.",
@@ -129,28 +105,22 @@ export async function sendMessage(
         senderId: input.senderId,
         content: trimmedContent,
         referencedPostId: input.referencedPostId || null,
-        createdAt: result.rows[0].created_at,
+        createdAt: result[0]!.created_at,
       };
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof SendMessageError) throw error;
 
     if (isPgError(error)) {
-      if (
-        error.fields.code === "23503" &&
-        error.fields.constraint === "messages_referenced_post_id_fkey"
-      ) {
+      const constraint = error.constraint || error.constraint_name;
+      if (error.code === "23503" && constraint === "messages_referenced_post_id_fkey") {
         throw new SendMessageError("POST_NOT_FOUND", "Referenced post does not exist.", 404);
       }
-      if (error.fields.code === "22P02") {
+      if (error.code === "22P02") {
         throw new SendMessageError("MISSING_INPUT", "Invalid ID format.", 400);
       }
     }
 
-    throw new SendMessageError(
-      "INTERNAL_ERROR",
-      "Internal server error sending message.",
-      500,
-    );
+    throw new SendMessageError("INTERNAL_ERROR", "Internal server error sending message.", 500);
   }
 }

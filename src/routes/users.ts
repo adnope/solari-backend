@@ -1,5 +1,5 @@
-import { Hono } from "@hono/hono";
-import { AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { Hono } from "hono";
+import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 import { updateProfile, UpdateProfileError } from "../usecases/users/update_profile.ts";
 import { deleteAccount, DeleteAccountError } from "../usecases/users/delete_account.ts";
 
@@ -46,14 +46,13 @@ usersRouter.patch("/users/me", requireAuth, async (c) => {
     );
   } catch (error) {
     if (error instanceof UpdateProfileError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
+      {
+        error: { type: "INTERNAL_ERROR", message: "Internal server error." },
+      },
       500,
     );
   }
@@ -68,14 +67,13 @@ usersRouter.delete("/users/me", requireAuth, async (c) => {
     return c.json({ message: "Account deleted successfully." }, 200);
   } catch (error) {
     if (error instanceof DeleteAccountError) {
-      return c.json(
-        { error: { type: error.type, message: error.message } },
-        error.statusCode,
-      );
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 
     return c.json(
-      { error: { type: "INTERNAL_ERROR", message: "Internal server error." } },
+      {
+        error: { type: "INTERNAL_ERROR", message: "Internal server error." },
+      },
       500,
     );
   }
