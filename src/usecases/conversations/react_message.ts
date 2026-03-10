@@ -1,6 +1,7 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
+import { getFileUrl } from "../../storage/minio.ts";
+import { sendPushNotification } from "../../utils/fcm.ts";
 import { isPgError } from "../postgres_error.ts";
 
 export type ReactMessageInput = {
@@ -54,13 +55,14 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
     throw new ReactMessageError("INVALID_EMOJI", "Reaction must be a single valid emoji.", 400);
   }
 
-  const reactionId = v7();
+  const reactionId = Bun.randomUUIDv7();
 
   try {
-    return await withDb(async (client) => {
-      const authCheckResult = await client<{ exists: boolean }[]>`
-        SELECT EXISTS (
-          SELECT 1 FROM messages m
+    const { reactionResult, pushData } = await withDb(async (client) => {
+      return await client.begin(async (tx) => {
+        const msgResult = await tx<{ sender_id: string; conversation_id: string }[]>`
+          SELECT m.sender_id, m.conversation_id
+          FROM messages m
           JOIN conversations c ON c.id = m.conversation_id
           WHERE m.id = ${input.messageId}
             AND (
@@ -68,33 +70,88 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
               OR
               (c.user_high = ${input.userId} AND (c.user_high_cleared_at IS NULL OR m.created_at >= c.user_high_cleared_at))
             )
-        ) AS exists
-      `;
+          LIMIT 1
+        `;
 
-      if (!authCheckResult[0]!.exists) {
-        throw new ReactMessageError(
-          "UNAUTHORIZED_OR_NOT_FOUND",
-          "Message not found, deleted, or you are not authorized to react to it.",
-          404,
-        );
+        if (msgResult.length === 0) {
+          throw new ReactMessageError(
+            "UNAUTHORIZED_OR_NOT_FOUND",
+            "Message not found, deleted, or you are not authorized to react to it.",
+            404,
+          );
+        }
+
+        const msg = msgResult[0]!;
+
+        const result = await tx<{ id: string; created_at: Date }[]>`
+          INSERT INTO message_reactions (id, message_id, user_id, emoji)
+          VALUES (${reactionId}, ${input.messageId}, ${input.userId}, ${trimmedEmoji})
+          ON CONFLICT (message_id, user_id)
+          DO UPDATE SET emoji = EXCLUDED.emoji
+          RETURNING id, created_at
+        `;
+
+        const returnData = {
+          reactionResult: {
+            id: result[0]!.id,
+            messageId: input.messageId,
+            userId: input.userId,
+            emoji: trimmedEmoji,
+            createdAt: result[0]!.created_at,
+          },
+          pushData: null as any,
+        };
+
+        if (msg.sender_id !== input.userId) {
+          const reactorResult = await tx<
+            { username: string; display_name: string | null; avatar_key: string | null }[]
+          >`
+            SELECT username, display_name, avatar_key FROM users WHERE id = ${input.userId} LIMIT 1
+          `;
+          const reactorName =
+            reactorResult[0]?.display_name || reactorResult[0]?.username || "Someone";
+          const reactorAvatarKey = reactorResult[0]?.avatar_key;
+
+          const devicesResult = await tx<{ device_token: string }[]>`
+            SELECT device_token FROM user_devices WHERE user_id = ${msg.sender_id}
+          `;
+          const tokens = devicesResult.map((row) => row.device_token);
+
+          returnData.pushData = {
+            tokens,
+            reactorName,
+            reactorAvatarKey,
+            conversationId: msg.conversation_id,
+          };
+        }
+
+        return returnData;
+      });
+    });
+
+    if (pushData && pushData.tokens.length > 0) {
+      const title = "New Message Reaction";
+      const body = `${pushData.reactorName} reacted ${trimmedEmoji} to your message.`;
+
+      let avatarUrl = "";
+      if (pushData.reactorAvatarKey) {
+        avatarUrl = await getFileUrl(pushData.reactorAvatarKey);
       }
 
-      const result = await client<{ id: string; created_at: Date }[]>`
-        INSERT INTO message_reactions (id, message_id, user_id, emoji)
-        VALUES (${reactionId}, ${input.messageId}, ${input.userId}, ${trimmedEmoji})
-        ON CONFLICT (message_id, user_id)
-        DO UPDATE SET emoji = EXCLUDED.emoji
-        RETURNING id, created_at
-      `;
-
-      return {
-        id: result[0]!.id,
-        messageId: input.messageId,
-        userId: input.userId,
-        emoji: trimmedEmoji,
-        createdAt: result[0]!.created_at,
+      const extraData = {
+        conversationId: pushData.conversationId,
+        messageId: reactionResult.messageId,
+        avatarUrl: avatarUrl,
       };
-    });
+
+      Promise.allSettled(
+        pushData.tokens.map((token: string) =>
+          sendPushNotification(token, title, body, "NEW_MESSAGE_REACTION", extraData),
+        ),
+      ).catch(console.error);
+    }
+
+    return reactionResult;
   } catch (error: any) {
     if (error instanceof ReactMessageError) throw error;
 

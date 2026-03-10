@@ -1,8 +1,8 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
 import { uploadFile } from "../../storage/minio.ts";
+import { generateThumbnail } from "../../utils/thumbnail.ts";
+import { isPgError } from "../postgres_error.ts";
 
 export type UploadPostInput = {
   authorId: string;
@@ -26,6 +26,7 @@ export type UploadPostResult = {
   createdAt: Date;
   media: {
     objectKey: string;
+    thumbnailKey: string;
     mediaType: string;
     width: number;
     height: number;
@@ -90,12 +91,24 @@ function validatePostInput(input: UploadPostInput) {
 export async function uploadPost(input: UploadPostInput): Promise<UploadPostResult> {
   validatePostInput(input);
 
-  const postId = v7();
+  const postId = Bun.randomUUIDv7();
   const fileExtension = input.contentType.split("/")[1] || "bin";
+
   const objectKey = `posts/${postId}.${fileExtension}`;
+  const thumbnailKey = `posts/${postId}_thumb.webp`;
+
+  let thumbBuffer: Uint8Array;
+  try {
+    thumbBuffer = await generateThumbnail(input.buffer, input.mediaType);
+  } catch (error) {
+    throw new UploadPostError("INVALID_MEDIA", "Failed to process media file.", 400);
+  }
 
   try {
-    await uploadFile(objectKey, input.buffer, input.contentType);
+    await Promise.all([
+      uploadFile(objectKey, input.buffer, input.contentType),
+      uploadFile(thumbnailKey, thumbBuffer, "image/webp"),
+    ]);
   } catch (_error) {
     throw new UploadPostError("STORAGE_ERROR", "Failed to upload media to storage.", 502);
   }
@@ -127,11 +140,11 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
 
         await tx`
           INSERT INTO post_media (
-            post_id, media_type, object_key, content_type,
+            post_id, media_type, object_key, thumbnail_key, content_type,
             byte_size, duration_ms, width, height
           )
           VALUES (
-            ${postId}, ${input.mediaType}, ${objectKey}, ${input.contentType},
+            ${postId}, ${input.mediaType}, ${objectKey}, ${thumbnailKey}, ${input.contentType},
             ${input.byteSize}, ${input.durationMs || null}, ${input.width}, ${input.height}
           )
         `;
@@ -165,6 +178,7 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
           createdAt: postResult[0]!.created_at,
           media: {
             objectKey: objectKey,
+            thumbnailKey: thumbnailKey,
             mediaType: input.mediaType,
             width: input.width,
             height: input.height,

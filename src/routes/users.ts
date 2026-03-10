@@ -1,10 +1,12 @@
 import { Hono } from "hono";
-import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
-import { updateProfile, UpdateProfileError } from "../usecases/users/update_profile.ts";
+import { requireAuth, type AuthVariables } from "../middleware/require_auth.ts";
 import { deleteAccount, DeleteAccountError } from "../usecases/users/delete_account.ts";
+import { registerDevice, RegisterDeviceError } from "../usecases/users/register_device.ts";
+import { updateProfile, UpdateProfileError } from "../usecases/users/update_profile.ts";
 
 const usersRouter = new Hono<{ Variables: AuthVariables }>();
 
+// Update user profile
 usersRouter.patch("/users/me", requireAuth, async (c) => {
   try {
     const userId = c.get("authUserId");
@@ -58,6 +60,7 @@ usersRouter.patch("/users/me", requireAuth, async (c) => {
   }
 });
 
+// Delete account
 usersRouter.delete("/users/me", requireAuth, async (c) => {
   try {
     const userId = c.get("authUserId");
@@ -76,6 +79,42 @@ usersRouter.delete("/users/me", requireAuth, async (c) => {
       },
       500,
     );
+  }
+});
+
+// Register a device for push notifications
+usersRouter.post("/users/me/devices", requireAuth, async (c) => {
+  try {
+    const userId = c.get("authUserId");
+    const body = await c.req.json<{
+      device_token?: string;
+      platform?: string;
+    }>();
+
+    if (!body.device_token || !body.platform) {
+      return c.json(
+        { error: { type: "MISSING_INPUT", message: "device_token and platform are required." } },
+        400,
+      );
+    }
+
+    await registerDevice({
+      userId,
+      deviceToken: body.device_token,
+      platform: body.platform,
+    });
+
+    return c.json({ message: "Device registered successfully." }, 200);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return c.json({ error: { type: "INVALID_JSON", message: "Invalid JSON body." } }, 400);
+    }
+
+    if (error instanceof RegisterDeviceError) {
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
+    }
+
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
   }
 });
 

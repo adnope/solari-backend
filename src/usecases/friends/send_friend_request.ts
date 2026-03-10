@@ -1,6 +1,7 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
+import { getFileUrl } from "../../storage/minio.ts";
+import { sendPushNotification } from "../../utils/fcm.ts";
 import { isPgError } from "../postgres_error.ts";
 
 export type FriendRequestResult = {
@@ -84,8 +85,17 @@ export async function sendFriendRequest(
   const normalizedIdentifier = normalizeIdentifier(identifier);
 
   try {
-    return await withDb(async (client) => {
+    const { requestResult, pushData } = await withDb(async (client) => {
       return await client.begin(async (tx) => {
+        const requesterResult = await tx<
+          { username: string; display_name: string | null; avatar_key: string | null }[]
+        >`
+        SELECT username, display_name, avatar_key FROM users WHERE id = ${normalizedRequesterId} LIMIT 1
+        `;
+        const requesterName =
+          requesterResult[0]?.display_name || requesterResult[0]?.username || "Someone";
+        const requesterAvatarKey = requesterResult[0]?.avatar_key;
+
         const receiverResult = await tx`
           SELECT id
           FROM users
@@ -154,7 +164,7 @@ export async function sendFriendRequest(
           );
         }
 
-        const requestId = v7();
+        const requestId = Bun.randomUUIDv7();
 
         const insertResult = await tx`
           INSERT INTO friend_requests (
@@ -179,15 +189,50 @@ export async function sendFriendRequest(
           );
         }
 
-        return mapFriendRequest(row);
+        const devicesResult = await tx<{ device_token: string }[]>`
+          SELECT device_token FROM user_devices WHERE user_id = ${receiver.id}
+        `;
+        const tokens = devicesResult.map((row) => row.device_token);
+
+        return {
+          requestResult: mapFriendRequest(row),
+          pushData: {
+            tokens,
+            requesterName,
+            requesterAvatarKey,
+            requesterId: normalizedRequesterId,
+          },
+        };
       });
     });
+
+    if (pushData.tokens.length > 0) {
+      const title = "New Friend Request";
+      const body = `${pushData.requesterName} sent you a friend request.`;
+
+      let avatarUrl = "";
+      if (pushData.requesterAvatarKey) {
+        avatarUrl = await getFileUrl(pushData.requesterAvatarKey);
+      }
+
+      const extraData = {
+        requesterId: pushData.requesterId,
+        avatarUrl: avatarUrl,
+      };
+
+      Promise.allSettled(
+        pushData.tokens.map((token) =>
+          sendPushNotification(token, title, body, "NEW_FRIEND_REQUEST", extraData),
+        ),
+      ).catch(console.error);
+    }
+
+    return requestResult;
   } catch (error: any) {
     if (error instanceof SendFriendRequestError) {
       throw error;
     }
 
-    // Refactored isPgError check for Bun SQL
     if (isPgError(error) && error.code === "23505") {
       throw new SendFriendRequestError("REQUEST_ALREADY_SENT", "Friend request already sent.", 409);
     }

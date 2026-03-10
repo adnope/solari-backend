@@ -36,6 +36,7 @@ feedRouter.get("/feed", requireAuth, async (c) => {
           },
           media: {
             url: post.media.url,
+            thumbnail_url: post.media.thumbnailUrl,
             media_type: post.media.mediaType,
             width: post.media.width,
             height: post.media.height,

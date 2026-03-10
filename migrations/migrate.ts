@@ -60,12 +60,8 @@ async function applyMigration(client: SQL, filename: string) {
   const sqlPath = join(MIGRATIONS_DIR, filename);
 
   await client.begin(async (tx) => {
-    await tx.file(sqlPath).simple();
-
-    await tx`INSERT INTO schema_migrations(filename) VALUES (${filename})`;
+    await tx.file(sqlPath);
   });
-
-  console.log(`Applied ${filename}`);
 }
 
 async function ensureMinioBucket() {

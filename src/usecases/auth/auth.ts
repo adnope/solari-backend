@@ -1,7 +1,5 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import argon2 from "argon2";
 import { randomBytes } from "node:crypto";
-import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
 import { createAccessToken } from "../../lib/jwt.ts";
 import { isPgError } from "../postgres_error.ts";
@@ -73,7 +71,7 @@ type UserRow = {
 };
 
 type UserAuthRow = UserRow & {
-  password_hash: string;
+  password_hash: string | null;
 };
 
 const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -171,37 +169,41 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
   const email = normalizeEmail(input.email);
   const password = validatePassword(input.password);
 
-  const passwordHash = await argon2.hash(password, {
-    type: argon2.argon2id,
-  });
+  const passwordHash = await Bun.password.hash(password);
 
-  const userId = v7();
+  const userId = Bun.randomUUIDv7();
 
   try {
     return await withDb(async (client) => {
-      const result = await client`
-        INSERT INTO users (
-          id,
-          username,
-          email,
-          password_hash
-        )
-        VALUES (${userId}, ${username}, ${email}, ${passwordHash})
-        RETURNING
-          id,
-          username,
-          email,
-          display_name,
-          avatar_key,
-          created_at
-      `;
+      return await client.begin(async (tx) => {
+        const result = await tx<UserRow[]>`
+          INSERT INTO users (
+            id,
+            username,
+            email
+          )
+          VALUES (${userId}, ${username}, ${email})
+          RETURNING
+            id,
+            username,
+            email,
+            display_name,
+            avatar_key,
+            created_at
+        `;
 
-      const row = result[0] as UserRow | undefined;
-      if (!row) {
-        throw new AuthError("INTERNAL_ERROR", "Failed to create user.", 500);
-      }
+        const row = result[0];
+        if (!row) {
+          throw new AuthError("INTERNAL_ERROR", "Failed to create user.", 500);
+        }
 
-      return mapUser(row);
+        await tx`
+          INSERT INTO user_passwords (user_id, password_hash)
+          VALUES (${userId}, ${passwordHash})
+        `;
+
+        return mapUser(row);
+      });
     });
   } catch (error: any) {
     if (error instanceof AuthError) {
@@ -229,26 +231,35 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
 
   try {
     return await withDb(async (client) => {
-      const userResult = await client`
+      const userResult = await client<UserAuthRow[]>`
         SELECT
-          id,
-          username,
-          email,
-          display_name,
-          avatar_key,
-          password_hash,
-          created_at
-        FROM users
-        WHERE username = ${identifier} OR email = ${identifier}
+          u.id,
+          u.username,
+          u.email,
+          u.display_name,
+          u.avatar_key,
+          up.password_hash,
+          u.created_at
+        FROM users u
+        LEFT JOIN user_passwords up ON up.user_id = u.id
+        WHERE u.username = ${identifier} OR u.email = ${identifier}
         LIMIT 1
       `;
 
-      const row = userResult[0] as UserAuthRow | undefined;
+      const row = userResult[0];
       if (!row) {
         throw new AuthError("INVALID_CREDENTIALS", "Invalid username/email or password.", 401);
       }
 
-      const ok = await argon2.verify(row.password_hash, password);
+      if (!row.password_hash) {
+        throw new AuthError(
+          "INVALID_CREDENTIALS",
+          "Please sign in using your linked third-party account.",
+          401,
+        );
+      }
+
+      const ok = await Bun.password.verify(password, row.password_hash);
       if (!ok) {
         throw new AuthError("INVALID_CREDENTIALS", "Invalid username/email or password.", 401);
       }
@@ -256,7 +267,7 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
       const now = new Date();
       const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS);
 
-      const sessionId = v7();
+      const sessionId = Bun.randomUUIDv7();
       const refreshToken = generateSecureToken();
       const refreshTokenHash = sha256Hex(refreshToken);
 
@@ -294,7 +305,7 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
   }
 }
 
-export async function logOut(sessionId: string): Promise<boolean> {
+export async function logOut(sessionId: string, deviceToken?: string): Promise<boolean> {
   sessionId = sessionId.trim();
 
   if (!sessionId) {
@@ -303,7 +314,7 @@ export async function logOut(sessionId: string): Promise<boolean> {
 
   try {
     return await withDb(async (client) => {
-      const result = await client`
+      const result = await client<{ id: string }[]>`
         DELETE FROM sessions
         WHERE id = ${sessionId}
         RETURNING id
@@ -311,6 +322,16 @@ export async function logOut(sessionId: string): Promise<boolean> {
 
       if (result.length === 0) {
         throw new AuthError("SESSION_NOT_FOUND", "Session not found.", 404);
+      }
+
+      if (deviceToken) {
+        const normalizedToken = deviceToken.trim();
+        if (normalizedToken) {
+          await client`
+            DELETE FROM user_devices
+            WHERE device_token = ${normalizedToken}
+          `;
+        }
       }
 
       return true;
@@ -333,7 +354,7 @@ export async function me(userId: string): Promise<PublicUser> {
 
   try {
     return await withDb(async (client) => {
-      const result = await client`
+      const result = await client<UserRow[]>`
         SELECT
           id,
           username,
@@ -346,7 +367,7 @@ export async function me(userId: string): Promise<PublicUser> {
         LIMIT 1
       `;
 
-      const row = result[0] as UserRow | undefined;
+      const row = result[0];
       if (!row) {
         throw new AuthError("USER_NOT_FOUND", "User not found.", 404);
       }

@@ -37,6 +37,13 @@ Create a `.env` file in the root directory of the project and define the followi
 | `SERVER_PORT` | The port the Deno API server will listen on. | `5050` |
 | `JWT_SECRET` | Secret key used to sign JSON Web Tokens. | - |
 | `ACCESS_TOKEN_EXPIRES_IN`| Expiration time for JWTs (e.g., `15m`, `7d`). | - |
+| `FCM_PROJECT_ID`| Firebase cloud messaging project ID, used for push notifications. | - |
+
+Create a `firebase-service-account.json` file in the root directory. This file can be obtained by:
+- Going to Firebase **Project settings**
+- Open the tab **Service accounts**
+- Choose **Generate new private key** with **Node.js** selected
+- A json file will be downloaded, rename it to `firebase-service-account.json`
 
 ---
 
@@ -49,11 +56,11 @@ docker compose up -d
 ## 3. Initialize database & storage
 Run the migration script to set up the necessary database tables and create the MinIO storage bucket:
 ```bash
-bun run migrate
+bun migrate
 ```
 
 ## 4. Run the server
 Start the development server. The backend will listen on the SERVER_PORT specified in your .env file:
 ```bash
-bun run dev
+bun dev
 ```

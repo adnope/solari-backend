@@ -1,5 +1,7 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
+import { getFileUrl } from "../../storage/minio.ts";
+import { sendPushNotification } from "../../utils/fcm.ts";
 
 export type AcceptFriendRequestResult = {
   id: string;
@@ -59,8 +61,7 @@ export async function acceptFriendRequest(
   requestId: string,
 ): Promise<AcceptFriendRequestResult> {
   try {
-    return await withDb(async (client) => {
-      // Bun natively handles the BEGIN, COMMIT, and ROLLBACK logic for us!
+    const { result, pushData } = await withDb(async (client) => {
       return await client.begin(async (tx) => {
         const requestResult = await tx`
           SELECT id, requester_id, receiver_id, created_at
@@ -105,9 +106,49 @@ export async function acceptFriendRequest(
           WHERE id = ${requestId}
         `;
 
-        return mapAcceptFriendRequest(requestRow);
+        const acceptorResult = await tx<
+          { username: string; display_name: string | null; avatar_key: string | null }[]
+        >`
+          SELECT username, display_name, avatar_key FROM users WHERE id = ${receiverId} LIMIT 1
+        `;
+        const acceptorName =
+          acceptorResult[0]?.display_name || acceptorResult[0]?.username || "Someone";
+        const acceptorAvatarKey = acceptorResult[0]?.avatar_key;
+
+        const devicesResult = await tx<{ device_token: string }[]>`
+          SELECT device_token FROM user_devices WHERE user_id = ${requestRow.requester_id}
+        `;
+        const tokens = devicesResult.map((row) => row.device_token);
+
+        return {
+          result: mapAcceptFriendRequest(requestRow),
+          pushData: { tokens, acceptorName, acceptorAvatarKey, acceptorId: receiverId },
+        };
       });
     });
+
+    if (pushData.tokens.length > 0) {
+      const title = "Friend Request Accepted";
+      const body = `${pushData.acceptorName} accepted your friend request.`;
+
+      let avatarUrl = "";
+      if (pushData.acceptorAvatarKey) {
+        avatarUrl = await getFileUrl(pushData.acceptorAvatarKey);
+      }
+
+      const extraData = {
+        acceptorId: pushData.acceptorId,
+        avatarUrl: avatarUrl,
+      };
+
+      Promise.allSettled(
+        pushData.tokens.map((token) =>
+          sendPushNotification(token, title, body, "FRIEND_REQUEST_ACCEPTED", extraData),
+        ),
+      ).catch(console.error);
+    }
+
+    return result;
   } catch (error) {
     if (error instanceof AcceptFriendRequestError) {
       throw error;

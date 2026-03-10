@@ -160,7 +160,17 @@ authRouter.post("/sessions", async (c) => {
 authRouter.delete("/sessions/current", requireAuth, async (c) => {
   try {
     const sessionId = c.get("authSessionId");
-    const deleted = await logOut(sessionId);
+
+    let deviceToken: string | undefined = undefined;
+    const contentType = c.req.header("Content-Type") || "";
+    if (contentType.includes("application/json")) {
+      const body = await c.req
+        .json<{ device_token?: string }>()
+        .catch(() => ({ device_token: undefined }));
+      deviceToken = body.device_token;
+    }
+
+    const deleted = await logOut(sessionId, deviceToken);
 
     return c.json(
       {

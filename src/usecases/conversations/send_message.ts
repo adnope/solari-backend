@@ -1,6 +1,7 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
+import { getFileUrl } from "../../storage/minio.ts";
+import { sendPushNotification } from "../../utils/fcm.ts";
 import { isPgError } from "../postgres_error.ts";
 
 export type SendMessageInput = {
@@ -50,64 +51,109 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     throw new SendMessageError("EMPTY_CONTENT", "Message content cannot be empty.", 400);
   }
 
-  const messageId = v7();
+  const messageId = Bun.randomUUIDv7();
 
   try {
-    return await withDb(async (client) => {
-      if (input.referencedPostId) {
-        const postCheckResult = await client<{ author_id: string }[]>`
-          SELECT author_id FROM posts WHERE id = ${input.referencedPostId}
+    const { messageResult, pushData } = await withDb(async (client) => {
+      return await client.begin(async (tx) => {
+        if (input.referencedPostId) {
+          const postCheckResult = await tx<{ author_id: string }[]>`
+            SELECT author_id FROM posts WHERE id = ${input.referencedPostId}
+          `;
+
+          if (postCheckResult.length === 0) {
+            throw new SendMessageError("POST_NOT_FOUND", "Referenced post does not exist.", 404);
+          }
+
+          if (postCheckResult[0]!.author_id === input.senderId) {
+            throw new SendMessageError(
+              "CANNOT_REFERENCE_OWN_POST",
+              "You cannot reference your own post in a message.",
+              400,
+            );
+          }
+        }
+
+        const convCheck = await tx<{ user_low: string; user_high: string }[]>`
+          SELECT user_low, user_high FROM conversations WHERE id = ${input.conversationId}
         `;
 
-        if (postCheckResult.length === 0) {
-          throw new SendMessageError("POST_NOT_FOUND", "Referenced post does not exist.", 404);
+        if (convCheck.length === 0) {
+          throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
         }
 
-        if (postCheckResult[0]!.author_id === input.senderId) {
-          throw new SendMessageError(
-            "CANNOT_REFERENCE_OWN_POST",
-            "You cannot reference your own post in a message.",
-            400,
-          );
+        const conv = convCheck[0]!;
+        if (conv.user_low !== input.senderId && conv.user_high !== input.senderId) {
+          throw new SendMessageError("CONVERSATION_NOT_FOUND", "You are not a participant.", 404);
         }
-      }
 
-      const result = await client<{ id: string; created_at: Date }[]>`
-        WITH conv_check AS (
-          SELECT id FROM conversations
-          WHERE id = ${input.conversationId} AND (user_low = ${input.senderId} OR user_high = ${input.senderId})
-        ),
-        inserted_msg AS (
+        const receiverId = conv.user_low === input.senderId ? conv.user_high : conv.user_low;
+
+        const insertResult = await tx<{ created_at: Date }[]>`
           INSERT INTO messages (id, conversation_id, sender_id, content, referenced_post_id)
-          SELECT ${messageId}, id, ${input.senderId}, ${trimmedContent}, ${input.referencedPostId || null}
-          FROM conv_check
-          RETURNING id, created_at
-        ),
-        updated_conv AS (
-          UPDATE conversations
-          SET updated_at = (SELECT created_at FROM inserted_msg)
-          WHERE id = (SELECT id FROM conv_check)
-        )
-        SELECT id, created_at FROM inserted_msg;
-      `;
+          VALUES (${messageId}, ${input.conversationId}, ${input.senderId}, ${trimmedContent}, ${input.referencedPostId || null})
+          RETURNING created_at
+        `;
 
-      if (result.length === 0) {
-        throw new SendMessageError(
-          "CONVERSATION_NOT_FOUND",
-          "Conversation not found or you are not a participant.",
-          404,
-        );
+        await tx`
+          UPDATE conversations
+          SET updated_at = ${insertResult[0]!.created_at}
+          WHERE id = ${input.conversationId}
+        `;
+
+        const senderResult = await tx<
+          { username: string; display_name: string | null; avatar_key: string | null }[]
+        >`
+          SELECT username, display_name, avatar_key FROM users WHERE id = ${input.senderId} LIMIT 1
+        `;
+        const senderName = senderResult[0]?.display_name || senderResult[0]?.username || "Someone";
+        const senderAvatarKey = senderResult[0]?.avatar_key;
+
+        const devicesResult = await tx<{ device_token: string }[]>`
+          SELECT device_token FROM user_devices WHERE user_id = ${receiverId}
+        `;
+        const tokens = devicesResult.map((row) => row.device_token);
+
+        return {
+          messageResult: {
+            id: messageId,
+            conversationId: input.conversationId,
+            senderId: input.senderId,
+            content: trimmedContent,
+            referencedPostId: input.referencedPostId || null,
+            createdAt: insertResult[0]!.created_at,
+          },
+          pushData: { tokens, senderName, senderAvatarKey },
+        };
+      });
+    });
+
+    if (pushData.tokens.length > 0) {
+      const isReply = !!input.referencedPostId;
+      const title = isReply ? "New Post Reply" : "New Message";
+      const body = isReply
+        ? `${pushData.senderName} replied to your post.`
+        : `${pushData.senderName} sent you a new message.`;
+
+      let avatarUrl = "";
+      if (pushData.senderAvatarKey) {
+        avatarUrl = await getFileUrl(pushData.senderAvatarKey);
       }
 
-      return {
-        id: messageId,
+      const extraData = {
         conversationId: input.conversationId,
-        senderId: input.senderId,
-        content: trimmedContent,
-        referencedPostId: input.referencedPostId || null,
-        createdAt: result[0]!.created_at,
+        messageId: messageResult.id,
+        avatarUrl: avatarUrl,
       };
-    });
+
+      Promise.allSettled(
+        pushData.tokens.map((token) =>
+          sendPushNotification(token, title, body, "NEW_MESSAGE", extraData),
+        ),
+      ).catch(console.error);
+    }
+
+    return messageResult;
   } catch (error: any) {
     if (error instanceof SendMessageError) throw error;
 

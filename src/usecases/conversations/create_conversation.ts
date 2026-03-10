@@ -1,5 +1,4 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { v7 } from "uuid";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -53,7 +52,7 @@ export async function createConversation(
   }
 
   const [userLow, userHigh] = [userId, targetUserId].sort();
-  const newConversationId = v7();
+  const newConversationId = Bun.randomUUIDv7();
 
   try {
     return await withDb(async (client) => {

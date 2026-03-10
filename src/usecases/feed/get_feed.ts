@@ -12,6 +12,7 @@ export type FeedAuthor = {
 
 export type FeedMedia = {
   url: string;
+  thumbnailUrl: string;
   mediaType: string;
   width: number;
   height: number;
@@ -59,6 +60,7 @@ type FeedRow = {
   author_avatar_key: string | null;
   media_type: string;
   object_key: string;
+  thumbnail_key: string | null;
   width: number;
   height: number;
   duration_ms: number | null;
@@ -108,6 +110,7 @@ export async function getFeed(
           u.avatar_key AS author_avatar_key,
           pm.media_type,
           pm.object_key,
+          pm.thumbnail_key,
           pm.width,
           pm.height,
           pm.duration_ms
@@ -132,6 +135,7 @@ export async function getFeed(
       const items: FeedPost[] = await Promise.all(
         result.map(async (row) => {
           const signedUrl = await getFileUrl(row.object_key);
+          const thumbnailUrl = row.thumbnail_key ? await getFileUrl(row.thumbnail_key) : signedUrl;
 
           return {
             id: row.id,
@@ -145,6 +149,7 @@ export async function getFeed(
             },
             media: {
               url: signedUrl,
+              thumbnailUrl: thumbnailUrl,
               mediaType: row.media_type,
               width: row.width,
               height: row.height,

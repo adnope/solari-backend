@@ -2,6 +2,7 @@ CREATE EXTENSION IF NOT EXISTS citext;
 
 
 
+-- Store user information
 CREATE TABLE IF NOT EXISTS users (
   id            uuid PRIMARY KEY,
   username      citext NOT NULL UNIQUE,
@@ -9,8 +10,6 @@ CREATE TABLE IF NOT EXISTS users (
 
   display_name  text NULL,
   avatar_key    text NULL,
-
-  password_hash text NOT NULL,
 
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
@@ -26,6 +25,32 @@ CREATE INDEX IF NOT EXISTS idx_users_username
 
 
 
+-- Store passwords for local users
+CREATE TABLE IF NOT EXISTS user_passwords (
+  user_id       uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  password_hash text NOT NULL,
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+
+
+-- Store credentials for users signing up with 3rd party providers
+CREATE TABLE IF NOT EXISTS user_oauth_accounts (
+  id               uuid PRIMARY KEY,
+  user_id          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider         text NOT NULL,
+  provider_user_id text NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT user_oauth_accounts_provider_unique UNIQUE (provider, provider_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_oauth_accounts_user_id
+  ON user_oauth_accounts (user_id);
+
+
+
+-- Store signin sessions
 CREATE TABLE IF NOT EXISTS sessions (
   id                  uuid PRIMARY KEY,
   user_id             uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -46,6 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires_at
 
 
 
+-- Store friend requests from a user to another
 CREATE TABLE IF NOT EXISTS friend_requests (
   id             uuid PRIMARY KEY,
   requester_id   uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -67,6 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_friend_requests_receiver_id
 
 
 
+-- Store friendship between 2 users
 CREATE TABLE IF NOT EXISTS friendships (
   user_low    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   user_high   uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -89,6 +116,7 @@ CREATE INDEX IF NOT EXISTS idx_friendships_user_high
 
 
 
+-- Store posts
 CREATE TABLE IF NOT EXISTS posts (
   id             uuid PRIMARY KEY,
   author_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -105,6 +133,7 @@ CREATE INDEX IF NOT EXISTS idx_posts_author_created_at
 
 
 
+-- Store the media of a post
 CREATE TABLE IF NOT EXISTS post_media (
   post_id        uuid PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
   media_type     text NOT NULL,
@@ -145,6 +174,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_post_media_object_key
 
 
 
+-- Store post visibility (who can see a post)
 CREATE TABLE IF NOT EXISTS post_visibility (
   post_id      uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   viewer_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -158,6 +188,7 @@ CREATE INDEX IF NOT EXISTS idx_post_visibility_viewer_id_post_id
 
 
 
+-- Store reactions to a post
 CREATE TABLE IF NOT EXISTS post_reactions (
   id          uuid PRIMARY KEY,
   post_id     uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -175,6 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_post_reactions_post_id_created_at
 
 
 
+-- Store viewers of a post
 CREATE TABLE IF NOT EXISTS post_views (
   post_id uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -188,6 +220,7 @@ CREATE INDEX IF NOT EXISTS idx_post_views_post_id_viewed_at
 
 
 
+-- Store conversations between 2 users
 CREATE TABLE IF NOT EXISTS conversations (
   id                    uuid PRIMARY KEY,
   user_low              uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -215,6 +248,7 @@ CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated
 
 
 
+-- Store for messages
 CREATE TABLE IF NOT EXISTS messages (
   id                  uuid PRIMARY KEY,
   conversation_id     uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -234,6 +268,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_id_created_at
 
 
 
+-- Reactions store for each message
 CREATE TABLE IF NOT EXISTS message_reactions (
   id          uuid PRIMARY KEY,
   message_id  uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -250,3 +285,18 @@ CREATE TABLE IF NOT EXISTS message_reactions (
 
 CREATE INDEX IF NOT EXISTS idx_message_reactions_message_id
   ON message_reactions(message_id);
+
+
+
+-- Device tokens for sending push notifications
+CREATE TABLE user_devices (
+  id           uuid PRIMARY KEY,
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_token text NOT NULL UNIQUE,
+  platform     text NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_user_devices_user_id
+  ON user_devices(user_id);
