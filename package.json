@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "bun run src/main.ts",
-    "dev": "bun run --hot src/main.ts",
+    "dev": "bun run --watch src/main.ts",
     "migrate": "bun run migrations/migrate.ts",
     "fmt": "prettier --write \"src/**/*.ts\" \"migrations/migrate.ts\""
   },

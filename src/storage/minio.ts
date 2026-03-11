@@ -23,6 +23,13 @@ export const s3Client = new S3Client({
   bucket: minioBucketName,
 });
 
+try {
+  await s3Client.file(".healthcheck").exists();
+  console.log(`[INFO] Connected to MinIO S3 at ${endpoint}`);
+} catch (error) {
+  console.error(`[ERROR] Failed to connect to MinIO at ${endpoint}:`, error);
+}
+
 export async function uploadFile(
   objectKey: string,
   buffer: Uint8Array,

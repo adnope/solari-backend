@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { requireAuth, type AuthVariables } from "../middleware/require_auth.ts";
 import { deleteAccount, DeleteAccountError } from "../usecases/users/delete_account.ts";
+import { getPublicProfile, GetPublicProfileError } from "../usecases/users/get_public_profile.ts";
 import { registerDevice, RegisterDeviceError } from "../usecases/users/register_device.ts";
 import { updateProfile, UpdateProfileError } from "../usecases/users/update_profile.ts";
 
@@ -14,6 +15,9 @@ usersRouter.patch("/users/me", requireAuth, async (c) => {
 
     const email = typeof body["email"] === "string" ? body["email"] : undefined;
     const displayName = typeof body["display_name"] === "string" ? body["display_name"] : undefined;
+
+    const removeDisplayName = body["remove_display_name"] === "true";
+    const removeAvatar = body["remove_avatar"] === "true";
 
     let avatar: { buffer: Uint8Array; contentType: string } | undefined = undefined;
     const avatarFile = body["avatar"];
@@ -29,6 +33,8 @@ usersRouter.patch("/users/me", requireAuth, async (c) => {
       userId,
       email,
       displayName,
+      removeDisplayName,
+      removeAvatar,
       avatar,
     });
 
@@ -115,6 +121,21 @@ usersRouter.post("/users/me/devices", requireAuth, async (c) => {
     }
 
     return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
+  }
+});
+
+// Get user's public profile
+usersRouter.get("/users/public/:username", requireAuth, async (c) => {
+  try {
+    const username = c.req.param("username");
+    const profile = await getPublicProfile(username);
+
+    return c.json({ profile }, 200);
+  } catch (error) {
+    if (error instanceof GetPublicProfileError) {
+      return c.json({ error: { message: error.message } }, error.statusCode);
+    }
+    return c.json({ error: { message: "Internal server error." } }, 500);
   }
 });
 

@@ -6,7 +6,9 @@ import { deleteFile, uploadFile } from "../../storage/minio.ts";
 export type UpdateProfileInput = {
   userId: string;
   email?: string;
-  displayName?: string | null;
+  displayName?: string;
+  removeDisplayName?: boolean;
+  removeAvatar?: boolean;
   avatar?: {
     buffer: Uint8Array;
     contentType: string;
@@ -26,7 +28,6 @@ export type UpdateProfileErrorType =
   | "MISSING_USER"
   | "EMAIL_TAKEN"
   | "INVALID_EMAIL"
-  | "INVALID_DISPLAY_NAME"
   | "STORAGE_ERROR"
   | "INTERNAL_ERROR";
 
@@ -58,7 +59,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
 
         const currentAvatarKey = currentUserResult[0]!.avatar_key;
 
-        if (input.avatar) {
+        if (input.avatar && !input.removeAvatar) {
           const allowedTypes = [
             "image/jpeg",
             "image/png",
@@ -91,32 +92,30 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
 
         if (input.email !== undefined) {
           const trimmedEmail = input.email.trim();
-          const rfc2822Regex =
-            /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
 
-          if (!rfc2822Regex.test(trimmedEmail)) {
-            throw new UpdateProfileError("INVALID_EMAIL", "Invalid email address format.", 400);
-          }
-          updateObj.email = trimmedEmail;
-        }
+          if (trimmedEmail !== "") {
+            const rfc2822Regex =
+              /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
 
-        if (input.displayName !== undefined) {
-          if (input.displayName !== null) {
-            const trimmedName = input.displayName.trim();
-            if (trimmedName === "") {
-              throw new UpdateProfileError(
-                "INVALID_DISPLAY_NAME",
-                "Display name cannot be empty.",
-                400,
-              );
+            if (!rfc2822Regex.test(trimmedEmail)) {
+              throw new UpdateProfileError("INVALID_EMAIL", "Invalid email address format.", 400);
             }
-            updateObj.display_name = trimmedName;
-          } else {
-            updateObj.display_name = null;
+            updateObj.email = trimmedEmail;
           }
         }
 
-        if (newAvatarKey !== undefined) {
+        if (input.removeDisplayName) {
+          updateObj.display_name = null;
+        } else if (input.displayName !== undefined) {
+          const trimmedName = input.displayName.trim();
+          if (trimmedName !== "") {
+            updateObj.display_name = trimmedName;
+          }
+        }
+
+        if (input.removeAvatar) {
+          updateObj.avatar_key = null;
+        } else if (newAvatarKey !== undefined) {
           updateObj.avatar_key = newAvatarKey;
         }
 
@@ -130,7 +129,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
             RETURNING id, username, email, display_name, avatar_key, updated_at
           `;
 
-          if (newAvatarKey && currentAvatarKey) {
+          if (currentAvatarKey && (newAvatarKey || input.removeAvatar)) {
             deleteFile(currentAvatarKey).catch((err) =>
               console.error(`Failed to delete old avatar ${currentAvatarKey}:`, err),
             );
@@ -140,8 +139,8 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
         }
 
         const fallbackResult = await tx<UpdateProfileResult[]>`
-          SELECT id, username, email, display_name, avatar_key, updated_at 
-          FROM users 
+          SELECT id, username, email, display_name, avatar_key, updated_at
+          FROM users
           WHERE id = ${input.userId}
         `;
         return fallbackResult[0]!;

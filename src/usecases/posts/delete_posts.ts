@@ -26,11 +26,15 @@ export async function deletePost(authorId: string, postId: string): Promise<void
     throw new DeletePostError("MISSING_INPUT", "Author ID and Post ID are required.", 400);
   }
 
+  let keysToDelete: string[] = [];
+
   try {
     await withDb(async (client) => {
       await client.begin(async (tx) => {
-        const postResult = await tx<{ author_id: string; object_key: string }[]>`
-          SELECT p.author_id, pm.object_key
+        const postResult = await tx<
+          { author_id: string; object_key: string; thumbnail_key: string | null }[]
+        >`
+          SELECT p.author_id, pm.object_key, pm.thumbnail_key
           FROM posts p
           JOIN post_media pm ON pm.post_id = p.id
           WHERE p.id = ${postId}
@@ -51,15 +55,22 @@ export async function deletePost(authorId: string, postId: string): Promise<void
           );
         }
 
+        keysToDelete = [post.object_key, post.thumbnail_key].filter(Boolean) as string[];
         await tx`DELETE FROM posts WHERE id = ${postId}`;
-
-        try {
-          await deleteFile(post.object_key);
-        } catch (error) {
-          console.error(`Failed to delete MinIO object: ${post.object_key}`, error);
-        }
       });
     });
+
+    if (keysToDelete.length > 0) {
+      Promise.allSettled(
+        keysToDelete.map(async (key) => {
+          try {
+            await deleteFile(key);
+          } catch (error) {
+            console.error(`Failed to delete MinIO object: ${key}`, error);
+          }
+        }),
+      ).catch(console.error);
+    }
   } catch (error: any) {
     if (error instanceof DeletePostError) throw error;
 

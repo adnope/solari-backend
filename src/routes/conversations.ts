@@ -1,26 +1,30 @@
 import { Hono } from "hono";
-import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { requireAuth, type AuthVariables } from "../middleware/require_auth.ts";
 import {
-  clearConversation,
-  ClearConversationError,
+    clearConversation,
+    ClearConversationError,
 } from "../usecases/conversations/clear_conversation.ts";
 import {
-  createConversation,
-  CreateConversationError,
+    createConversation,
+    CreateConversationError,
 } from "../usecases/conversations/create_conversation.ts";
 import {
-  getConversations,
-  GetConversationsError,
+    getConversations,
+    GetConversationsError,
 } from "../usecases/conversations/get_conversations.ts";
 import { reactMessage, ReactMessageError } from "../usecases/conversations/react_message.ts";
 import {
-  removeMessageReaction,
-  RemoveMessageReactionError,
+    removeMessageReaction,
+    RemoveMessageReactionError,
 } from "../usecases/conversations/remove_message_reaction.ts";
 import { sendMessage, SendMessageError } from "../usecases/conversations/send_message.ts";
 import {
-  viewConversationMessages,
-  ViewConversationMessagesError,
+    updateMessageReaction,
+    UpdateMessageReactionError,
+} from "../usecases/conversations/update_message_reaction.ts";
+import {
+    viewConversationMessages,
+    ViewConversationMessagesError,
 } from "../usecases/conversations/view_conversation_messages.ts";
 
 const conversationsRouter = new Hono<{ Variables: AuthVariables }>();
@@ -281,6 +285,49 @@ conversationsRouter.delete("/messages/:messageId/reactions", requireAuth, async 
   } catch (error) {
     if (error instanceof RemoveMessageReactionError) {
       return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
+    }
+
+    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
+  }
+});
+
+// Update an existing message reaction
+conversationsRouter.patch("/messages/:messageId/reactions", requireAuth, async (c) => {
+  try {
+    const userId = c.get("authUserId");
+    const messageId = c.req.param("messageId");
+    const body = await c.req.json();
+
+    if (!messageId) {
+      return c.json({ error: { type: "MISSING_INPUT", message: "Message ID is required." } }, 400);
+    }
+
+    const result = await updateMessageReaction({
+      userId,
+      messageId,
+      emoji: body.emoji,
+    });
+
+    return c.json(
+      {
+        message: "Reaction updated successfully.",
+        data: {
+          id: result.id,
+          message_id: result.messageId,
+          user_id: result.userId,
+          emoji: result.emoji,
+          created_at: result.createdAt,
+        },
+      },
+      200,
+    );
+  } catch (error) {
+    if (error instanceof UpdateMessageReactionError) {
+      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
+    }
+
+    if (error instanceof SyntaxError) {
+      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
     }
 
     return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);

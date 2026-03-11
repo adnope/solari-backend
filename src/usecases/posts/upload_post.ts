@@ -120,7 +120,7 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
           const uniqueViewerIds = [...new Set(input.viewerIds)];
 
           const userCheckResult = await tx<{ count: bigint }[]>`
-            SELECT COUNT(id) FROM users WHERE id = ANY(${uniqueViewerIds}::uuid[])
+            SELECT COUNT(id) FROM users WHERE id IN ${tx(uniqueViewerIds)}
           `;
 
           if (Number(userCheckResult[0]!.count) !== uniqueViewerIds.length) {
@@ -166,7 +166,7 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
               UNION
               SELECT user_low AS friend_id FROM friendships WHERE user_high = ${input.authorId}
             ) AS f
-            WHERE friend_id = ANY(${input.viewerIds}::uuid[])
+            WHERE friend_id IN ${tx(input.viewerIds)}
           `;
         }
 
@@ -187,6 +187,7 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
       });
     });
   } catch (error: any) {
+    console.log(`upload post use case error: ${error}`);
     if (error instanceof UploadPostError) {
       throw error;
     }

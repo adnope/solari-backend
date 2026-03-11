@@ -21,6 +21,13 @@ export const sql = new SQL({
   max: poolSize,
 });
 
+try {
+  await sql`SELECT 1`;
+  console.log(`[INFO] Connected to PostgreSQL at ${host}:${port}/${db}`);
+} catch (error) {
+  console.error(`[ERROR] Failed to connect to PostgreSQL at ${host}:${port}:`, error);
+}
+
 export async function withDb<T>(fn: (client: SQL) => Promise<T>): Promise<T> {
   return await fn(sql);
 }
