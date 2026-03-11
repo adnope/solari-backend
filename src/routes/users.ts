@@ -1,5 +1,5 @@
-import { Hono } from "hono";
-import { requireAuth, type AuthVariables } from "../middleware/require_auth.ts";
+import { Hono } from "@hono/hono";
+import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 import { deleteAccount, DeleteAccountError } from "../usecases/users/delete_account.ts";
 import { getPublicProfile, GetPublicProfileError } from "../usecases/users/get_public_profile.ts";
 import { registerDevice, RegisterDeviceError } from "../usecases/users/register_device.ts";

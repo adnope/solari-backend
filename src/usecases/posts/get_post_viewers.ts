@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -68,14 +68,14 @@ export async function getPostViewers(
 
   try {
     return await withDb(async (client) => {
-      const authCheckResult = await client<{ exists: boolean }[]>`
+      const authCheckResult = await client.queryObject<{ exists: boolean }>`
         SELECT EXISTS (
           SELECT 1 FROM posts
           WHERE id = ${postId} AND author_id = ${authorId}
         ) AS exists
       `;
 
-      if (!authCheckResult[0]!.exists) {
+      if (!authCheckResult.rows[0]?.exists) {
         throw new GetPostViewersError(
           "UNAUTHORIZED",
           "You are not authorized to view this post's viewers (only the author can), or it does not exist.",
@@ -83,7 +83,7 @@ export async function getPostViewers(
         );
       }
 
-      const result = await client<ViewerRow[]>`
+      const result = await client.queryObject<ViewerRow>`
         SELECT
           pv.viewed_at,
           u.id AS user_id,
@@ -98,7 +98,7 @@ export async function getPostViewers(
         LIMIT ${normalizedLimit}
       `;
 
-      const items: PostViewerUser[] = result.map((row) => ({
+      const items: PostViewerUser[] = result.rows.map((row) => ({
         id: row.user_id,
         username: row.username,
         displayName: row.display_name,
@@ -113,7 +113,7 @@ export async function getPostViewers(
         nextCursor,
       };
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof GetPostViewersError) throw error;
 
     if (isPgError(error) && error.code === "22P02") {

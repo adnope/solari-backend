@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 
 export type CancelOrRejectFriendRequestErrorType =
@@ -36,15 +36,18 @@ export async function cancelOrRejectFriendRequest(
 ): Promise<void> {
   try {
     return await withDb(async (client) => {
-      await client.begin(async (tx) => {
-        const requestResult = await tx`
+      const tx = client.createTransaction("cancel_reject_tx");
+      await tx.begin();
+
+      try {
+        const requestResult = await tx.queryObject<FriendRequestRow>`
           SELECT id, requester_id, receiver_id, created_at
           FROM friend_requests
           WHERE id = ${requestId}
           LIMIT 1
         `;
 
-        const requestRow = requestResult[0] as FriendRequestRow | undefined;
+        const requestRow = requestResult.rows[0];
         if (!requestRow) {
           throw new CancelOrRejectFriendRequestError(
             "REQUEST_NOT_FOUND",
@@ -54,7 +57,7 @@ export async function cancelOrRejectFriendRequest(
         }
 
         if (requestRow.requester_id === userId || requestRow.receiver_id === userId) {
-          await tx`
+          await tx.queryObject`
             DELETE FROM friend_requests
             WHERE id = ${requestId}
           `;
@@ -65,7 +68,12 @@ export async function cancelOrRejectFriendRequest(
             403,
           );
         }
-      });
+
+        await tx.commit();
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      }
     });
   } catch (error) {
     if (error instanceof CancelOrRejectFriendRequestError) {

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono } from "@hono/hono";
 import type { AuthVariables } from "../middleware/require_auth.ts";
 import authRouter from "./auth.ts";
 import conversationsRouter from "./conversations.ts";

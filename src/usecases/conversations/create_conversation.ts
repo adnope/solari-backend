@@ -1,4 +1,5 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { v7 } from "@std/uuid";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -36,27 +37,23 @@ export async function createConversation(
   targetUserId: string,
 ): Promise<CreateConversationResult> {
   if (!userId || !targetUserId) {
-    throw new CreateConversationError(
-      "MISSING_INPUT",
-      "User ID and Target User ID are required.",
-      400,
-    );
+    throw new CreateConversationError("MISSING_INPUT", "User IDs are required.", 400);
   }
 
   if (userId === targetUserId) {
     throw new CreateConversationError(
       "CANNOT_CHAT_WITH_SELF",
-      "You cannot create a conversation with yourself.",
+      "You cannot chat with yourself.",
       400,
     );
   }
 
   const [userLow, userHigh] = [userId, targetUserId].sort();
-  const newConversationId = Bun.randomUUIDv7();
+  const newConversationId = v7.generate();
 
   try {
     return await withDb(async (client) => {
-      const result = await client<CreateConversationResult[]>`
+      const result = await client.queryObject<CreateConversationResult>`
         WITH new_conv AS (
           INSERT INTO conversations (id, user_low, user_high)
           VALUES (${newConversationId}, ${userLow}, ${userHigh})
@@ -71,24 +68,18 @@ export async function createConversation(
         LIMIT 1;
       `;
 
-      return result[0]!;
+      return result.rows[0]!;
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof CreateConversationError) throw error;
-
     if (isPgError(error)) {
       if (error.code === "23503") {
         throw new CreateConversationError("USER_NOT_FOUND", "Target user does not exist.", 404);
       }
       if (error.code === "22P02") {
-        throw new CreateConversationError("USER_NOT_FOUND", "Invalid user ID format.", 400);
+        throw new CreateConversationError("USER_NOT_FOUND", "Invalid ID format.", 400);
       }
     }
-
-    throw new CreateConversationError(
-      "INTERNAL_ERROR",
-      "Internal server error creating conversation.",
-      500,
-    );
+    throw new CreateConversationError("INTERNAL_ERROR", "Error creating conversation.", 500);
   }
 }

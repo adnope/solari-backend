@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 import { deleteFile } from "../../storage/minio.ts";
@@ -22,40 +22,47 @@ export async function deleteAccount(userId: string): Promise<void> {
 
   try {
     await withDb(async (client) => {
-      await client.begin(async (tx) => {
-        const userResult = await tx<{ avatar_key: string | null }[]>`
+      const tx = client.createTransaction("delete_account_tx");
+      await tx.begin();
+
+      try {
+        const userResult = await tx.queryObject<{ avatar_key: string | null }>`
           SELECT avatar_key FROM users WHERE id = ${userId} FOR UPDATE
         `;
 
-        if (userResult.length === 0) {
+        if (userResult.rows.length === 0) {
           throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
         }
 
-        if (userResult[0]!.avatar_key) {
-          keysToDelete.push(userResult[0]!.avatar_key);
+        if (userResult.rows[0].avatar_key) {
+          keysToDelete.push(userResult.rows[0].avatar_key);
         }
 
-        const mediaResult = await tx<{ object_key: string }[]>`
+        const mediaResult = await tx.queryObject<{ object_key: string }>`
           SELECT pm.object_key
           FROM post_media pm
           JOIN posts p ON p.id = pm.post_id
           WHERE p.author_id = ${userId}
         `;
 
-        for (const row of mediaResult) {
+        for (const row of mediaResult.rows) {
           keysToDelete.push(row.object_key);
         }
 
-        await tx`DELETE FROM users WHERE id = ${userId}`;
-      });
+        await tx.queryObject`DELETE FROM users WHERE id = ${userId}`;
+        await tx.commit();
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      }
     });
 
     if (keysToDelete.length > 0) {
       await Promise.allSettled(
         keysToDelete.map((key) =>
           deleteFile(key).catch((err) =>
-            console.error(`Failed to delete orphaned MinIO object: ${key}`, err),
-          ),
+            console.error(`Failed to delete orphaned MinIO object: ${key}`, err)
+          )
         ),
       );
     }

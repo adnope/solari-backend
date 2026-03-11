@@ -1,16 +1,16 @@
-import { Hono } from "hono";
+import { Hono } from "@hono/hono";
 import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
-import { uploadPost, UploadPostError } from "../usecases/posts/upload_post.ts";
-import { extractMediaMetadata } from "../utils/media_parser.ts";
-import { deletePost, DeletePostError } from "../usecases/posts/delete_posts.ts";
-import { sendReaction, SendReactionError } from "../usecases/posts/send_reaction.ts";
+import { deletePost, DeletePostError } from "../usecases/posts/delete_post.ts";
 import { deleteReaction, DeleteReactionError } from "../usecases/posts/delete_reaction.ts";
+import { getPostViewers, GetPostViewersError } from "../usecases/posts/get_post_viewers.ts";
+import { reactPost, ReactPostError } from "../usecases/posts/react_post.ts";
+import { uploadPost, UploadPostError } from "../usecases/posts/upload_post.ts";
+import { viewPost, ViewPostError } from "../usecases/posts/view_post.ts";
 import {
   viewPostReactions,
   ViewPostReactionsError,
 } from "../usecases/posts/view_post_reactions.ts";
-import { viewPost, ViewPostError } from "../usecases/posts/view_post.ts";
-import { getPostViewers, GetPostViewersError } from "../usecases/posts/get_post_viewers.ts";
+import { extractMediaMetadata } from "../utils/media_parser.ts";
 
 const postsRouter = new Hono<{
   Variables: AuthVariables;
@@ -187,7 +187,7 @@ postsRouter.post("/posts/:postId/reactions", requireAuth, async (c) => {
     const postId = c.req.param("postId");
     const body = await c.req.json();
 
-    const result = await sendReaction({
+    const result = await reactPost({
       userId,
       postId,
       emoji: body.emoji,
@@ -209,7 +209,7 @@ postsRouter.post("/posts/:postId/reactions", requireAuth, async (c) => {
       201,
     );
   } catch (error) {
-    if (error instanceof SendReactionError) {
+    if (error instanceof ReactPostError) {
       return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
     }
 

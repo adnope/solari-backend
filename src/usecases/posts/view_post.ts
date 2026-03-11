@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -27,18 +27,18 @@ export async function viewPost(viewerId: string, postId: string): Promise<void> 
 
   try {
     await withDb(async (client) => {
-      const authCheckResult = await client<{ author_id: string; is_visible: boolean }[]>`
+      const authCheckResult = await client.queryObject<{ author_id: string; is_visible: boolean }>`
         SELECT p.author_id, (pv.viewer_id IS NOT NULL) AS is_visible
         FROM posts p
         LEFT JOIN post_visibility pv ON pv.post_id = p.id AND pv.viewer_id = ${viewerId}
         WHERE p.id = ${postId}
       `;
 
-      if (authCheckResult.length === 0) {
+      if (authCheckResult.rows.length === 0) {
         throw new ViewPostError("POST_NOT_FOUND", "Post not found.", 404);
       }
 
-      const post = authCheckResult[0]!;
+      const post = authCheckResult.rows[0]!;
       if (post.author_id === viewerId) {
         return;
       }
@@ -47,13 +47,13 @@ export async function viewPost(viewerId: string, postId: string): Promise<void> 
         throw new ViewPostError("UNAUTHORIZED", "You are not authorized to view this post.", 403);
       }
 
-      await client`
+      await client.queryObject`
         INSERT INTO post_views (post_id, user_id)
         VALUES (${postId}, ${viewerId})
         ON CONFLICT (post_id, user_id) DO NOTHING
       `;
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof ViewPostError) throw error;
 
     if (isPgError(error) && error.code === "22P02") {

@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 
 export type ViewFriendsErrorType =
@@ -77,7 +77,7 @@ export async function viewFriends(
     const pagination = normalizePagination(offset, limit);
 
     return await withDb(async (client) => {
-      const result = await client<FriendRow[]>`
+      const result = await client.queryObject<FriendRow>`
         SELECT
           u.id,
           u.username,
@@ -94,7 +94,7 @@ export async function viewFriends(
       `;
 
       return {
-        items: result.map((row) => mapFriend(row as FriendRow)),
+        items: result.rows.map(mapFriend),
         offset: pagination.offset,
         limit: pagination.limit,
       };

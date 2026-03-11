@@ -1,4 +1,5 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { v7 } from "@std/uuid";
 import { withDb } from "../../db/postgres_client.ts";
 
 export type RegisterDeviceInput = {
@@ -33,11 +34,11 @@ export async function registerDevice(input: RegisterDeviceInput): Promise<void> 
     throw new RegisterDeviceError("INVALID_PLATFORM", "Platform must be 'android', 'ios'", 400);
   }
 
-  const deviceId = Bun.randomUUIDv7();
+  const deviceId = v7.generate();
 
   try {
     await withDb(async (client) => {
-      await client`
+      await client.queryObject`
         INSERT INTO user_devices (id, user_id, device_token, platform)
         VALUES (${deviceId}, ${input.userId}, ${token}, ${platform})
         ON CONFLICT (device_token)
@@ -47,7 +48,7 @@ export async function registerDevice(input: RegisterDeviceInput): Promise<void> 
           updated_at = now()
       `;
     });
-  } catch (error) {
+  } catch (_error) {
     throw new RegisterDeviceError(
       "INTERNAL_ERROR",
       "Internal server error registering device.",

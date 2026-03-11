@@ -1,20 +1,20 @@
-import { SQL } from "bun";
 import {
   CreateBucketCommand,
   HeadBucketCommand,
   S3Client as AwsS3Client,
 } from "@aws-sdk/client-s3";
-import { join } from "node:path";
-import { readdir } from "node:fs/promises";
+import { Client } from "@db/postgres";
+import "@std/dotenv/load";
+import { join } from "@std/path";
 
-const MIGRATIONS_DIR = import.meta.dir;
+const MIGRATIONS_DIR = import.meta.dirname || new URL(".", import.meta.url).pathname;
 
 function getDatabaseUrl(): string {
-  const user = process.env.POSTGRES_USER;
-  const password = process.env.POSTGRES_PASSWORD;
-  const db = process.env.POSTGRES_DB;
-  const host = process.env.POSTGRES_HOST || "localhost";
-  const port = process.env.POSTGRES_PORT || "5432";
+  const user = Deno.env.get("POSTGRES_USER");
+  const password = Deno.env.get("POSTGRES_PASSWORD");
+  const db = Deno.env.get("POSTGRES_DB");
+  const host = Deno.env.get("POSTGRES_HOST") || "localhost";
+  const port = Deno.env.get("POSTGRES_PORT") || "5432";
 
   if (!user || !password || !db) {
     throw new Error("Missing required environment variables for PostgreSQL.");
@@ -23,53 +23,71 @@ function getDatabaseUrl(): string {
   return `postgres://${user}:${password}@${host}:${port}/${db}`;
 }
 
-async function connectWithRetry(client: SQL, tries = 30) {
+async function connectWithRetry(client: Client, tries = 30) {
   let lastErr: unknown;
   for (let i = 0; i < tries; i++) {
     try {
-      await client`SELECT 1`;
+      await client.connect();
+      await client.queryArray`SELECT 1`;
       return;
     } catch (e) {
       lastErr = e;
-      await Bun.sleep(250);
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
   throw lastErr;
 }
 
-async function ensureMigrationsTable(client: SQL) {
-  await client`
+async function ensureMigrationsTable(client: Client) {
+  await client.queryArray`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       filename text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
     );
-  `.simple();
+  `;
 }
 
-async function getApplied(client: SQL): Promise<Set<string>> {
-  const res = await client`SELECT filename FROM schema_migrations`;
-  return new Set(res.map((r: any) => r.filename));
+async function getApplied(client: Client): Promise<Set<string>> {
+  const res = await client.queryObject<
+    { filename: string }
+  >`SELECT filename FROM schema_migrations`;
+  return new Set(res.rows.map((r) => r.filename));
 }
 
 async function listMigrationFiles(): Promise<string[]> {
-  const files = await readdir(MIGRATIONS_DIR);
-  return files.filter((f) => f.endsWith(".sql")).sort();
+  const files: string[] = [];
+  for await (const dirEntry of Deno.readDir(MIGRATIONS_DIR)) {
+    if (dirEntry.isFile && dirEntry.name.endsWith(".sql")) {
+      files.push(dirEntry.name);
+    }
+  }
+  return files.sort();
 }
 
-async function applyMigration(client: SQL, filename: string) {
+async function applyMigration(client: Client, filename: string) {
   const sqlPath = join(MIGRATIONS_DIR, filename);
+  const sqlContent = await Deno.readTextFile(sqlPath);
 
-  await client.begin(async (tx) => {
-    await tx.file(sqlPath);
-  });
+  const txName = filename.replace(/[^a-zA-Z0-9_]/g, "_");
+  const tx = client.createTransaction(txName);
+
+  await tx.begin();
+  try {
+    await tx.queryArray(sqlContent);
+    await tx.queryArray`INSERT INTO schema_migrations (filename) VALUES (${filename})`;
+    await tx.commit();
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
 }
 
 async function ensureMinioBucket() {
-  const host = process.env.MINIO_HOST || "localhost";
-  const port = process.env.MINIO_PORT || "9000";
-  const accessKeyId = process.env.MINIO_ROOT_USER;
-  const secretAccessKey = process.env.MINIO_ROOT_PASSWORD;
-  const bucketName = process.env.MINIO_BUCKET_NAME || "solari-media";
+  const host = Deno.env.get("MINIO_HOST") || "localhost";
+  const port = Deno.env.get("MINIO_PORT") || "9000";
+  const accessKeyId = Deno.env.get("MINIO_ROOT_USER");
+  const secretAccessKey = Deno.env.get("MINIO_ROOT_PASSWORD");
+  const bucketName = Deno.env.get("MINIO_BUCKET_NAME") || "solari-media";
 
   if (!accessKeyId || !secretAccessKey) {
     console.warn("MinIO credentials missing. Skipping bucket initialization.");
@@ -86,6 +104,7 @@ async function ensureMinioBucket() {
   try {
     await s3Client.send(new HeadBucketCommand({ Bucket: bucketName }));
     console.log(`MinIO bucket '${bucketName}' already exists.`);
+    // deno-lint-ignore no-explicit-any
   } catch (error: any) {
     if (error.name === "NotFound" || error.$metadata?.httpStatusCode === 404) {
       await s3Client.send(new CreateBucketCommand({ Bucket: bucketName }));
@@ -99,13 +118,7 @@ async function ensureMinioBucket() {
 if (import.meta.main) {
   await ensureMinioBucket();
 
-  const maxConnections = parseInt(process.env.PG_POOL_SIZE || "10", 10);
-
-  const client = new SQL({
-    url: getDatabaseUrl(),
-    max: maxConnections,
-  });
-
+  const client = new Client(getDatabaseUrl());
   await connectWithRetry(client);
 
   try {
@@ -119,10 +132,11 @@ if (import.meta.main) {
         continue;
       }
       await applyMigration(client, f);
+      console.log(`Applied migration: ${f}`);
     }
 
     console.log("Migrations complete.");
   } finally {
-    await client.close();
+    await client.end();
   }
 }

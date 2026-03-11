@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono } from "@hono/hono";
 import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 import {
   sendFriendRequest,

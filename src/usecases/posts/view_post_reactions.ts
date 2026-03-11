@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -78,14 +78,14 @@ export async function viewPostReactions(
 
   try {
     return await withDb(async (client) => {
-      const authCheckResult = await client<{ exists: boolean }[]>`
+      const authCheckResult = await client.queryObject<{ exists: boolean }>`
         SELECT EXISTS (
           SELECT 1 FROM posts
           WHERE id = ${postId} AND author_id = ${viewerId}
         ) AS exists
       `;
 
-      if (!authCheckResult[0]!.exists) {
+      if (!authCheckResult.rows[0]?.exists) {
         throw new ViewPostReactionsError(
           "UNAUTHORIZED",
           "You are not authorized to view reactions for this post, or it does not exist.",
@@ -93,16 +93,10 @@ export async function viewPostReactions(
         );
       }
 
-      const result = await client<ReactionRow[]>`
+      const result = await client.queryObject<ReactionRow>`
         SELECT
-          pr.id,
-          pr.emoji,
-          pr.note,
-          pr.created_at,
-          u.id AS user_id,
-          u.username,
-          u.display_name,
-          u.avatar_key
+          pr.id, pr.emoji, pr.note, pr.created_at,
+          u.id AS user_id, u.username, u.display_name, u.avatar_key
         FROM post_reactions pr
         JOIN users u ON u.id = pr.user_id
         WHERE pr.post_id = ${postId}
@@ -111,7 +105,7 @@ export async function viewPostReactions(
         LIMIT ${normalizedLimit}
       `;
 
-      const items: PostReaction[] = result.map((row) => ({
+      const items: PostReaction[] = result.rows.map((row) => ({
         id: row.id,
         emoji: row.emoji,
         note: row.note,
@@ -124,14 +118,12 @@ export async function viewPostReactions(
         },
       }));
 
-      const nextCursor = items.length > 0 ? items[items.length - 1]!.createdAt.toISOString() : null;
-
       return {
         items,
-        nextCursor,
+        nextCursor: items.length > 0 ? items[items.length - 1]!.createdAt.toISOString() : null,
       };
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof ViewPostReactionsError) throw error;
 
     if (isPgError(error) && error.code === "22P02") {

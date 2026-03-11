@@ -1,8 +1,6 @@
 import app from "./routes/server.ts";
+import "@std/dotenv/load";
 
-const port = Number(process.env.SERVER_PORT ?? "5050");
+const port = Number(Deno.env.get("SERVER_PORT") ?? "5050");
 
-export default {
-  port,
-  fetch: app.fetch,
-};
+Deno.serve({ port: port }, app.fetch);

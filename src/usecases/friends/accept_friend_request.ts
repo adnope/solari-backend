@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { getFileUrl } from "../../storage/minio.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
@@ -62,8 +62,11 @@ export async function acceptFriendRequest(
 ): Promise<AcceptFriendRequestResult> {
   try {
     const { result, pushData } = await withDb(async (client) => {
-      return await client.begin(async (tx) => {
-        const requestResult = await tx`
+      const tx = client.createTransaction("accept_friend_request_tx");
+      await tx.begin();
+
+      try {
+        const requestResult = await tx.queryObject<FriendRequestRow>`
           SELECT id, requester_id, receiver_id, created_at
           FROM friend_requests
           WHERE id = ${requestId}
@@ -71,7 +74,7 @@ export async function acceptFriendRequest(
           LIMIT 1
         `;
 
-        const requestRow = requestResult[0] as FriendRequestRow | undefined;
+        const requestRow = requestResult.rows[0];
         if (!requestRow) {
           throw new AcceptFriendRequestError(
             "REQUEST_NOT_FOUND",
@@ -80,51 +83,56 @@ export async function acceptFriendRequest(
           );
         }
 
-        const userLow =
-          requestRow.requester_id < requestRow.receiver_id
-            ? requestRow.requester_id
-            : requestRow.receiver_id;
+        const userLow = requestRow.requester_id < requestRow.receiver_id
+          ? requestRow.requester_id
+          : requestRow.receiver_id;
 
-        const userHigh =
-          requestRow.requester_id > requestRow.receiver_id
-            ? requestRow.requester_id
-            : requestRow.receiver_id;
+        const userHigh = requestRow.requester_id > requestRow.receiver_id
+          ? requestRow.requester_id
+          : requestRow.receiver_id;
 
-        const friendshipResult = await tx`
+        const friendshipResult = await tx.queryObject<FriendshipRow>`
           INSERT INTO friendships (user_low, user_high, created_at)
           VALUES (${userLow}, ${userHigh}, now())
           RETURNING user_low, user_high, created_at
         `;
 
-        const friendshipRow = friendshipResult[0] as FriendshipRow | undefined;
+        const friendshipRow = friendshipResult.rows[0];
         if (!friendshipRow) {
           throw new AcceptFriendRequestError("INTERNAL_ERROR", "Failed to create friendship.", 500);
         }
 
-        await tx`
+        await tx.queryObject`
           DELETE FROM friend_requests
           WHERE id = ${requestId}
         `;
 
-        const acceptorResult = await tx<
-          { username: string; display_name: string | null; avatar_key: string | null }[]
-        >`
+        const acceptorResult = await tx.queryObject<{
+          username: string;
+          display_name: string | null;
+          avatar_key: string | null;
+        }>`
           SELECT username, display_name, avatar_key FROM users WHERE id = ${receiverId} LIMIT 1
         `;
-        const acceptorName =
-          acceptorResult[0]?.display_name || acceptorResult[0]?.username || "Someone";
-        const acceptorAvatarKey = acceptorResult[0]?.avatar_key;
+        const acceptorName = acceptorResult.rows[0]?.display_name ||
+          acceptorResult.rows[0]?.username || "Someone";
+        const acceptorAvatarKey = acceptorResult.rows[0]?.avatar_key;
 
-        const devicesResult = await tx<{ device_token: string }[]>`
+        const devicesResult = await tx.queryObject<{ device_token: string }>`
           SELECT device_token FROM user_devices WHERE user_id = ${requestRow.requester_id}
         `;
-        const tokens = devicesResult.map((row) => row.device_token);
+        const tokens = devicesResult.rows.map((row) => row.device_token);
+
+        await tx.commit();
 
         return {
           result: mapAcceptFriendRequest(requestRow),
           pushData: { tokens, acceptorName, acceptorAvatarKey, acceptorId: receiverId },
         };
-      });
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      }
     });
 
     if (pushData.tokens.length > 0) {
@@ -143,7 +151,7 @@ export async function acceptFriendRequest(
 
       Promise.allSettled(
         pushData.tokens.map((token) =>
-          sendPushNotification(token, title, body, "FRIEND_REQUEST_ACCEPTED", extraData),
+          sendPushNotification(token, title, body, "FRIEND_REQUEST_ACCEPTED", extraData)
         ),
       ).catch(console.error);
     }

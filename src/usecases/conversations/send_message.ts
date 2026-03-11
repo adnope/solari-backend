@@ -1,4 +1,5 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { v7 } from "@std/uuid";
 import { withDb } from "../../db/postgres_client.ts";
 import { getFileUrl } from "../../storage/minio.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
@@ -42,78 +43,69 @@ export class SendMessageError extends Error {
 
 export async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
   const trimmedContent = input.content?.trim();
-
   if (!input.senderId || !input.conversationId) {
-    throw new SendMessageError("MISSING_INPUT", "Sender ID and Conversation ID are required.", 400);
+    throw new SendMessageError("MISSING_INPUT", "Required fields missing.", 400);
   }
+  if (!trimmedContent) throw new SendMessageError("EMPTY_CONTENT", "Content is empty.", 400);
 
-  if (!trimmedContent) {
-    throw new SendMessageError("EMPTY_CONTENT", "Message content cannot be empty.", 400);
-  }
-
-  const messageId = Bun.randomUUIDv7();
+  const messageId = v7.generate();
 
   try {
     const { messageResult, pushData } = await withDb(async (client) => {
-      return await client.begin(async (tx) => {
+      const tx = client.createTransaction("send_message_tx");
+      await tx.begin();
+
+      try {
         if (input.referencedPostId) {
-          const postCheckResult = await tx<{ author_id: string }[]>`
-            SELECT author_id FROM posts WHERE id = ${input.referencedPostId}
-          `;
-
-          if (postCheckResult.length === 0) {
-            throw new SendMessageError("POST_NOT_FOUND", "Referenced post does not exist.", 404);
+          const post = await tx.queryObject<
+            { author_id: string }
+          >`SELECT author_id FROM posts WHERE id = ${input.referencedPostId}`;
+          if (post.rows.length === 0) {
+            throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
           }
-
-          if (postCheckResult[0]!.author_id === input.senderId) {
+          if (post.rows[0].author_id === input.senderId) {
             throw new SendMessageError(
               "CANNOT_REFERENCE_OWN_POST",
-              "You cannot reference your own post in a message.",
+              "Cannot reference own post.",
               400,
             );
           }
         }
 
-        const convCheck = await tx<{ user_low: string; user_high: string }[]>`
-          SELECT user_low, user_high FROM conversations WHERE id = ${input.conversationId}
-        `;
-
-        if (convCheck.length === 0) {
+        const convCheck = await tx.queryObject<
+          { user_low: string; user_high: string }
+        >`SELECT user_low, user_high FROM conversations WHERE id = ${input.conversationId}`;
+        if (convCheck.rows.length === 0) {
           throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
         }
 
-        const conv = convCheck[0]!;
+        const conv = convCheck.rows[0];
         if (conv.user_low !== input.senderId && conv.user_high !== input.senderId) {
-          throw new SendMessageError("CONVERSATION_NOT_FOUND", "You are not a participant.", 404);
+          throw new SendMessageError("CONVERSATION_NOT_FOUND", "Unauthorized.", 404);
         }
 
         const receiverId = conv.user_low === input.senderId ? conv.user_high : conv.user_low;
-
-        const insertResult = await tx<{ created_at: Date }[]>`
+        const insertResult = await tx.queryObject<{ created_at: Date }>`
           INSERT INTO messages (id, conversation_id, sender_id, content, referenced_post_id)
-          VALUES (${messageId}, ${input.conversationId}, ${input.senderId}, ${trimmedContent}, ${input.referencedPostId || null})
+          VALUES (${messageId}, ${input.conversationId}, ${input.senderId}, ${trimmedContent}, ${
+          input.referencedPostId || null
+        })
           RETURNING created_at
         `;
 
-        await tx`
-          UPDATE conversations
-          SET updated_at = ${insertResult[0]!.created_at}
-          WHERE id = ${input.conversationId}
-        `;
+        await tx.queryObject`UPDATE conversations SET updated_at = ${
+          insertResult.rows[0].created_at
+        } WHERE id = ${input.conversationId}`;
 
-        const senderResult = await tx<
-          { username: string; display_name: string | null; avatar_key: string | null }[]
-        >`
-          SELECT username, display_name, avatar_key FROM users WHERE id = ${input.senderId} LIMIT 1
-        `;
-        const senderName = senderResult[0]?.display_name || senderResult[0]?.username || "Someone";
-        const senderAvatarKey = senderResult[0]?.avatar_key;
+        const senderResult = await tx.queryObject<
+          { username: string; display_name: string | null; avatar_key: string | null }
+        >`SELECT username, display_name, avatar_key FROM users WHERE id = ${input.senderId} LIMIT 1`;
+        const sender = senderResult.rows[0];
+        const tokensResult = await tx.queryObject<
+          { device_token: string }
+        >`SELECT device_token FROM user_devices WHERE user_id = ${receiverId}`;
 
-        const devicesResult = await tx<{ device_token: string }[]>`
-          SELECT device_token FROM user_devices WHERE user_id = ${receiverId}
-        `;
-        const tokens = devicesResult.map((row) => row.device_token);
-
+        await tx.commit();
         return {
           messageResult: {
             id: messageId,
@@ -121,52 +113,50 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
             senderId: input.senderId,
             content: trimmedContent,
             referencedPostId: input.referencedPostId || null,
-            createdAt: insertResult[0]!.created_at,
+            createdAt: insertResult.rows[0].created_at,
           },
-          pushData: { tokens, senderName, senderAvatarKey },
+          pushData: {
+            tokens: tokensResult.rows.map((r) => r.device_token),
+            senderName: sender?.display_name || sender?.username || "Someone",
+            senderAvatarKey: sender?.avatar_key,
+          },
         };
-      });
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      }
     });
 
     if (pushData.tokens.length > 0) {
+      const avatarUrl = pushData.senderAvatarKey ? await getFileUrl(pushData.senderAvatarKey) : "";
       const isReply = !!input.referencedPostId;
       const title = isReply ? "New Post Reply" : "New Message";
       const body = isReply
         ? `${pushData.senderName} replied to your post.`
-        : `${pushData.senderName} sent you a new message.`;
-
-      let avatarUrl = "";
-      if (pushData.senderAvatarKey) {
-        avatarUrl = await getFileUrl(pushData.senderAvatarKey);
-      }
-
-      const extraData = {
-        conversationId: input.conversationId,
-        messageId: messageResult.id,
-        avatarUrl: avatarUrl,
-      };
+        : `${pushData.senderName} sent a message.`;
 
       Promise.allSettled(
         pushData.tokens.map((token) =>
-          sendPushNotification(token, title, body, "NEW_MESSAGE", extraData),
+          sendPushNotification(token, title, body, "NEW_MESSAGE", {
+            conversationId: input.conversationId,
+            messageId: messageResult.id,
+            avatarUrl,
+          })
         ),
       ).catch(console.error);
     }
 
     return messageResult;
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof SendMessageError) throw error;
-
     if (isPgError(error)) {
-      const constraint = error.constraint || error.constraint_name;
-      if (error.code === "23503" && constraint === "messages_referenced_post_id_fkey") {
-        throw new SendMessageError("POST_NOT_FOUND", "Referenced post does not exist.", 404);
+      if (error.code === "23503") {
+        throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
       }
       if (error.code === "22P02") {
-        throw new SendMessageError("MISSING_INPUT", "Invalid ID format.", 400);
+        throw new SendMessageError("MISSING_INPUT", "Invalid format.", 400);
       }
     }
-
-    throw new SendMessageError("INTERNAL_ERROR", "Internal server error sending message.", 500);
+    throw new SendMessageError("INTERNAL_ERROR", "Error sending message.", 500);
   }
 }

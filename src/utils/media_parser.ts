@@ -1,8 +1,4 @@
 import { imageSize } from "image-size";
-import { unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 
 export type MediaMetadata = {
   mediaType: "image" | "video";
@@ -28,17 +24,13 @@ export async function extractMediaMetadata(
   }
 
   if (contentType.startsWith("video/")) {
-    // Write to a temp file in the OS temp directory
-    const tempFilePath = join(tmpdir(), `${randomUUID()}.media`);
+    const tempFilePath = await Deno.makeTempFile({ suffix: ".media" });
 
     try {
-      // Native Bun file writing
-      await Bun.write(tempFilePath, buffer);
+      await Deno.writeFile(tempFilePath, buffer);
 
-      // Native Bun process spawning
-      const proc = Bun.spawn(
-        [
-          "ffprobe",
+      const command = new Deno.Command("ffprobe", {
+        args: [
           "-v",
           "error",
           "-select_streams",
@@ -49,21 +41,18 @@ export async function extractMediaMetadata(
           "json",
           tempFilePath,
         ],
-        {
-          stdout: "pipe",
-          stderr: "pipe",
-        },
-      );
+        stdout: "piped",
+        stderr: "piped",
+      });
 
-      const exitCode = await proc.exited;
+      const { code, stdout, stderr } = await command.output();
 
-      if (exitCode !== 0) {
-        // Idiomatic Bun way to read streams into text
-        const errorStr = await new Response(proc.stderr).text();
+      if (code !== 0) {
+        const errorStr = new TextDecoder().decode(stderr);
         throw new Error(`ffprobe failed. Error: ${errorStr}`);
       }
 
-      const outputStr = await new Response(proc.stdout).text();
+      const outputStr = new TextDecoder().decode(stdout);
       const data = JSON.parse(outputStr);
       const stream = data.streams?.[0];
 
@@ -78,8 +67,7 @@ export async function extractMediaMetadata(
         durationMs: stream.duration ? Math.round(Number(stream.duration) * 1000) : undefined,
       };
     } finally {
-      // Clean up the temp file
-      await unlink(tempFilePath).catch(() => {});
+      await Deno.remove(tempFilePath).catch(() => {});
     }
   }
 

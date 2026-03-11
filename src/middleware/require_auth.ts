@@ -1,4 +1,4 @@
-import { createMiddleware } from "hono/factory";
+import { createMiddleware } from "@hono/hono/factory";
 import { verifyAccessToken } from "../lib/jwt.ts";
 import { withDb } from "../db/postgres_client.ts";
 
@@ -30,7 +30,7 @@ export const requireAuth = createMiddleware<{
   }
 
   const session = await withDb(async (client) => {
-    const result = await client`
+    const result = await client.queryObject<{ id: string; user_id: string }>`
       SELECT id, user_id
       FROM sessions
       WHERE id = ${payload.sid}
@@ -39,7 +39,7 @@ export const requireAuth = createMiddleware<{
       LIMIT 1
     `;
 
-    return result[0] ?? null;
+    return result.rows[0] ?? null;
   });
 
   if (!session) {

@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -50,7 +50,7 @@ type MessageRow = {
   content: string;
   referenced_post_id: string | null;
   created_at: Date;
-  reactions: { user_id: string; emoji: string }[];
+  reactions: string | { user_id: string; emoji: string }[];
 };
 
 export async function viewConversationMessages(
@@ -83,19 +83,18 @@ export async function viewConversationMessages(
 
   try {
     return await withDb(async (client) => {
-      const authCheckResult = await client<
-        {
-          user_low: string;
-          user_high: string;
-          user_low_cleared_at: Date | null;
-          user_high_cleared_at: Date | null;
-        }[]
-      >`
+      // Deno @db/postgres usage with queryObject
+      const authCheckResult = await client.queryObject<{
+        user_low: string;
+        user_high: string;
+        user_low_cleared_at: Date | null;
+        user_high_cleared_at: Date | null;
+      }>`
         SELECT user_low, user_high, user_low_cleared_at, user_high_cleared_at
         FROM conversations WHERE id = ${conversationId}
       `;
 
-      if (authCheckResult.length === 0) {
+      if (authCheckResult.rows.length === 0) {
         throw new ViewConversationMessagesError(
           "CONVERSATION_NOT_FOUND",
           "Conversation not found.",
@@ -103,7 +102,7 @@ export async function viewConversationMessages(
         );
       }
 
-      const conv = authCheckResult[0]!;
+      const conv = authCheckResult.rows[0];
       if (conv.user_low !== viewerId && conv.user_high !== viewerId) {
         throw new ViewConversationMessagesError(
           "UNAUTHORIZED",
@@ -112,10 +111,11 @@ export async function viewConversationMessages(
         );
       }
 
-      const clearedAt =
-        conv.user_low === viewerId ? conv.user_low_cleared_at : conv.user_high_cleared_at;
+      const clearedAt = conv.user_low === viewerId
+        ? conv.user_low_cleared_at
+        : conv.user_high_cleared_at;
 
-      const result = await client<MessageRow[]>`
+      const result = await client.queryObject<MessageRow>`
         SELECT
           m.id,
           m.sender_id,
@@ -138,32 +138,31 @@ export async function viewConversationMessages(
         LIMIT ${normalizedLimit}
       `;
 
-      const items: ConversationMessage[] = result.map((row) => ({
+      const items: ConversationMessage[] = result.rows.map((row) => ({
         id: row.id,
         senderId: row.sender_id,
         content: row.content,
         referencedPostId: row.referenced_post_id,
         createdAt: row.created_at,
-        reactions:
-          typeof row.reactions === "string"
-            ? JSON.parse(row.reactions).map((r: any) => ({
-                userId: r.user_id,
-                emoji: r.emoji,
-              }))
-            : row.reactions.map((r) => ({
-                userId: r.user_id,
-                emoji: r.emoji,
-              })),
+        reactions: typeof row.reactions === "string"
+          ? JSON.parse(row.reactions).map((r: { user_id: string; emoji: string }) => ({
+            userId: r.user_id,
+            emoji: r.emoji,
+          }))
+          : (row.reactions as { user_id: string; emoji: string }[]).map((r) => ({
+            userId: r.user_id,
+            emoji: r.emoji,
+          })),
       }));
 
-      const nextCursor = items.length > 0 ? items[items.length - 1]!.createdAt.toISOString() : null;
+      const nextCursor = items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
 
       return {
         items,
         nextCursor,
       };
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof ViewConversationMessagesError) throw error;
 
     if (isPgError(error) && error.code === "22P02") {

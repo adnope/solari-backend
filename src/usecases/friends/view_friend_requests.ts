@@ -1,5 +1,5 @@
 import { withDb } from "../../db/postgres_client.ts";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 
 export type FriendRequestUser = {
   id: string;
@@ -94,7 +94,7 @@ function normalizeDirection(direction: string | undefined): FriendRequestDirecti
   if (!direction || direction.trim() === "") return "both";
   const value = direction.trim().toLowerCase();
   if (value === "incoming" || value === "outgoing" || value === "both") {
-    return value;
+    return value as FriendRequestDirection;
   }
 
   throw new ViewFriendRequestsError(
@@ -141,8 +141,7 @@ export async function viewFriendRequests(
     const normalizedDirection = normalizeDirection(direction);
 
     return await withDb(async (client) => {
-      // Safe, injection-free logical condition mapping for dynamic filtering
-      const result = await client<ViewFriendRequestsRow[]>`
+      const result = await client.queryObject<ViewFriendRequestsRow>`
         SELECT
           fr.id,
           fr.created_at,
@@ -161,11 +160,11 @@ export async function viewFriendRequests(
         FROM friend_requests fr
         JOIN users ru ON ru.id = fr.requester_id
         JOIN users vu ON vu.id = fr.receiver_id
-        WHERE 
+        WHERE
           (${normalizedDirection} = 'incoming' AND fr.receiver_id = ${normalizedUserId})
-          OR 
+          OR
           (${normalizedDirection} = 'outgoing' AND fr.requester_id = ${normalizedUserId})
-          OR 
+          OR
           (${normalizedDirection} = 'both' AND (fr.receiver_id = ${normalizedUserId} OR fr.requester_id = ${normalizedUserId}))
         ORDER BY fr.created_at DESC
         OFFSET ${pagination.offset}
@@ -173,9 +172,7 @@ export async function viewFriendRequests(
       `;
 
       return {
-        items: result.map((row) =>
-          mapFriendRequestListItem(normalizedUserId, row as ViewFriendRequestsRow),
-        ),
+        items: result.rows.map((row) => mapFriendRequestListItem(normalizedUserId, row)),
         offset: pagination.offset,
         limit: pagination.limit,
         direction: normalizedDirection,

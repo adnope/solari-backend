@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -30,7 +30,7 @@ export async function clearConversation(userId: string, conversationId: string):
 
   try {
     await withDb(async (client) => {
-      const result = await client<{ id: string }[]>`
+      const result = await client.queryObject<{ id: string }>`
         UPDATE conversations
         SET
           user_low_cleared_at = CASE WHEN user_low = ${userId} THEN now() ELSE user_low_cleared_at END,
@@ -39,7 +39,7 @@ export async function clearConversation(userId: string, conversationId: string):
         RETURNING id
       `;
 
-      if (result.length === 0) {
+      if (result.rows.length === 0) {
         throw new ClearConversationError(
           "CONVERSATION_NOT_FOUND",
           "Conversation not found or you are not a participant.",
@@ -47,7 +47,7 @@ export async function clearConversation(userId: string, conversationId: string):
         );
       }
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof ClearConversationError) throw error;
 
     if (isPgError(error) && error.code === "22P02") {

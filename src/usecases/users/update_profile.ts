@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 import { deleteFile, uploadFile } from "../../storage/minio.ts";
@@ -48,16 +48,19 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
 
   try {
     return await withDb(async (client) => {
-      return await client.begin(async (tx) => {
-        const currentUserResult = await tx<{ avatar_key: string | null }[]>`
+      const tx = client.createTransaction("update_profile_tx");
+      await tx.begin();
+
+      try {
+        const currentUserResult = await tx.queryObject<{ avatar_key: string | null }>`
           SELECT avatar_key FROM users WHERE id = ${input.userId} FOR UPDATE
         `;
 
-        if (currentUserResult.length === 0) {
+        if (currentUserResult.rows.length === 0) {
           throw new UpdateProfileError("MISSING_USER", "User not found.", 404);
         }
 
-        const currentAvatarKey = currentUserResult[0]!.avatar_key;
+        const currentAvatarKey = currentUserResult.rows[0].avatar_key;
 
         if (input.avatar && !input.removeAvatar) {
           const allowedTypes = [
@@ -71,11 +74,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
           ];
 
           if (!allowedTypes.includes(input.avatar.contentType)) {
-            throw new UpdateProfileError(
-              "STORAGE_ERROR",
-              "Avatar must be a valid image (JPEG, PNG, WEBP, AVIF, HEIF) or GIF.",
-              400,
-            );
+            throw new UpdateProfileError("STORAGE_ERROR", "Avatar must be a valid image.", 400);
           }
 
           const fileExtension = input.avatar.contentType.split("/")[1] || "jpeg";
@@ -88,65 +87,81 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
           }
         }
 
-        const updateObj: Record<string, unknown> = {};
+        const setClauses: string[] = [];
+        const values = [];
+        let paramIndex = 1;
 
         if (input.email !== undefined) {
           const trimmedEmail = input.email.trim();
-
           if (trimmedEmail !== "") {
             const rfc2822Regex =
               /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
-
             if (!rfc2822Regex.test(trimmedEmail)) {
               throw new UpdateProfileError("INVALID_EMAIL", "Invalid email address format.", 400);
             }
-            updateObj.email = trimmedEmail;
+            setClauses.push(`email = $${paramIndex++}`);
+            values.push(trimmedEmail);
           }
         }
 
         if (input.removeDisplayName) {
-          updateObj.display_name = null;
+          setClauses.push(`display_name = $${paramIndex++}`);
+          values.push(null);
         } else if (input.displayName !== undefined) {
           const trimmedName = input.displayName.trim();
           if (trimmedName !== "") {
-            updateObj.display_name = trimmedName;
+            setClauses.push(`display_name = $${paramIndex++}`);
+            values.push(trimmedName);
           }
         }
 
         if (input.removeAvatar) {
-          updateObj.avatar_key = null;
+          setClauses.push(`avatar_key = $${paramIndex++}`);
+          values.push(null);
         } else if (newAvatarKey !== undefined) {
-          updateObj.avatar_key = newAvatarKey;
+          setClauses.push(`avatar_key = $${paramIndex++}`);
+          values.push(newAvatarKey);
         }
 
-        if (Object.keys(updateObj).length > 0) {
-          updateObj.updated_at = new Date();
+        let finalUser: UpdateProfileResult;
 
-          const updatedUserResult = await tx<UpdateProfileResult[]>`
+        if (setClauses.length > 0) {
+          setClauses.push(`updated_at = $${paramIndex++}`);
+          values.push(new Date());
+          values.push(input.userId);
+
+          const query = `
             UPDATE users
-            SET ${tx(updateObj)}
-            WHERE id = ${input.userId}
+            SET ${setClauses.join(", ")}
+            WHERE id = $${paramIndex}
             RETURNING id, username, email, display_name, avatar_key, updated_at
           `;
 
+          const updatedUserResult = await tx.queryObject<UpdateProfileResult>(query, values);
+          finalUser = updatedUserResult.rows[0]!;
+
           if (currentAvatarKey && (newAvatarKey || input.removeAvatar)) {
             deleteFile(currentAvatarKey).catch((err) =>
-              console.error(`Failed to delete old avatar ${currentAvatarKey}:`, err),
+              console.error(`Failed to delete old avatar ${currentAvatarKey}:`, err)
             );
           }
-
-          return updatedUserResult[0]!;
+        } else {
+          const fallbackResult = await tx.queryObject<UpdateProfileResult>`
+            SELECT id, username, email, display_name, avatar_key, updated_at
+            FROM users
+            WHERE id = ${input.userId}
+          `;
+          finalUser = fallbackResult.rows[0]!;
         }
 
-        const fallbackResult = await tx<UpdateProfileResult[]>`
-          SELECT id, username, email, display_name, avatar_key, updated_at
-          FROM users
-          WHERE id = ${input.userId}
-        `;
-        return fallbackResult[0]!;
-      });
+        await tx.commit();
+        return finalUser;
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      }
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof UpdateProfileError) throw error;
 
     if (isPgError(error) && error.code === "23505") {

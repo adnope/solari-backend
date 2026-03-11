@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono } from "@hono/hono";
 import { getPublicProfile, GetPublicProfileError } from "../usecases/users/get_public_profile.ts";
 
 export const webRouter = new Hono();
@@ -17,7 +17,8 @@ webRouter.get("/u/:username", async (c) => {
 
     const appUrl = `https://solari.com/u/${profile.username}`;
     const androidPackage = "com.adnope.solari";
-    const intentUrl = `intent://solari.com/u/${profile.username}#Intent;scheme=https;package=${androidPackage};end`;
+    const intentUrl =
+      `intent://solari.com/u/${profile.username}#Intent;scheme=https;package=${androidPackage};end`;
 
     const html = `
       <!DOCTYPE html>
@@ -121,10 +122,10 @@ webRouter.get("/u/:username", async (c) => {
       <body>
           <div class="avatar-container">
             ${
-              imageUrl
-                ? `<img class="avatar" src="${imageUrl}" alt="${displayName}'s Avatar">`
-                : `<div class="avatar-letter">${initial}</div>`
-            }
+      imageUrl
+        ? `<img class="avatar" src="${imageUrl}" alt="${displayName}'s Avatar">`
+        : `<div class="avatar-letter">${initial}</div>`
+    }
           </div>
 
           <h1>Add ${displayName ? displayName : profile.username} on Solari</h1>

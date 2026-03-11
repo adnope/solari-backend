@@ -1,8 +1,9 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { uploadFile } from "../../storage/minio.ts";
 import { generateThumbnail } from "../../utils/thumbnail.ts";
 import { isPgError } from "../postgres_error.ts";
+import { v7 } from "@std/uuid";
 
 export type UploadPostInput = {
   authorId: string;
@@ -91,7 +92,7 @@ function validatePostInput(input: UploadPostInput) {
 export async function uploadPost(input: UploadPostInput): Promise<UploadPostResult> {
   validatePostInput(input);
 
-  const postId = Bun.randomUUIDv7();
+  const postId = v7.generate();
   const fileExtension = input.contentType.split("/")[1] || "bin";
 
   const objectKey = `posts/${postId}.${fileExtension}`;
@@ -100,7 +101,7 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
   let thumbBuffer: Uint8Array;
   try {
     thumbBuffer = await generateThumbnail(input.buffer, input.mediaType);
-  } catch (error) {
+  } catch (_error) {
     throw new UploadPostError("INVALID_MEDIA", "Failed to process media file.", 400);
   }
 
@@ -115,30 +116,38 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
 
   try {
     return await withDb(async (client) => {
-      return await client.begin(async (tx) => {
+      const tx = client.createTransaction("upload_post_tx");
+      await tx.begin();
+
+      try {
         if (input.audienceType === "selected" && input.viewerIds) {
           const uniqueViewerIds = [...new Set(input.viewerIds)];
 
-          const userCheckResult = await tx<{ count: bigint }[]>`
-            SELECT COUNT(id) FROM users WHERE id IN ${tx(uniqueViewerIds)}
+          const friendCheckResult = await tx.queryObject<{ count: bigint }>`
+            SELECT COUNT(*) FROM (
+              SELECT user_high AS friend_id FROM friendships WHERE user_low = ${input.authorId}
+              UNION
+              SELECT user_low AS friend_id FROM friendships WHERE user_high = ${input.authorId}
+            ) AS f
+            WHERE friend_id = ANY(${uniqueViewerIds}::uuid[])
           `;
 
-          if (Number(userCheckResult[0]!.count) !== uniqueViewerIds.length) {
+          if (Number(friendCheckResult.rows[0]!.count) !== uniqueViewerIds.length) {
             throw new UploadPostError(
               "INVALID_AUDIENCE",
-              "One or more viewer IDs do not exist.",
-              404,
+              "One or more viewer IDs are invalid or not on your friends list.",
+              403,
             );
           }
         }
 
-        const postResult = await tx<{ created_at: Date }[]>`
+        const postResult = await tx.queryObject<{ created_at: Date }>`
           INSERT INTO posts (id, author_id, caption, audience_type)
           VALUES (${postId}, ${input.authorId}, ${input.caption || null}, ${input.audienceType})
           RETURNING created_at
         `;
 
-        await tx`
+        await tx.queryObject`
           INSERT INTO post_media (
             post_id, media_type, object_key, thumbnail_key, content_type,
             byte_size, duration_ms, width, height
@@ -150,7 +159,7 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
         `;
 
         if (input.audienceType === "all") {
-          await tx`
+          await tx.queryObject`
             INSERT INTO post_visibility (post_id, viewer_id)
             SELECT ${postId}, friend_id FROM (
               SELECT user_high AS friend_id FROM friendships WHERE user_low = ${input.authorId}
@@ -159,23 +168,20 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
             ) AS f
           `;
         } else if (input.audienceType === "selected" && input.viewerIds) {
-          await tx`
+          const uniqueViewerIds = [...new Set(input.viewerIds)];
+          await tx.queryObject`
             INSERT INTO post_visibility (post_id, viewer_id)
-            SELECT ${postId}, friend_id FROM (
-              SELECT user_high AS friend_id FROM friendships WHERE user_low = ${input.authorId}
-              UNION
-              SELECT user_low AS friend_id FROM friendships WHERE user_high = ${input.authorId}
-            ) AS f
-            WHERE friend_id IN ${tx(input.viewerIds)}
+            SELECT ${postId}, unnest(${uniqueViewerIds}::uuid[])
           `;
         }
 
+        await tx.commit();
         return {
           id: postId,
           authorId: input.authorId,
           caption: input.caption || null,
           audienceType: input.audienceType,
-          createdAt: postResult[0]!.created_at,
+          createdAt: postResult.rows[0]!.created_at,
           media: {
             objectKey: objectKey,
             thumbnailKey: thumbnailKey,
@@ -184,26 +190,16 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
             height: input.height,
           },
         };
-      });
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      }
     });
-  } catch (error: any) {
-    console.log(`upload post use case error: ${error}`);
-    if (error instanceof UploadPostError) {
-      throw error;
-    }
-
+  } catch (error) {
+    if (error instanceof UploadPostError) throw error;
     if (isPgError(error) && error.code === "22P02") {
-      throw new UploadPostError(
-        "INVALID_AUDIENCE",
-        "One or more viewer IDs are invalid UUIDs.",
-        400,
-      );
+      throw new UploadPostError("INVALID_AUDIENCE", "Invalid UUID format.", 400);
     }
-
-    if (isPgError(error) && error.code === "23503") {
-      throw new UploadPostError("MISSING_INPUT", "Author or viewer ID does not exist.", 404);
-    }
-
     throw new UploadPostError("INTERNAL_ERROR", "Internal server error during post creation.", 500);
   }
 }

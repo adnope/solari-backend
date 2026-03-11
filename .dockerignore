@@ -7,8 +7,7 @@ docker-compose*
 README.md
 .vscode
 .env
-.editorconfig
 .idea
-.prettierrc
 .zed
-.firebase-service-account.json
+firebase-service-account.json
+deno.lock

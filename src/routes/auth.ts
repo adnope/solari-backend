@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono } from "@hono/hono";
 import { AuthError, logOut, me, signIn, signUp } from "../usecases/auth/auth.ts";
 import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
 

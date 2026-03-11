@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 import { isSingleEmoji } from "./react_message.ts";
@@ -62,14 +62,15 @@ export async function updateMessageReaction(
 
   try {
     return await withDb(async (client) => {
-      const result = await client<{ id: string; created_at: Date }[]>`
+      // Transitioned to Deno's native queryObject and .rows accessor
+      const result = await client.queryObject<{ id: string; created_at: Date }>`
         UPDATE message_reactions
         SET emoji = ${trimmedEmoji}
         WHERE message_id = ${input.messageId} AND user_id = ${input.userId}
         RETURNING id, created_at
       `;
 
-      if (result.length === 0) {
+      if (result.rows.length === 0) {
         throw new UpdateMessageReactionError(
           "REACTION_NOT_FOUND",
           "Reaction not found. You must react to the message first.",
@@ -77,17 +78,20 @@ export async function updateMessageReaction(
         );
       }
 
+      const row = result.rows[0];
+
       return {
-        id: result[0]!.id,
+        id: row.id,
         messageId: input.messageId,
         userId: input.userId,
         emoji: trimmedEmoji,
-        createdAt: result[0]!.created_at,
+        createdAt: row.created_at,
       };
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof UpdateMessageReactionError) throw error;
 
+    // Standardized error handling without explicit 'any'
     if (isPgError(error) && error.code === "22P02") {
       throw new UpdateMessageReactionError("REACTION_NOT_FOUND", "Invalid message ID format.", 404);
     }

@@ -4,55 +4,50 @@ export async function generateThumbnail(
   buffer: Uint8Array,
   mediaType: "image" | "video",
 ): Promise<Uint8Array> {
-  const TARGET_SIZE = 400; // 400x400 feed thumbnail size
+  const TARGET_SIZE = 400;
 
   if (mediaType === "image") {
-    return await sharp(buffer)
-      .resize(TARGET_SIZE, TARGET_SIZE, { fit: "cover", position: "center" })
-      .webp({ quality: 80 })
-      .toBuffer();
+    return new Uint8Array(
+      await sharp(buffer)
+        .resize(TARGET_SIZE, TARGET_SIZE, { fit: "cover", position: "center" })
+        .webp({ quality: 80 })
+        .toBuffer(),
+    );
   } else {
-    // For video: Extract the first frame using FFmpeg natively via Bun.spawn
-    // 1. Write video buffer to a fast temporary file
-    const tempVideoPath = `/tmp/${Bun.randomUUIDv7()}.mp4`;
-    await Bun.write(tempVideoPath, buffer);
+    const tempVideoPath = await Deno.makeTempFile({ suffix: ".mp4" });
 
     try {
-      // 2. Spawn ffmpeg to read the video and output a single JPEG frame to stdout
-      const proc = Bun.spawn([
-        "ffmpeg",
-        "-i",
-        tempVideoPath,
-        "-vframes",
-        "1",
-        "-f",
-        "image2pipe",
-        "-vcodec",
-        "mjpeg",
-        "pipe:1", // Output to stdout
-      ]);
+      await Deno.writeFile(tempVideoPath, buffer);
 
-      const frameBuffer = await new Response(proc.stdout).arrayBuffer();
-      const exitCode = await proc.exited;
+      const command = new Deno.Command("ffmpeg", {
+        args: [
+          "-i",
+          tempVideoPath,
+          "-vframes",
+          "1",
+          "-f",
+          "image2pipe",
+          "-vcodec",
+          "mjpeg",
+          "pipe:1",
+        ],
+        stdout: "piped",
+      });
 
-      if (exitCode !== 0 || frameBuffer.byteLength === 0) {
+      const { code, stdout } = await command.output();
+
+      if (code !== 0 || stdout.length === 0) {
         throw new Error("FFmpeg failed to extract frame from video.");
       }
 
-      // 3. Compress the extracted frame with sharp
       return new Uint8Array(
-        await sharp(frameBuffer)
+        await sharp(stdout)
           .resize(TARGET_SIZE, TARGET_SIZE, { fit: "cover", position: "center" })
           .webp({ quality: 80 })
           .toBuffer(),
       );
     } finally {
-      // 4. Always clean up the temp file
-      try {
-        await Bun.file(tempVideoPath).delete();
-      } catch (err) {
-        // Ignore deletion errors
-      }
+      await Deno.remove(tempVideoPath).catch(() => {});
     }
   }
 }

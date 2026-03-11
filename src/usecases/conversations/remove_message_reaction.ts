@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -34,7 +34,7 @@ export async function removeMessageReaction(userId: string, messageId: string): 
 
   try {
     await withDb(async (client) => {
-      const authCheckResult = await client<{ exists: boolean }[]>`
+      const authCheckResult = await client.queryObject<{ exists: boolean }>`
         SELECT EXISTS (
           SELECT 1 FROM messages m
           JOIN conversations c ON c.id = m.conversation_id
@@ -47,7 +47,7 @@ export async function removeMessageReaction(userId: string, messageId: string): 
         ) AS exists
       `;
 
-      if (!authCheckResult[0]!.exists) {
+      if (!authCheckResult.rows[0]?.exists) {
         throw new RemoveMessageReactionError(
           "REACTION_NOT_FOUND",
           "Message not found, deleted, or you are not authorized.",
@@ -55,17 +55,17 @@ export async function removeMessageReaction(userId: string, messageId: string): 
         );
       }
 
-      const result = await client<{ id: string }[]>`
+      const result = await client.queryObject<{ id: string }>`
         DELETE FROM message_reactions
         WHERE message_id = ${messageId} AND user_id = ${userId}
         RETURNING id
       `;
 
-      if (result.length === 0) {
+      if (result.rows.length === 0) {
         throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Reaction not found.", 404);
       }
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof RemoveMessageReactionError) throw error;
 
     if (isPgError(error) && error.code === "22P02") {

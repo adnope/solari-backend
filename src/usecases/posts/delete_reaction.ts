@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -31,13 +31,13 @@ export async function deleteReaction(
 
   try {
     await withDb(async (client) => {
-      const result = await client<{ id: string }[]>`
+      const result = await client.queryObject<{ id: string }>`
         DELETE FROM post_reactions
         WHERE id = ${reactionId} AND post_id = ${postId} AND user_id = ${userId}
         RETURNING id
       `;
 
-      if (result.length === 0) {
+      if (result.rows.length === 0) {
         throw new DeleteReactionError(
           "REACTION_NOT_FOUND",
           "Reaction not found or you do not have permission to delete it.",
@@ -45,7 +45,7 @@ export async function deleteReaction(
         );
       }
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof DeleteReactionError) throw error;
 
     if (isPgError(error) && error.code === "22P02") {

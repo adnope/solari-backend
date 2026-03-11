@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 
 export type UnfriendErrorType =
@@ -26,7 +26,7 @@ export async function unfriend(userId: string, otherUserId: string): Promise<voi
 
   try {
     return await withDb(async (client) => {
-      const friendshipResult = await client`
+      const friendshipResult = await client.queryObject`
         SELECT user_low, user_high
         FROM friendships
         WHERE
@@ -36,12 +36,12 @@ export async function unfriend(userId: string, otherUserId: string): Promise<voi
         LIMIT 1
       `;
 
-      const friendship = friendshipResult[0];
+      const friendship = friendshipResult.rows[0];
       if (!friendship) {
         throw new UnfriendError("NOT_FRIENDS", "You are not friends with this user.", 404);
       }
 
-      await client`
+      await client.queryObject`
         DELETE FROM friendships
         WHERE
           (user_low = ${userId} AND user_high = ${otherUserId})

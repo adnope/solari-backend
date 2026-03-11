@@ -1,18 +1,17 @@
-FROM oven/bun:1 AS base
+FROM denoland/deno:latest
+
 WORKDIR /app
 
-FROM base AS install
-COPY package.json bun.lock ./
-RUN bun install --production --frozen-lockfile
+RUN chown deno:deno /app
+USER deno
 
-FROM base AS release
-USER bun
+COPY --chown=deno:deno deno.json .
+RUN deno cache --node-modules-dir=false deno.json || true
 
-COPY --from=install --chown=bun:bun /app/node_modules ./node_modules
+COPY --chown=deno:deno . .
 
-COPY --chown=bun:bun src ./src
-COPY --chown=bun:bun package.json ./
+RUN deno cache src/main.ts
 
 EXPOSE 5050
 
-CMD ["bun", "run", "src/main.ts"]
+CMD ["task", "start"]

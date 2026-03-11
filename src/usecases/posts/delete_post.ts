@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 import { deleteFile } from "../../storage/minio.ts";
@@ -30,10 +30,15 @@ export async function deletePost(authorId: string, postId: string): Promise<void
 
   try {
     await withDb(async (client) => {
-      await client.begin(async (tx) => {
-        const postResult = await tx<
-          { author_id: string; object_key: string; thumbnail_key: string | null }[]
-        >`
+      const tx = client.createTransaction("delete_post_tx");
+      await tx.begin();
+
+      try {
+        const postResult = await tx.queryObject<{
+          author_id: string;
+          object_key: string;
+          thumbnail_key: string | null;
+        }>`
           SELECT p.author_id, pm.object_key, pm.thumbnail_key
           FROM posts p
           JOIN post_media pm ON pm.post_id = p.id
@@ -41,11 +46,11 @@ export async function deletePost(authorId: string, postId: string): Promise<void
           FOR UPDATE
         `;
 
-        if (postResult.length === 0) {
+        if (postResult.rows.length === 0) {
           throw new DeletePostError("POST_NOT_FOUND", "Post not found.", 404);
         }
 
-        const post = postResult[0]!;
+        const post = postResult.rows[0];
 
         if (post.author_id !== authorId) {
           throw new DeletePostError(
@@ -55,9 +60,13 @@ export async function deletePost(authorId: string, postId: string): Promise<void
           );
         }
 
-        keysToDelete = [post.object_key, post.thumbnail_key].filter(Boolean) as string[];
-        await tx`DELETE FROM posts WHERE id = ${postId}`;
-      });
+        keysToDelete = [post.object_key, post.thumbnail_key].filter((k): k is string => !!k);
+        await tx.queryObject`DELETE FROM posts WHERE id = ${postId}`;
+        await tx.commit();
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      }
     });
 
     if (keysToDelete.length > 0) {
@@ -71,7 +80,7 @@ export async function deletePost(authorId: string, postId: string): Promise<void
         }),
       ).catch(console.error);
     }
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof DeletePostError) throw error;
 
     if (isPgError(error) && error.code === "22P02") {

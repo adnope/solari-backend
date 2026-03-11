@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
 
@@ -74,7 +74,7 @@ export async function getConversations(
 
   try {
     return await withDb(async (client) => {
-      const result = await client<ConversationRow[]>`
+      const result = await client.queryObject<ConversationRow>`
         SELECT
           c.id,
           c.user_low,
@@ -93,7 +93,7 @@ export async function getConversations(
         LIMIT ${normalizedLimit}
       `;
 
-      const items: ConversationItem[] = result.map((row) => ({
+      const items: ConversationItem[] = result.rows.map((row) => ({
         id: row.id,
         userLow: row.user_low,
         userHigh: row.user_high,
@@ -114,7 +114,7 @@ export async function getConversations(
         nextCursor,
       };
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof GetConversationsError) throw error;
 
     if (isPgError(error) && error.code === "22P02") {

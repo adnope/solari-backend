@@ -1,4 +1,5 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { v7 } from "@std/uuid";
 import { withDb } from "../../db/postgres_client.ts";
 import { getFileUrl } from "../../storage/minio.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
@@ -86,24 +87,29 @@ export async function sendFriendRequest(
 
   try {
     const { requestResult, pushData } = await withDb(async (client) => {
-      return await client.begin(async (tx) => {
-        const requesterResult = await tx<
-          { username: string; display_name: string | null; avatar_key: string | null }[]
-        >`
+      const tx = client.createTransaction("send_friend_request_tx");
+      await tx.begin();
+
+      try {
+        const requesterResult = await tx.queryObject<{
+          username: string;
+          display_name: string | null;
+          avatar_key: string | null;
+        }>`
         SELECT username, display_name, avatar_key FROM users WHERE id = ${normalizedRequesterId} LIMIT 1
         `;
-        const requesterName =
-          requesterResult[0]?.display_name || requesterResult[0]?.username || "Someone";
-        const requesterAvatarKey = requesterResult[0]?.avatar_key;
+        const requesterName = requesterResult.rows[0]?.display_name ||
+          requesterResult.rows[0]?.username || "Someone";
+        const requesterAvatarKey = requesterResult.rows[0]?.avatar_key;
 
-        const receiverResult = await tx`
+        const receiverResult = await tx.queryObject<UserLookupRow>`
           SELECT id
           FROM users
           WHERE username = ${normalizedIdentifier} OR email = ${normalizedIdentifier}
           LIMIT 1
         `;
 
-        const receiver = receiverResult[0] as UserLookupRow | undefined;
+        const receiver = receiverResult.rows[0];
         if (!receiver) {
           throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
         }
@@ -116,7 +122,7 @@ export async function sendFriendRequest(
           );
         }
 
-        const friendshipResult = await tx`
+        const friendshipResult = await tx.queryObject`
           SELECT TRUE AS exists
           FROM friendships
           WHERE
@@ -126,7 +132,7 @@ export async function sendFriendRequest(
           LIMIT 1
         `;
 
-        if (friendshipResult.length > 0) {
+        if (friendshipResult.rows.length > 0) {
           throw new SendFriendRequestError(
             "ALREADY_FRIENDS",
             "You are already friends with this user.",
@@ -134,14 +140,14 @@ export async function sendFriendRequest(
           );
         }
 
-        const existingOutgoingResult = await tx`
+        const existingOutgoingResult = await tx.queryObject`
           SELECT TRUE AS exists
           FROM friend_requests
           WHERE requester_id = ${normalizedRequesterId} AND receiver_id = ${receiver.id}
           LIMIT 1
         `;
 
-        if (existingOutgoingResult.length > 0) {
+        if (existingOutgoingResult.rows.length > 0) {
           throw new SendFriendRequestError(
             "REQUEST_ALREADY_SENT",
             "Friend request already sent.",
@@ -149,14 +155,14 @@ export async function sendFriendRequest(
           );
         }
 
-        const existingIncomingResult = await tx`
+        const existingIncomingResult = await tx.queryObject`
           SELECT TRUE AS exists
           FROM friend_requests
           WHERE requester_id = ${receiver.id} AND receiver_id = ${normalizedRequesterId}
           LIMIT 1
         `;
 
-        if (existingIncomingResult.length > 0) {
+        if (existingIncomingResult.rows.length > 0) {
           throw new SendFriendRequestError(
             "REQUEST_ALREADY_RECEIVED",
             "This user has already sent you a friend request.",
@@ -164,9 +170,9 @@ export async function sendFriendRequest(
           );
         }
 
-        const requestId = Bun.randomUUIDv7();
+        const requestId = v7.generate();
 
-        const insertResult = await tx`
+        const insertResult = await tx.queryObject<FriendRequestRow>`
           INSERT INTO friend_requests (
             id,
             requester_id,
@@ -180,7 +186,7 @@ export async function sendFriendRequest(
             created_at
         `;
 
-        const row = insertResult[0] as FriendRequestRow | undefined;
+        const row = insertResult.rows[0];
         if (!row) {
           throw new SendFriendRequestError(
             "INTERNAL_ERROR",
@@ -189,10 +195,12 @@ export async function sendFriendRequest(
           );
         }
 
-        const devicesResult = await tx<{ device_token: string }[]>`
+        const devicesResult = await tx.queryObject<{ device_token: string }>`
           SELECT device_token FROM user_devices WHERE user_id = ${receiver.id}
         `;
-        const tokens = devicesResult.map((row) => row.device_token);
+        const tokens = devicesResult.rows.map((r) => r.device_token);
+
+        await tx.commit();
 
         return {
           requestResult: mapFriendRequest(row),
@@ -203,7 +211,10 @@ export async function sendFriendRequest(
             requesterId: normalizedRequesterId,
           },
         };
-      });
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      }
     });
 
     if (pushData.tokens.length > 0) {
@@ -222,13 +233,13 @@ export async function sendFriendRequest(
 
       Promise.allSettled(
         pushData.tokens.map((token) =>
-          sendPushNotification(token, title, body, "NEW_FRIEND_REQUEST", extraData),
+          sendPushNotification(token, title, body, "NEW_FRIEND_REQUEST", extraData)
         ),
       ).catch(console.error);
     }
 
     return requestResult;
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof SendFriendRequestError) {
       throw error;
     }

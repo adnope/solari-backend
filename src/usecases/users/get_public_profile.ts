@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { getFileUrl } from "../../storage/minio.ts";
 
@@ -26,18 +26,21 @@ export async function getPublicProfile(username: string): Promise<PublicProfileR
   }
 
   try {
-    const result = await withDb(async (client) => {
-      return await client<
-        { id: string; username: string; display_name: string | null; avatar_key: string | null }[]
-      >`
+    const user = await withDb(async (client) => {
+      const result = await client.queryObject<{
+        id: string;
+        username: string;
+        display_name: string | null;
+        avatar_key: string | null;
+      }>`
         SELECT id, username, display_name, avatar_key
         FROM users
         WHERE lower(username) = ${normalizedUsername}
         LIMIT 1
       `;
+      return result.rows[0];
     });
 
-    const user = result[0];
     if (!user) {
       throw new GetPublicProfileError("User not found.", 404);
     }

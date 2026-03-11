@@ -1,4 +1,4 @@
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { getFileUrl } from "../../storage/minio.ts";
 import { isPgError } from "../postgres_error.ts";
@@ -73,7 +73,6 @@ export async function getFeed(
   authorIds?: string[],
 ): Promise<GetFeedResult> {
   let parsedCursor: Date | null = null;
-
   if (cursor) {
     parsedCursor = new Date(cursor);
     if (isNaN(parsedCursor.getTime())) {
@@ -89,43 +88,29 @@ export async function getFeed(
 
       if (validAuthorIds) {
         const uniqueAuthorIds = [...new Set(validAuthorIds)];
-
-        const userCheckResult = await client<{ count: bigint }[]>`
-          SELECT COUNT(id) FROM users WHERE id = ANY(${uniqueAuthorIds}::uuid[])
+        const userCheckResult = await client.queryObject<{ count: bigint }>`
+          SELECT COUNT(id) FROM users WHERE id = ANY(${uniqueAuthorIds})
         `;
 
-        if (Number(userCheckResult[0]!.count) !== uniqueAuthorIds.length) {
+        if (Number(userCheckResult.rows[0]!.count) !== uniqueAuthorIds.length) {
           throw new GetFeedError("INVALID_AUTHORS", "One or more author IDs do not exist.", 404);
         }
       }
 
-      const result = await client<FeedRow[]>`
+      const result = await client.queryObject<FeedRow>`
         SELECT
-          p.id,
-          p.created_at,
-          p.caption,
-          u.id AS author_id,
-          u.username AS author_username,
-          u.display_name AS author_display_name,
-          u.avatar_key AS author_avatar_key,
-          pm.media_type,
-          pm.object_key,
-          pm.thumbnail_key,
-          pm.width,
-          pm.height,
-          pm.duration_ms
+          p.id, p.created_at, p.caption,
+          u.id AS author_id, u.username AS author_username,
+          u.display_name AS author_display_name, u.avatar_key AS author_avatar_key,
+          pm.media_type, pm.object_key, pm.thumbnail_key,
+          pm.width, pm.height, pm.duration_ms
         FROM posts p
         JOIN users u ON u.id = p.author_id
         JOIN post_media pm ON pm.post_id = p.id
         WHERE
-          (
-            p.author_id = ${viewerId}
-            OR
-            EXISTS (
-              SELECT 1 FROM post_visibility pv
-              WHERE pv.post_id = p.id AND pv.viewer_id = ${viewerId}
-            )
-          )
+          (p.author_id = ${viewerId} OR EXISTS (
+            SELECT 1 FROM post_visibility pv WHERE pv.post_id = p.id AND pv.viewer_id = ${viewerId}
+          ))
           AND (${validAuthorIds}::uuid[] IS NULL OR p.author_id = ANY(${validAuthorIds}::uuid[]))
           AND (${parsedCursor}::timestamptz IS NULL OR p.created_at < ${parsedCursor})
         ORDER BY p.created_at DESC
@@ -133,7 +118,7 @@ export async function getFeed(
       `;
 
       const items: FeedPost[] = await Promise.all(
-        result.map(async (row) => {
+        result.rows.map(async (row) => {
           const signedUrl = await getFileUrl(row.object_key);
           const thumbnailUrl = row.thumbnail_key ? await getFileUrl(row.thumbnail_key) : signedUrl;
 
@@ -159,20 +144,16 @@ export async function getFeed(
         }),
       );
 
-      const nextCursor = items.length > 0 ? items[items.length - 1]!.createdAt.toISOString() : null;
-
       return {
         items,
-        nextCursor,
+        nextCursor: items.length > 0 ? items[items.length - 1]!.createdAt.toISOString() : null,
       };
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof GetFeedError) throw error;
-
     if (isPgError(error) && error.code === "22P02") {
-      throw new GetFeedError("INVALID_AUTHORS", "One or more author IDs are invalid UUIDs.", 400);
+      throw new GetFeedError("INVALID_AUTHORS", "Invalid author UUIDs.", 400);
     }
-
     throw new GetFeedError("INTERNAL_ERROR", "Internal server error fetching feed.", 500);
   }
 }
