@@ -9,32 +9,39 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import "@std/dotenv/load";
 
-const endpoint = Deno.env.get("S3_ENDPOINT");
+const internalEndpoint = Deno.env.get("S3_ENDPOINT");
+const publicEndpoint = Deno.env.get("S3_PUBLIC_ENDPOINT") || internalEndpoint;
 const region = Deno.env.get("S3_REGION") || "us-east-1";
 
 const accessKeyId = Deno.env.get("S3_ACCESS_KEY_ID");
 const secretAccessKey = Deno.env.get("S3_SECRET_ACCESS_KEY");
 export const s3BucketName = Deno.env.get("S3_BUCKET_NAME") || "solari-media";
 
-if (!endpoint || !accessKeyId || !secretAccessKey) {
+if (!internalEndpoint || !accessKeyId || !secretAccessKey) {
   throw new Error(
     "Missing required S3 environment variables: S3_ENDPOINT, S3_ACCESS_KEY_ID, or S3_SECRET_ACCESS_KEY",
   );
 }
 
+const credentials = { accessKeyId, secretAccessKey };
+
 export const s3Client = new S3Client({
-  endpoint,
+  endpoint: internalEndpoint,
   region,
-  credentials: {
-    accessKeyId,
-    secretAccessKey,
-  },
+  credentials,
+  forcePathStyle: true,
+});
+
+const presignClient = new S3Client({
+  endpoint: publicEndpoint,
+  region,
+  credentials,
   forcePathStyle: true,
 });
 
 try {
   await s3Client.send(new HeadBucketCommand({ Bucket: s3BucketName }));
-  console.log(`[INFO] Connected to S3 Storage at ${endpoint}`);
+  console.log(`[INFO] Connected to S3 Storage at ${internalEndpoint}`);
 } catch (_error) {
   console.log(`[INFO] Bucket '${s3BucketName}' not found. Creating it now...`);
   try {
@@ -64,7 +71,8 @@ export async function getFileUrl(objectKey: string, expiresInSeconds = 3600): Pr
     Bucket: s3BucketName,
     Key: objectKey,
   });
-  return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
+
+  return await getSignedUrl(presignClient, command, { expiresIn: expiresInSeconds });
 }
 
 export async function deleteFile(objectKey: string): Promise<void> {
