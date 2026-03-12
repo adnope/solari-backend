@@ -1,5 +1,6 @@
-import { withDb } from "../../db/postgres_client.ts";
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { desc, eq, inArray, or } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { friendRequests, users } from "../../db/migrations/schema.ts";
 
 export type FriendRequestUser = {
   id: string;
@@ -13,7 +14,7 @@ export type FriendRequestDirection = "incoming" | "outgoing" | "both";
 
 export type FriendRequestListItem = {
   id: string;
-  createdAt: Date;
+  createdAt: string;
   direction: "incoming" | "outgoing";
   requester: FriendRequestUser;
   receiver: FriendRequestUser;
@@ -35,13 +36,9 @@ export type ViewFriendRequestsErrorType =
 
 export class ViewFriendRequestsError extends Error {
   readonly type: ViewFriendRequestsErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(
-    type: ViewFriendRequestsErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: ViewFriendRequestsErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "ViewFriendRequestsError";
     this.type = type;
@@ -49,27 +46,19 @@ export class ViewFriendRequestsError extends Error {
   }
 }
 
-type ViewFriendRequestsRow = {
-  id: string;
-  created_at: Date;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-  requester_id: string;
-  requester_username: string;
-  requester_email: string;
-  requester_display_name: string | null;
-  requester_avatar_key: string | null;
-
-  receiver_id: string;
-  receiver_username: string;
-  receiver_email: string;
-  receiver_display_name: string | null;
-  receiver_avatar_key: string | null;
-};
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
 
 function normalizeRequesterId(requesterId: string): string {
   const value = requesterId.trim();
   if (value.length === 0) {
     throw new ViewFriendRequestsError("MISSING_USER_ID", "Requester id is required.", 400);
+  }
+  if (!isValidUuid(value)) {
+    throw new ViewFriendRequestsError("MISSING_USER_ID", "Requester id is invalid.", 400);
   }
   return value;
 }
@@ -94,7 +83,7 @@ function normalizeDirection(direction: string | undefined): FriendRequestDirecti
   if (!direction || direction.trim() === "") return "both";
   const value = direction.trim().toLowerCase();
   if (value === "incoming" || value === "outgoing" || value === "both") {
-    return value as FriendRequestDirection;
+    return value;
   }
 
   throw new ViewFriendRequestsError(
@@ -102,31 +91,6 @@ function normalizeDirection(direction: string | undefined): FriendRequestDirecti
     "Direction must be one of: incoming, outgoing, both.",
     400,
   );
-}
-
-function mapFriendRequestListItem(
-  currentUserId: string,
-  row: ViewFriendRequestsRow,
-): FriendRequestListItem {
-  return {
-    id: row.id,
-    createdAt: row.created_at,
-    direction: row.receiver_id === currentUserId ? "incoming" : "outgoing",
-    requester: {
-      id: row.requester_id,
-      username: row.requester_username,
-      email: row.requester_email,
-      displayName: row.requester_display_name,
-      avatarKey: row.requester_avatar_key,
-    },
-    receiver: {
-      id: row.receiver_id,
-      username: row.receiver_username,
-      email: row.receiver_email,
-      displayName: row.receiver_display_name,
-      avatarKey: row.receiver_avatar_key,
-    },
-  };
 }
 
 export async function viewFriendRequests(
@@ -140,44 +104,88 @@ export async function viewFriendRequests(
     const pagination = normalizePagination(offset, limit);
     const normalizedDirection = normalizeDirection(direction);
 
-    return await withDb(async (client) => {
-      const result = await client.queryObject<ViewFriendRequestsRow>`
-        SELECT
-          fr.id,
-          fr.created_at,
+    const requestRows = await db
+      .select({
+        id: friendRequests.id,
+        createdAt: friendRequests.createdAt,
+        requesterId: friendRequests.requesterId,
+        receiverId: friendRequests.receiverId,
+      })
+      .from(friendRequests)
+      .where(
+        normalizedDirection === "incoming"
+          ? eq(friendRequests.receiverId, normalizedUserId)
+          : normalizedDirection === "outgoing"
+            ? eq(friendRequests.requesterId, normalizedUserId)
+            : or(
+                eq(friendRequests.receiverId, normalizedUserId),
+                eq(friendRequests.requesterId, normalizedUserId),
+              ),
+      )
+      .orderBy(desc(friendRequests.createdAt))
+      .offset(pagination.offset)
+      .limit(pagination.limit);
 
-          ru.id AS requester_id,
-          ru.username AS requester_username,
-          ru.email AS requester_email,
-          ru.display_name AS requester_display_name,
-          ru.avatar_key AS requester_avatar_key,
-
-          vu.id AS receiver_id,
-          vu.username AS receiver_username,
-          vu.email AS receiver_email,
-          vu.display_name AS receiver_display_name,
-          vu.avatar_key AS receiver_avatar_key
-        FROM friend_requests fr
-        JOIN users ru ON ru.id = fr.requester_id
-        JOIN users vu ON vu.id = fr.receiver_id
-        WHERE
-          (${normalizedDirection} = 'incoming' AND fr.receiver_id = ${normalizedUserId})
-          OR
-          (${normalizedDirection} = 'outgoing' AND fr.requester_id = ${normalizedUserId})
-          OR
-          (${normalizedDirection} = 'both' AND (fr.receiver_id = ${normalizedUserId} OR fr.requester_id = ${normalizedUserId}))
-        ORDER BY fr.created_at DESC
-        OFFSET ${pagination.offset}
-        LIMIT ${pagination.limit}
-      `;
-
+    if (requestRows.length === 0) {
       return {
-        items: result.rows.map((row) => mapFriendRequestListItem(normalizedUserId, row)),
+        items: [],
         offset: pagination.offset,
         limit: pagination.limit,
         direction: normalizedDirection,
       };
+    }
+
+    const relatedUserIds = [
+      ...new Set(requestRows.flatMap((row) => [row.requesterId, row.receiverId])),
+    ];
+
+    const userRows = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+        displayName: users.displayName,
+        avatarKey: users.avatarKey,
+      })
+      .from(users)
+      .where(inArray(users.id, relatedUserIds));
+
+    const userMap = new Map(
+      userRows.map((user) => [
+        user.id,
+        {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName,
+          avatarKey: user.avatarKey,
+        },
+      ]),
+    );
+
+    const items: FriendRequestListItem[] = requestRows.map((row) => {
+      const requester = userMap.get(row.requesterId);
+      const receiver = userMap.get(row.receiverId);
+
+      if (!requester || !receiver) {
+        throw new ViewFriendRequestsError("INTERNAL_ERROR", "Internal server error.", 500);
+      }
+
+      return {
+        id: row.id,
+        createdAt: row.createdAt,
+        direction: row.receiverId === normalizedUserId ? "incoming" : "outgoing",
+        requester,
+        receiver,
+      };
     });
+
+    return {
+      items,
+      offset: pagination.offset,
+      limit: pagination.limit,
+      direction: normalizedDirection,
+    };
   } catch (error) {
     if (error instanceof ViewFriendRequestsError) {
       throw error;

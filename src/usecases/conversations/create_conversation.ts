@@ -1,13 +1,12 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { v7 } from "@std/uuid";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { and, eq, inArray } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { conversations, users } from "../../db/migrations/schema.ts";
 
 export type CreateConversationResult = {
   id: string;
   userLow: string;
   userHigh: string;
-  createdAt: Date;
+  createdAt: string;
 };
 
 export type CreateConversationErrorType =
@@ -18,13 +17,9 @@ export type CreateConversationErrorType =
 
 export class CreateConversationError extends Error {
   readonly type: CreateConversationErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(
-    type: CreateConversationErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: CreateConversationErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "CreateConversationError";
     this.type = type;
@@ -32,15 +27,28 @@ export class CreateConversationError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function createConversation(
   userId: string,
   targetUserId: string,
 ): Promise<CreateConversationResult> {
-  if (!userId || !targetUserId) {
+  const normalizedUserId = userId.trim();
+  const normalizedTargetUserId = targetUserId.trim();
+
+  if (!normalizedUserId || !normalizedTargetUserId) {
     throw new CreateConversationError("MISSING_INPUT", "User IDs are required.", 400);
   }
 
-  if (userId === targetUserId) {
+  if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedTargetUserId)) {
+    throw new CreateConversationError("USER_NOT_FOUND", "Invalid ID format.", 400);
+  }
+
+  if (normalizedUserId === normalizedTargetUserId) {
     throw new CreateConversationError(
       "CANNOT_CHAT_WITH_SELF",
       "You cannot chat with yourself.",
@@ -48,38 +56,61 @@ export async function createConversation(
     );
   }
 
-  const [userLow, userHigh] = [userId, targetUserId].sort();
-  const newConversationId = v7.generate();
+  const [userLow, userHigh]: [string, string] =
+    normalizedUserId < normalizedTargetUserId
+      ? [normalizedUserId, normalizedTargetUserId]
+      : [normalizedTargetUserId, normalizedUserId];
+  const newConversationId = Bun.randomUUIDv7();
 
   try {
-    return await withDb(async (client) => {
-      const result = await client.queryObject<CreateConversationResult>`
-        WITH new_conv AS (
-          INSERT INTO conversations (id, user_low, user_high)
-          VALUES (${newConversationId}, ${userLow}, ${userHigh})
-          ON CONFLICT (user_low, user_high) DO NOTHING
-          RETURNING id, user_low AS "userLow", user_high AS "userHigh", created_at AS "createdAt"
-        )
-        SELECT id, "userLow", "userHigh", "createdAt" FROM new_conv
-        UNION ALL
-        SELECT id, user_low AS "userLow", user_high AS "userHigh", created_at AS "createdAt"
-        FROM conversations
-        WHERE user_low = ${userLow} AND user_high = ${userHigh}
-        LIMIT 1;
-      `;
+    const existingUsers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(inArray(users.id, [userLow, userHigh]));
 
-      return result.rows[0]!;
-    });
+    if (existingUsers.length !== 2) {
+      throw new CreateConversationError("USER_NOT_FOUND", "Target user does not exist.", 404);
+    }
+
+    const inserted = await db
+      .insert(conversations)
+      .values({
+        id: newConversationId,
+        userLow,
+        userHigh,
+      })
+      .onConflictDoNothing({
+        target: [conversations.userLow, conversations.userHigh],
+      })
+      .returning({
+        id: conversations.id,
+        userLow: conversations.userLow,
+        userHigh: conversations.userHigh,
+        createdAt: conversations.createdAt,
+      });
+
+    if (inserted[0]) {
+      return inserted[0];
+    }
+
+    const [existing] = await db
+      .select({
+        id: conversations.id,
+        userLow: conversations.userLow,
+        userHigh: conversations.userHigh,
+        createdAt: conversations.createdAt,
+      })
+      .from(conversations)
+      .where(and(eq(conversations.userLow, userLow), eq(conversations.userHigh, userHigh)));
+
+    if (!existing) {
+      throw new CreateConversationError("INTERNAL_ERROR", "Error creating conversation.", 500);
+    }
+
+    return existing;
   } catch (error) {
     if (error instanceof CreateConversationError) throw error;
-    if (isPgError(error)) {
-      if (error.code === "23503") {
-        throw new CreateConversationError("USER_NOT_FOUND", "Target user does not exist.", 404);
-      }
-      if (error.code === "22P02") {
-        throw new CreateConversationError("USER_NOT_FOUND", "Invalid ID format.", 400);
-      }
-    }
+
     throw new CreateConversationError("INTERNAL_ERROR", "Error creating conversation.", 500);
   }
 }

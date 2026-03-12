@@ -1,18 +1,4 @@
 services:
-  api:
-    build: .
-    container_name: solari-api
-    restart: unless-stopped
-    env_file:
-      - .env
-    ports:
-      - "127.0.0.1:${SERVER_PORT:-5050}:5050"
-    depends_on:
-      db:
-        condition: service_healthy
-      s3:
-        condition: service_healthy
-
   db:
     image: postgres:16.13-alpine
     container_name: solari-postgres

@@ -1,5 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
+import { desc, eq, inArray, or } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { friendships, users } from "../../db/migrations/schema.ts";
 
 export type ViewFriendsErrorType =
   | "MISSING_USER_ID"
@@ -10,9 +11,9 @@ export type ViewFriendsErrorType =
 
 export class ViewFriendsError extends Error {
   readonly type: ViewFriendsErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: ViewFriendsErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: ViewFriendsErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "ViewFriendsError";
     this.type = type;
@@ -25,7 +26,7 @@ export type Friend = {
   username: string;
   displayName: string | null;
   avatarKey: string | null;
-  createdAt: Date;
+  createdAt: string;
 };
 
 export type ViewFriendsResult = {
@@ -34,22 +35,10 @@ export type ViewFriendsResult = {
   limit: number;
 };
 
-type FriendRow = {
-  id: string;
-  username: string;
-  display_name: string | null;
-  avatar_key: string | null;
-  created_at: Date;
-};
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function mapFriend(row: FriendRow): Friend {
-  return {
-    id: row.id,
-    username: row.username,
-    displayName: row.display_name,
-    avatarKey: row.avatar_key,
-    createdAt: row.created_at,
-  };
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
 }
 
 function normalizePagination(offset = 0, limit = 20): { offset: number; limit: number } {
@@ -69,36 +58,88 @@ export async function viewFriends(
   offset = 0,
   limit = 20,
 ): Promise<ViewFriendsResult> {
+  const normalizedUserId = userId.trim();
+
   try {
-    if (!userId) {
+    if (!normalizedUserId) {
       throw new ViewFriendsError("MISSING_USER_ID", "User id is missing.", 400);
+    }
+
+    if (!isValidUuid(normalizedUserId)) {
+      throw new ViewFriendsError("MISSING_USER_ID", "User id is invalid.", 400);
     }
 
     const pagination = normalizePagination(offset, limit);
 
-    return await withDb(async (client) => {
-      const result = await client.queryObject<FriendRow>`
-        SELECT
-          u.id,
-          u.username,
-          u.display_name,
-          u.avatar_key,
-          f.created_at
-        FROM friendships f
-        JOIN users u ON (u.id = f.user_low OR u.id = f.user_high)
-        WHERE (f.user_low = ${userId} OR f.user_high = ${userId})
-          AND u.id != ${userId}
-        ORDER BY f.created_at DESC
-        OFFSET ${pagination.offset}
-        LIMIT ${pagination.limit}
-      `;
+    const friendshipRows = await db
+      .select({
+        userLow: friendships.userLow,
+        userHigh: friendships.userHigh,
+        createdAt: friendships.createdAt,
+      })
+      .from(friendships)
+      .where(
+        or(eq(friendships.userLow, normalizedUserId), eq(friendships.userHigh, normalizedUserId)),
+      )
+      .orderBy(desc(friendships.createdAt))
+      .offset(pagination.offset)
+      .limit(pagination.limit);
 
+    if (friendshipRows.length === 0) {
       return {
-        items: result.rows.map(mapFriend),
+        items: [],
         offset: pagination.offset,
         limit: pagination.limit,
       };
+    }
+
+    const friendIds = friendshipRows.map((row) =>
+      row.userLow === normalizedUserId ? row.userHigh : row.userLow,
+    );
+
+    const uniqueFriendIds = [...new Set(friendIds)];
+
+    const userRows = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        displayName: users.displayName,
+        avatarKey: users.avatarKey,
+      })
+      .from(users)
+      .where(inArray(users.id, uniqueFriendIds));
+
+    const userMap = new Map(
+      userRows.map((user) => [
+        user.id,
+        {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          avatarKey: user.avatarKey,
+        },
+      ]),
+    );
+
+    const items: Friend[] = friendshipRows.map((row) => {
+      const friendId = row.userLow === normalizedUserId ? row.userHigh : row.userLow;
+      const friend = userMap.get(friendId);
+
+      if (!friend) {
+        throw new ViewFriendsError("INTERNAL_ERROR", "Internal server error.", 500);
+      }
+
+      return {
+        ...friend,
+        createdAt: row.createdAt,
+      };
     });
+
+    return {
+      items,
+      offset: pagination.offset,
+      limit: pagination.limit,
+    };
   } catch (error) {
     if (error instanceof ViewFriendsError) {
       throw error;

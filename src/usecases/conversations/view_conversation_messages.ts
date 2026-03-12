@@ -1,6 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { and, desc, eq, gte, inArray, lt } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { conversations, messageReactions, messages } from "../../db/migrations/schema.ts";
 
 export type MessageReaction = {
   userId: string;
@@ -12,7 +12,7 @@ export type ConversationMessage = {
   senderId: string;
   content: string;
   referencedPostId: string | null;
-  createdAt: Date;
+  createdAt: string;
   reactions: MessageReaction[];
 };
 
@@ -30,13 +30,9 @@ export type ViewConversationMessagesErrorType =
 
 export class ViewConversationMessagesError extends Error {
   readonly type: ViewConversationMessagesErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(
-    type: ViewConversationMessagesErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: ViewConversationMessagesErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "ViewConversationMessagesError";
     this.type = type;
@@ -44,14 +40,11 @@ export class ViewConversationMessagesError extends Error {
   }
 }
 
-type MessageRow = {
-  id: string;
-  sender_id: string;
-  content: string;
-  referenced_post_id: string | null;
-  created_at: Date;
-  reactions: string | { user_id: string; emoji: string }[];
-};
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
 
 export async function viewConversationMessages(
   viewerId: string,
@@ -59,7 +52,10 @@ export async function viewConversationMessages(
   limit = 50,
   cursor?: string,
 ): Promise<ViewConversationMessagesResult> {
-  if (!viewerId || !conversationId) {
+  const normalizedViewerId = viewerId.trim();
+  const normalizedConversationId = conversationId.trim();
+
+  if (!normalizedViewerId || !normalizedConversationId) {
     throw new ViewConversationMessagesError(
       "MISSING_INPUT",
       "Viewer ID and Conversation ID are required.",
@@ -67,111 +63,130 @@ export async function viewConversationMessages(
     );
   }
 
-  let parsedCursor: Date | null = null;
+  if (!isValidUuid(normalizedViewerId) || !isValidUuid(normalizedConversationId)) {
+    throw new ViewConversationMessagesError(
+      "CONVERSATION_NOT_FOUND",
+      "Invalid conversation ID format.",
+      404,
+    );
+  }
+
+  let parsedCursor: string | undefined;
   if (cursor) {
-    parsedCursor = new Date(cursor);
-    if (isNaN(parsedCursor.getTime())) {
+    const parsed = new Date(cursor);
+    if (Number.isNaN(parsed.getTime())) {
       throw new ViewConversationMessagesError(
         "INVALID_CURSOR",
         "Cursor must be a valid ISO date string.",
         400,
       );
     }
+    parsedCursor = parsed.toISOString();
   }
 
   const normalizedLimit = Math.min(Math.max(1, limit), 50);
 
   try {
-    return await withDb(async (client) => {
-      // Deno @db/postgres usage with queryObject
-      const authCheckResult = await client.queryObject<{
-        user_low: string;
-        user_high: string;
-        user_low_cleared_at: Date | null;
-        user_high_cleared_at: Date | null;
-      }>`
-        SELECT user_low, user_high, user_low_cleared_at, user_high_cleared_at
-        FROM conversations WHERE id = ${conversationId}
-      `;
+    const [conversation] = await db
+      .select({
+        userLow: conversations.userLow,
+        userHigh: conversations.userHigh,
+        userLowClearedAt: conversations.userLowClearedAt,
+        userHighClearedAt: conversations.userHighClearedAt,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, normalizedConversationId))
+      .limit(1);
 
-      if (authCheckResult.rows.length === 0) {
-        throw new ViewConversationMessagesError(
-          "CONVERSATION_NOT_FOUND",
-          "Conversation not found.",
-          404,
-        );
-      }
-
-      const conv = authCheckResult.rows[0];
-      if (conv.user_low !== viewerId && conv.user_high !== viewerId) {
-        throw new ViewConversationMessagesError(
-          "UNAUTHORIZED",
-          "You are not a participant in this conversation.",
-          403,
-        );
-      }
-
-      const clearedAt = conv.user_low === viewerId
-        ? conv.user_low_cleared_at
-        : conv.user_high_cleared_at;
-
-      const result = await client.queryObject<MessageRow>`
-        SELECT
-          m.id,
-          m.sender_id,
-          m.content,
-          m.referenced_post_id,
-          m.created_at,
-          COALESCE(
-            json_agg(
-              json_build_object('user_id', mr.user_id, 'emoji', mr.emoji)
-            ) FILTER (WHERE mr.id IS NOT NULL),
-            '[]'
-          ) AS reactions
-        FROM messages m
-        LEFT JOIN message_reactions mr ON mr.message_id = m.id
-        WHERE m.conversation_id = ${conversationId}
-          AND (${clearedAt}::timestamptz IS NULL OR m.created_at >= ${clearedAt})
-          AND (${parsedCursor}::timestamptz IS NULL OR m.created_at < ${parsedCursor})
-        GROUP BY m.id
-        ORDER BY m.created_at DESC
-        LIMIT ${normalizedLimit}
-      `;
-
-      const items: ConversationMessage[] = result.rows.map((row) => ({
-        id: row.id,
-        senderId: row.sender_id,
-        content: row.content,
-        referencedPostId: row.referenced_post_id,
-        createdAt: row.created_at,
-        reactions: typeof row.reactions === "string"
-          ? JSON.parse(row.reactions).map((r: { user_id: string; emoji: string }) => ({
-            userId: r.user_id,
-            emoji: r.emoji,
-          }))
-          : (row.reactions as { user_id: string; emoji: string }[]).map((r) => ({
-            userId: r.user_id,
-            emoji: r.emoji,
-          })),
-      }));
-
-      const nextCursor = items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
-
-      return {
-        items,
-        nextCursor,
-      };
-    });
-  } catch (error) {
-    if (error instanceof ViewConversationMessagesError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
+    if (!conversation) {
       throw new ViewConversationMessagesError(
         "CONVERSATION_NOT_FOUND",
-        "Invalid conversation ID format.",
+        "Conversation not found.",
         404,
       );
     }
+
+    if (
+      conversation.userLow !== normalizedViewerId &&
+      conversation.userHigh !== normalizedViewerId
+    ) {
+      throw new ViewConversationMessagesError(
+        "UNAUTHORIZED",
+        "You are not a participant in this conversation.",
+        403,
+      );
+    }
+
+    const clearedAt =
+      conversation.userLow === normalizedViewerId
+        ? conversation.userLowClearedAt
+        : conversation.userHighClearedAt;
+
+    const messageRows = await db
+      .select({
+        id: messages.id,
+        senderId: messages.senderId,
+        content: messages.content,
+        referencedPostId: messages.referencedPostId,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, normalizedConversationId),
+          clearedAt ? gte(messages.createdAt, clearedAt) : undefined,
+          parsedCursor ? lt(messages.createdAt, parsedCursor) : undefined,
+        ),
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(normalizedLimit);
+
+    if (messageRows.length === 0) {
+      return {
+        items: [],
+        nextCursor: null,
+      };
+    }
+
+    const messageIds = messageRows.map((message) => message.id);
+
+    const reactionRows = await db
+      .select({
+        messageId: messageReactions.messageId,
+        userId: messageReactions.userId,
+        emoji: messageReactions.emoji,
+      })
+      .from(messageReactions)
+      .where(inArray(messageReactions.messageId, messageIds));
+
+    const reactionsMap = new Map<string, MessageReaction[]>();
+
+    for (const reaction of reactionRows) {
+      const existing = reactionsMap.get(reaction.messageId) ?? [];
+      existing.push({
+        userId: reaction.userId,
+        emoji: reaction.emoji,
+      });
+      reactionsMap.set(reaction.messageId, existing);
+    }
+
+    const items: ConversationMessage[] = messageRows.map((message) => ({
+      id: message.id,
+      senderId: message.senderId,
+      content: message.content,
+      referencedPostId: message.referencedPostId,
+      createdAt: message.createdAt,
+      reactions: reactionsMap.get(message.id) ?? [],
+    }));
+
+    const nextCursor = items.length > 0 ? items[items.length - 1]!.createdAt : null;
+
+    return {
+      items,
+      nextCursor,
+    };
+  } catch (error) {
+    if (error instanceof ViewConversationMessagesError) throw error;
 
     throw new ViewConversationMessagesError(
       "INTERNAL_ERROR",

@@ -1,6 +1,5 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { v7 } from "@std/uuid";
-import { withDb } from "../../db/postgres_client.ts";
+import { db } from "../../db/client.ts";
+import { userDevices } from "../../db/migrations/schema.ts";
 
 export type RegisterDeviceInput = {
   userId: string;
@@ -12,9 +11,9 @@ export type RegisterDeviceErrorType = "MISSING_INPUT" | "INVALID_PLATFORM" | "IN
 
 export class RegisterDeviceError extends Error {
   readonly type: RegisterDeviceErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: RegisterDeviceErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: RegisterDeviceErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "RegisterDeviceError";
     this.type = type;
@@ -22,33 +21,49 @@ export class RegisterDeviceError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function registerDevice(input: RegisterDeviceInput): Promise<void> {
+  const normalizedUserId = input.userId.trim();
   const token = input.deviceToken.trim();
   const platform = input.platform.trim().toLowerCase();
 
-  if (!token || !platform) {
+  if (!normalizedUserId || !token || !platform) {
     throw new RegisterDeviceError("MISSING_INPUT", "Device token and platform are required.", 400);
+  }
+
+  if (!isValidUuid(normalizedUserId)) {
+    throw new RegisterDeviceError("MISSING_INPUT", "User ID is invalid.", 400);
   }
 
   if (platform !== "android" && platform !== "ios") {
     throw new RegisterDeviceError("INVALID_PLATFORM", "Platform must be 'android', 'ios'", 400);
   }
 
-  const deviceId = v7.generate();
+  const deviceId = Bun.randomUUIDv7();
 
   try {
-    await withDb(async (client) => {
-      await client.queryObject`
-        INSERT INTO user_devices (id, user_id, device_token, platform)
-        VALUES (${deviceId}, ${input.userId}, ${token}, ${platform})
-        ON CONFLICT (device_token)
-        DO UPDATE SET
-          user_id = EXCLUDED.user_id,
-          platform = EXCLUDED.platform,
-          updated_at = now()
-      `;
-    });
-  } catch (_error) {
+    await db
+      .insert(userDevices)
+      .values({
+        id: deviceId,
+        userId: normalizedUserId,
+        deviceToken: token,
+        platform,
+      })
+      .onConflictDoUpdate({
+        target: userDevices.deviceToken,
+        set: {
+          userId: normalizedUserId,
+          platform,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+  } catch {
     throw new RegisterDeviceError(
       "INTERNAL_ERROR",
       "Internal server error registering device.",

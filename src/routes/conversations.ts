@@ -1,5 +1,5 @@
-import { Hono } from "@hono/hono";
-import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { Elysia, t } from "elysia";
+import { requireAuth } from "./middleware/require_auth.ts";
 import {
   clearConversation,
   ClearConversationError,
@@ -26,27 +26,19 @@ import {
   viewConversationMessages,
   ViewConversationMessagesError,
 } from "../usecases/conversations/view_conversation_messages.ts";
+import { withApiErrorHandler } from "./api_error_handler.ts";
 
-const conversationsRouter = new Hono<{ Variables: AuthVariables }>();
+const protectedConversationsRouter = new Elysia()
+  .use(requireAuth)
 
-// Create a conversation
-conversationsRouter.post("/conversations", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const body = await c.req.json();
-    const targetUserId = body.target_user_id;
+  // Create a conversation
+  .post(
+    "/conversations",
+    async ({ authUserId, body, set }) => {
+      const result = await createConversation(authUserId, body.target_user_id);
 
-    if (!targetUserId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Target user ID is required." } },
-        400,
-      );
-    }
-
-    const result = await createConversation(userId, targetUserId);
-
-    return c.json(
-      {
+      set.status = 201;
+      return {
         message: "Conversation created.",
         conversation: {
           id: result.id,
@@ -54,45 +46,28 @@ conversationsRouter.post("/conversations", requireAuth, async (c) => {
           user_high: result.userHigh,
           created_at: result.createdAt,
         },
-      },
-      201,
-    );
-  } catch (error) {
-    if (error instanceof CreateConversationError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      body: t.Object({
+        target_user_id: t.String(),
+      }),
+    },
+  )
 
-    if (error instanceof SyntaxError) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
-    }
+  // Send a message / reply a post
+  .post(
+    "/conversations/:conversationId/messages",
+    async ({ authUserId, params, body, set }) => {
+      const result = await sendMessage({
+        senderId: authUserId,
+        conversationId: params.conversationId,
+        content: body.content,
+        referencedPostId: body.referenced_post_id,
+      });
 
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
-
-// Send a message / reply a post
-conversationsRouter.post("/conversations/:conversationId/messages", requireAuth, async (c) => {
-  try {
-    const senderId = c.get("authUserId");
-    const conversationId = c.req.param("conversationId");
-    const body = await c.req.json();
-
-    if (!conversationId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Conversation ID is required." } },
-        400,
-      );
-    }
-
-    const result = await sendMessage({
-      senderId,
-      conversationId,
-      content: body.content,
-      referencedPostId: body.referenced_post_id,
-    });
-
-    return c.json(
-      {
+      set.status = 201;
+      return {
         message: "Message sent successfully.",
         data: {
           id: result.id,
@@ -102,42 +77,33 @@ conversationsRouter.post("/conversations/:conversationId/messages", requireAuth,
           referenced_post_id: result.referencedPostId,
           created_at: result.createdAt,
         },
-      },
-      201,
-    );
-  } catch (error) {
-    if (error instanceof SendMessageError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      params: t.Object({
+        conversationId: t.String(),
+      }),
+      body: t.Object({
+        content: t.String(),
+        referenced_post_id: t.Optional(t.String()),
+      }),
+    },
+  )
 
-    if (error instanceof SyntaxError) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
-    }
-
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
-
-// Get a conversation's messages
-conversationsRouter.get("/conversations/:conversationId/messages", requireAuth, async (c) => {
-  try {
-    const viewerId = c.get("authUserId");
-    const conversationId = c.req.param("conversationId");
-
-    if (!conversationId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Conversation ID is required." } },
-        400,
+  // Get a conversation's messages
+  .get(
+    "/conversations/:conversationId/messages",
+    async ({ authUserId, params, query, set }) => {
+      const limit = query.limit === undefined || query.limit === "" ? 50 : Number(query.limit);
+      const result = await viewConversationMessages(
+        authUserId,
+        params.conversationId,
+        limit,
+        query.cursor,
       );
-    }
 
-    const limit = c.req.query("limit") ? Number(c.req.query("limit")) : 50;
-    const cursor = c.req.query("cursor");
-
-    const result = await viewConversationMessages(viewerId, conversationId, limit, cursor);
-
-    return c.json(
-      {
+      set.status = 200;
+      return {
         items: result.items.map((msg) => ({
           id: msg.id,
           sender_id: msg.senderId,
@@ -150,31 +116,28 @@ conversationsRouter.get("/conversations/:conversationId/messages", requireAuth, 
           })),
         })),
         next_cursor: result.nextCursor,
-      },
-      200,
-    );
-  } catch (error) {
-    if (error instanceof ViewConversationMessagesError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      params: t.Object({
+        conversationId: t.String(),
+      }),
+      query: t.Object({
+        limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
+        cursor: t.Optional(t.String()),
+      }),
+    },
+  )
 
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
+  // Get all conversations with pagination
+  .get(
+    "/conversations",
+    async ({ authUserId, query, set }) => {
+      const limit = query.limit === undefined || query.limit === "" ? 50 : Number(query.limit);
+      const result = await getConversations(authUserId, limit, query.cursor);
 
-// Get all conversations with pagination
-conversationsRouter.get("/conversations", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-
-    const limitParam = c.req.query("limit");
-    const limit = limitParam ? Number(limitParam) : 50;
-    const cursor = c.req.query("cursor");
-
-    const result = await getConversations(userId, limit, cursor);
-
-    return c.json(
-      {
+      set.status = 200;
+      return {
         items: result.items.map((conv) => ({
           id: conv.id,
           user_low: conv.userLow,
@@ -189,62 +152,46 @@ conversationsRouter.get("/conversations", requireAuth, async (c) => {
           },
         })),
         next_cursor: result.nextCursor,
-      },
-      200,
-    );
-  } catch (error) {
-    if (error instanceof GetConversationsError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      query: t.Object({
+        limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
+        cursor: t.Optional(t.String()),
+      }),
+    },
+  )
 
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
+  // Clear a conversation
+  .delete(
+    "/conversations/:conversationId",
+    async ({ authUserId, params, set }) => {
+      await clearConversation(authUserId, params.conversationId);
 
-// Clear a conversation (for the clearer's side)
-conversationsRouter.delete("/conversations/:conversationId", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const conversationId = c.req.param("conversationId");
+      set.status = 200;
+      return {
+        message: "Conversation cleared successfully.",
+      };
+    },
+    {
+      params: t.Object({
+        conversationId: t.String(),
+      }),
+    },
+  )
 
-    if (!conversationId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Conversation ID is required." } },
-        400,
-      );
-    }
+  // React to a message
+  .post(
+    "/messages/:messageId/reactions",
+    async ({ authUserId, params, body, set }) => {
+      const result = await reactMessage({
+        userId: authUserId,
+        messageId: params.messageId,
+        emoji: body.emoji,
+      });
 
-    await clearConversation(userId, conversationId);
-
-    return c.json({ message: "Conversation cleared successfully." }, 200);
-  } catch (error) {
-    if (error instanceof ClearConversationError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
-
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
-
-// React a message
-conversationsRouter.post("/messages/:messageId/reactions", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const messageId = c.req.param("messageId");
-    const body = await c.req.json();
-
-    if (!messageId) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Message ID is required." } }, 400);
-    }
-
-    const result = await reactMessage({
-      userId,
-      messageId,
-      emoji: body.emoji,
-    });
-
-    return c.json(
-      {
+      set.status = 201;
+      return {
         message: "Reaction recorded successfully.",
         data: {
           id: result.id,
@@ -253,63 +200,48 @@ conversationsRouter.post("/messages/:messageId/reactions", requireAuth, async (c
           emoji: result.emoji,
           created_at: result.createdAt,
         },
-      },
-      201,
-    );
-  } catch (error) {
-    if (error instanceof ReactMessageError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      params: t.Object({
+        messageId: t.String(),
+      }),
+      body: t.Object({
+        emoji: t.String(),
+      }),
+    },
+  )
 
-    if (error instanceof SyntaxError) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
-    }
+  // Remove a message reaction
+  .delete(
+    "/messages/:messageId/reactions",
+    async ({ authUserId, params, set }) => {
+      await removeMessageReaction(authUserId, params.messageId);
 
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
+      set.status = 200;
+      return {
+        message: "Reaction removed successfully.",
+      };
+    },
+    {
+      params: t.Object({
+        messageId: t.String(),
+      }),
+    },
+  )
 
-// Remove a message's reaction
-conversationsRouter.delete("/messages/:messageId/reactions", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const messageId = c.req.param("messageId");
+  // Update an existing message reaction
+  .patch(
+    "/messages/:messageId/reactions",
+    async ({ authUserId, params, body, set }) => {
+      const result = await updateMessageReaction({
+        userId: authUserId,
+        messageId: params.messageId,
+        emoji: body.emoji,
+      });
 
-    if (!messageId) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Message ID is required." } }, 400);
-    }
-
-    await removeMessageReaction(userId, messageId);
-
-    return c.json({ message: "Reaction removed successfully." }, 200);
-  } catch (error) {
-    if (error instanceof RemoveMessageReactionError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
-
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
-
-// Update an existing message reaction
-conversationsRouter.patch("/messages/:messageId/reactions", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const messageId = c.req.param("messageId");
-    const body = await c.req.json();
-
-    if (!messageId) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Message ID is required." } }, 400);
-    }
-
-    const result = await updateMessageReaction({
-      userId,
-      messageId,
-      emoji: body.emoji,
-    });
-
-    return c.json(
-      {
+      set.status = 200;
+      return {
         message: "Reaction updated successfully.",
         data: {
           id: result.id,
@@ -318,20 +250,27 @@ conversationsRouter.patch("/messages/:messageId/reactions", requireAuth, async (
           emoji: result.emoji,
           created_at: result.createdAt,
         },
-      },
-      200,
-    );
-  } catch (error) {
-    if (error instanceof UpdateMessageReactionError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      params: t.Object({
+        messageId: t.String(),
+      }),
+      body: t.Object({
+        emoji: t.String(),
+      }),
+    },
+  );
 
-    if (error instanceof SyntaxError) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
-    }
-
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
+const conversationsRouter = withApiErrorHandler(new Elysia(), {
+  CreateConversationError,
+  SendMessageError,
+  ViewConversationMessagesError,
+  GetConversationsError,
+  ClearConversationError,
+  ReactMessageError,
+  RemoveMessageReactionError,
+  UpdateMessageReactionError,
+}).use(protectedConversationsRouter);
 
 export default conversationsRouter;

@@ -1,14 +1,14 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { and, eq } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { postReactions } from "../../db/migrations/schema.ts";
 
 export type DeleteReactionErrorType = "MISSING_INPUT" | "REACTION_NOT_FOUND" | "INTERNAL_ERROR";
 
 export class DeleteReactionError extends Error {
   readonly type: DeleteReactionErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: DeleteReactionErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: DeleteReactionErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "DeleteReactionError";
     this.type = type;
@@ -16,12 +16,22 @@ export class DeleteReactionError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function deleteReaction(
   userId: string,
   postId: string,
   reactionId: string,
 ): Promise<void> {
-  if (!userId || !postId || !reactionId) {
+  const normalizedUserId = userId.trim();
+  const normalizedPostId = postId.trim();
+  const normalizedReactionId = reactionId.trim();
+
+  if (!normalizedUserId || !normalizedPostId || !normalizedReactionId) {
     throw new DeleteReactionError(
       "MISSING_INPUT",
       "User ID, Post ID, and Reaction ID are required.",
@@ -29,32 +39,39 @@ export async function deleteReaction(
     );
   }
 
+  if (
+    !isValidUuid(normalizedUserId) ||
+    !isValidUuid(normalizedPostId) ||
+    !isValidUuid(normalizedReactionId)
+  ) {
+    throw new DeleteReactionError(
+      "REACTION_NOT_FOUND",
+      "Reaction not found or invalid ID format.",
+      404,
+    );
+  }
+
   try {
-    await withDb(async (client) => {
-      const result = await client.queryObject<{ id: string }>`
-        DELETE FROM post_reactions
-        WHERE id = ${reactionId} AND post_id = ${postId} AND user_id = ${userId}
-        RETURNING id
-      `;
+    const [deleted] = await db
+      .delete(postReactions)
+      .where(
+        and(
+          eq(postReactions.id, normalizedReactionId),
+          eq(postReactions.postId, normalizedPostId),
+          eq(postReactions.userId, normalizedUserId),
+        ),
+      )
+      .returning({ id: postReactions.id });
 
-      if (result.rows.length === 0) {
-        throw new DeleteReactionError(
-          "REACTION_NOT_FOUND",
-          "Reaction not found or you do not have permission to delete it.",
-          404,
-        );
-      }
-    });
-  } catch (error) {
-    if (error instanceof DeleteReactionError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
+    if (!deleted) {
       throw new DeleteReactionError(
         "REACTION_NOT_FOUND",
-        "Reaction not found or invalid ID format.",
+        "Reaction not found or you do not have permission to delete it.",
         404,
       );
     }
+  } catch (error) {
+    if (error instanceof DeleteReactionError) throw error;
 
     throw new DeleteReactionError(
       "INTERNAL_ERROR",

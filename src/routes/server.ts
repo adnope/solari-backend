@@ -1,5 +1,4 @@
-import { Hono } from "@hono/hono";
-import type { AuthVariables } from "../middleware/require_auth.ts";
+import { Elysia } from "elysia";
 import authRouter from "./auth.ts";
 import conversationsRouter from "./conversations.ts";
 import feedRouter from "./feed.ts";
@@ -8,16 +7,13 @@ import postsRouter from "./posts.ts";
 import usersRouter from "./users.ts";
 import { webRouter } from "./web.ts";
 
-const app = new Hono<{
-  Variables: AuthVariables;
-}>();
-
-app.route("/", authRouter);
-app.route("/", friendsRouter);
-app.route("/", postsRouter);
-app.route("/", feedRouter);
-app.route("/", usersRouter);
-app.route("/", conversationsRouter);
-app.route("/", webRouter);
+const app = new Elysia()
+  .use(authRouter)
+  .use(friendsRouter)
+  .use(postsRouter)
+  .use(feedRouter)
+  .use(usersRouter)
+  .use(conversationsRouter)
+  .use(webRouter);
 
 export default app;

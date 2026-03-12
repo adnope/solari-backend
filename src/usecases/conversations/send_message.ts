@@ -1,9 +1,8 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { v7 } from "@std/uuid";
-import { withDb } from "../../db/postgres_client.ts";
+import { eq } from "drizzle-orm";
 import { getFileUrl } from "../../storage/s3.ts";
+import { withTx } from "../../db/client.ts";
+import { conversations, messages, posts, userDevices, users } from "../../db/migrations/schema.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
-import { isPgError } from "../postgres_error.ts";
 
 export type SendMessageInput = {
   senderId: string;
@@ -18,7 +17,7 @@ export type SendMessageResult = {
   senderId: string;
   content: string;
   referencedPostId: string | null;
-  createdAt: Date;
+  createdAt: string;
 };
 
 export type SendMessageErrorType =
@@ -31,9 +30,9 @@ export type SendMessageErrorType =
 
 export class SendMessageError extends Error {
   readonly type: SendMessageErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: SendMessageErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: SendMessageErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "SendMessageError";
     this.type = type;
@@ -41,107 +40,158 @@ export class SendMessageError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
+  const normalizedSenderId = input.senderId.trim();
+  const normalizedConversationId = input.conversationId.trim();
+  const normalizedReferencedPostId = input.referencedPostId?.trim();
   const trimmedContent = input.content?.trim();
-  if (!input.senderId || !input.conversationId) {
+
+  if (!normalizedSenderId || !normalizedConversationId) {
     throw new SendMessageError("MISSING_INPUT", "Required fields missing.", 400);
   }
-  if (!trimmedContent) throw new SendMessageError("EMPTY_CONTENT", "Content is empty.", 400);
 
-  const messageId = v7.generate();
+  if (
+    !isValidUuid(normalizedSenderId) ||
+    !isValidUuid(normalizedConversationId) ||
+    (normalizedReferencedPostId && !isValidUuid(normalizedReferencedPostId))
+  ) {
+    throw new SendMessageError("MISSING_INPUT", "Invalid format.", 400);
+  }
+
+  if (!trimmedContent) {
+    throw new SendMessageError("EMPTY_CONTENT", "Content is empty.", 400);
+  }
+
+  const messageId = Bun.randomUUIDv7();
+  const createdAt = new Date().toISOString();
 
   try {
-    const { messageResult, pushData } = await withDb(async (client) => {
-      const tx = client.createTransaction("send_message_tx");
-      await tx.begin();
+    const { messageResult, pushData } = await withTx(async (tx) => {
+      if (normalizedReferencedPostId) {
+        const [referencedPost] = await tx
+          .select({
+            authorId: posts.authorId,
+          })
+          .from(posts)
+          .where(eq(posts.id, normalizedReferencedPostId))
+          .limit(1);
 
-      try {
-        if (input.referencedPostId) {
-          const post = await tx.queryObject<
-            { author_id: string }
-          >`SELECT author_id FROM posts WHERE id = ${input.referencedPostId}`;
-          if (post.rows.length === 0) {
-            throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
-          }
-          if (post.rows[0].author_id === input.senderId) {
-            throw new SendMessageError(
-              "CANNOT_REFERENCE_OWN_POST",
-              "Cannot reference own post.",
-              400,
-            );
-          }
+        if (!referencedPost) {
+          throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
         }
 
-        const convCheck = await tx.queryObject<
-          { user_low: string; user_high: string }
-        >`SELECT user_low, user_high FROM conversations WHERE id = ${input.conversationId}`;
-        if (convCheck.rows.length === 0) {
-          throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
+        if (referencedPost.authorId === normalizedSenderId) {
+          throw new SendMessageError(
+            "CANNOT_REFERENCE_OWN_POST",
+            "Cannot reference own post.",
+            400,
+          );
         }
-
-        const conv = convCheck.rows[0];
-        if (conv.user_low !== input.senderId && conv.user_high !== input.senderId) {
-          throw new SendMessageError("CONVERSATION_NOT_FOUND", "Unauthorized.", 404);
-        }
-
-        const receiverId = conv.user_low === input.senderId ? conv.user_high : conv.user_low;
-        const insertResult = await tx.queryObject<{ created_at: Date }>`
-          INSERT INTO messages (id, conversation_id, sender_id, content, referenced_post_id)
-          VALUES (${messageId}, ${input.conversationId}, ${input.senderId}, ${trimmedContent}, ${
-          input.referencedPostId || null
-        })
-          RETURNING created_at
-        `;
-
-        await tx.queryObject`UPDATE conversations SET updated_at = ${
-          insertResult.rows[0].created_at
-        } WHERE id = ${input.conversationId}`;
-
-        const senderResult = await tx.queryObject<
-          { username: string; display_name: string | null; avatar_key: string | null }
-        >`SELECT username, display_name, avatar_key FROM users WHERE id = ${input.senderId} LIMIT 1`;
-        const sender = senderResult.rows[0];
-        const tokensResult = await tx.queryObject<
-          { device_token: string }
-        >`SELECT device_token FROM user_devices WHERE user_id = ${receiverId}`;
-
-        await tx.commit();
-        return {
-          messageResult: {
-            id: messageId,
-            conversationId: input.conversationId,
-            senderId: input.senderId,
-            content: trimmedContent,
-            referencedPostId: input.referencedPostId || null,
-            createdAt: insertResult.rows[0].created_at,
-          },
-          pushData: {
-            tokens: tokensResult.rows.map((r) => r.device_token),
-            senderName: sender?.display_name || sender?.username || "Someone",
-            senderAvatarKey: sender?.avatar_key,
-          },
-        };
-      } catch (error) {
-        await tx.rollback();
-        throw error;
       }
+
+      const [conversation] = await tx
+        .select({
+          userLow: conversations.userLow,
+          userHigh: conversations.userHigh,
+        })
+        .from(conversations)
+        .where(eq(conversations.id, normalizedConversationId))
+        .limit(1);
+
+      if (!conversation) {
+        throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
+      }
+
+      if (
+        conversation.userLow !== normalizedSenderId &&
+        conversation.userHigh !== normalizedSenderId
+      ) {
+        throw new SendMessageError("CONVERSATION_NOT_FOUND", "Unauthorized.", 404);
+      }
+
+      const receiverId =
+        conversation.userLow === normalizedSenderId ? conversation.userHigh : conversation.userLow;
+
+      const [insertedMessage] = await tx
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId: normalizedConversationId,
+          senderId: normalizedSenderId,
+          content: trimmedContent,
+          referencedPostId: normalizedReferencedPostId ?? null,
+          createdAt,
+        })
+        .returning({
+          createdAt: messages.createdAt,
+        });
+
+      if (!insertedMessage) {
+        throw new SendMessageError("INTERNAL_ERROR", "Error sending message.", 500);
+      }
+
+      await tx
+        .update(conversations)
+        .set({
+          updatedAt: insertedMessage.createdAt,
+        })
+        .where(eq(conversations.id, normalizedConversationId));
+
+      const [sender] = await tx
+        .select({
+          username: users.username,
+          displayName: users.displayName,
+          avatarKey: users.avatarKey,
+        })
+        .from(users)
+        .where(eq(users.id, normalizedSenderId))
+        .limit(1);
+
+      const tokenRows = await tx
+        .select({
+          deviceToken: userDevices.deviceToken,
+        })
+        .from(userDevices)
+        .where(eq(userDevices.userId, receiverId));
+
+      return {
+        messageResult: {
+          id: messageId,
+          conversationId: normalizedConversationId,
+          senderId: normalizedSenderId,
+          content: trimmedContent,
+          referencedPostId: normalizedReferencedPostId ?? null,
+          createdAt: insertedMessage.createdAt,
+        },
+        pushData: {
+          tokens: tokenRows.map((row) => row.deviceToken),
+          senderName: sender?.displayName || sender?.username || "Someone",
+          senderAvatarKey: sender?.avatarKey ?? null,
+        },
+      };
     });
 
     if (pushData.tokens.length > 0) {
       const avatarUrl = pushData.senderAvatarKey ? await getFileUrl(pushData.senderAvatarKey) : "";
-      const isReply = !!input.referencedPostId;
+      const isReply = !!normalizedReferencedPostId;
       const title = isReply ? "New Post Reply" : "New Message";
       const body = isReply
         ? `${pushData.senderName} replied to your post.`
         : `${pushData.senderName} sent a message.`;
 
-      Promise.allSettled(
+      void Promise.allSettled(
         pushData.tokens.map((token) =>
           sendPushNotification(token, title, body, "NEW_MESSAGE", {
-            conversationId: input.conversationId,
+            conversationId: normalizedConversationId,
             messageId: messageResult.id,
             avatarUrl,
-          })
+          }),
         ),
       ).catch(console.error);
     }
@@ -149,14 +199,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     return messageResult;
   } catch (error) {
     if (error instanceof SendMessageError) throw error;
-    if (isPgError(error)) {
-      if (error.code === "23503") {
-        throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
-      }
-      if (error.code === "22P02") {
-        throw new SendMessageError("MISSING_INPUT", "Invalid format.", 400);
-      }
-    }
+
     throw new SendMessageError("INTERNAL_ERROR", "Error sending message.", 500);
   }
 }

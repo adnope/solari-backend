@@ -1,7 +1,11 @@
 import sharp from "sharp";
+import { unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 export async function generateThumbnail(
-  buffer: Uint8Array,
+  buffer: Uint8Array | Buffer,
   mediaType: "image" | "video",
 ): Promise<Uint8Array> {
   const TARGET_SIZE = 400;
@@ -14,13 +18,14 @@ export async function generateThumbnail(
         .toBuffer(),
     );
   } else {
-    const tempVideoPath = await Deno.makeTempFile({ suffix: ".mp4" });
+    const tempVideoPath = join(tmpdir(), `${randomUUID()}.mp4`);
 
     try {
-      await Deno.writeFile(tempVideoPath, buffer);
+      await Bun.write(tempVideoPath, buffer);
 
-      const command = new Deno.Command("ffmpeg", {
-        args: [
+      const proc = Bun.spawn(
+        [
+          "ffmpeg",
           "-i",
           tempVideoPath,
           "-vframes",
@@ -31,23 +36,24 @@ export async function generateThumbnail(
           "mjpeg",
           "pipe:1",
         ],
-        stdout: "piped",
-      });
+        { stdout: "pipe" },
+      );
 
-      const { code, stdout } = await command.output();
+      const stdoutBuffer = await new Response(proc.stdout).arrayBuffer();
+      const exitCode = await proc.exited;
 
-      if (code !== 0 || stdout.length === 0) {
+      if (exitCode !== 0 || stdoutBuffer.byteLength === 0) {
         throw new Error("FFmpeg failed to extract frame from video.");
       }
 
       return new Uint8Array(
-        await sharp(stdout)
+        await sharp(stdoutBuffer)
           .resize(TARGET_SIZE, TARGET_SIZE, { fit: "cover", position: "center" })
           .webp({ quality: 80 })
           .toBuffer(),
       );
     } finally {
-      await Deno.remove(tempVideoPath).catch(() => {});
+      await unlink(tempVideoPath).catch(() => {});
     }
   }
 }

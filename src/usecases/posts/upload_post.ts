@@ -1,9 +1,8 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
+import { eq, or } from "drizzle-orm";
+import { withTx } from "../../db/client.ts";
+import { friendships, postMedia, posts, postVisibility } from "../../db/migrations/schema.ts";
 import { uploadFile } from "../../storage/s3.ts";
 import { generateThumbnail } from "../../utils/thumbnail.ts";
-import { isPgError } from "../postgres_error.ts";
-import { v7 } from "@std/uuid";
 
 export type UploadPostInput = {
   authorId: string;
@@ -24,7 +23,7 @@ export type UploadPostResult = {
   authorId: string;
   caption: string | null;
   audienceType: string;
-  createdAt: Date;
+  createdAt: string;
   media: {
     objectKey: string;
     thumbnailKey: string;
@@ -45,14 +44,20 @@ export type UploadPostErrorType =
 
 export class UploadPostError extends Error {
   readonly type: UploadPostErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: UploadPostErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: UploadPostErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "UploadPostError";
     this.type = type;
     this.statusCode = statusCode;
   }
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
 }
 
 function validatePostInput(input: UploadPostInput) {
@@ -62,6 +67,10 @@ function validatePostInput(input: UploadPostInput) {
 
   if (!input.authorId || !input.buffer || !input.contentType) {
     throw new UploadPostError("MISSING_INPUT", "Missing required fields or media buffer.", 400);
+  }
+
+  if (!isValidUuid(input.authorId.trim())) {
+    throw new UploadPostError("MISSING_INPUT", "Invalid author ID.", 400);
   }
 
   if (input.width <= 0 || input.height <= 0 || input.width !== input.height) {
@@ -87,12 +96,17 @@ function validatePostInput(input: UploadPostInput) {
       400,
     );
   }
+
+  if (input.viewerIds && !input.viewerIds.every((id) => isValidUuid(id.trim()))) {
+    throw new UploadPostError("INVALID_AUDIENCE", "Invalid UUID format.", 400);
+  }
 }
 
 export async function uploadPost(input: UploadPostInput): Promise<UploadPostResult> {
   validatePostInput(input);
 
-  const postId = v7.generate();
+  const normalizedAuthorId = input.authorId.trim();
+  const postId = Bun.randomUUIDv7();
   const fileExtension = input.contentType.split("/")[1] || "bin";
 
   const objectKey = `posts/${postId}.${fileExtension}`;
@@ -101,7 +115,7 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
   let thumbBuffer: Uint8Array;
   try {
     thumbBuffer = await generateThumbnail(input.buffer, input.mediaType);
-  } catch (_error) {
+  } catch {
     throw new UploadPostError("INVALID_MEDIA", "Failed to process media file.", 400);
   }
 
@@ -110,96 +124,131 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
       uploadFile(objectKey, input.buffer, input.contentType),
       uploadFile(thumbnailKey, thumbBuffer, "image/webp"),
     ]);
-  } catch (_error) {
+  } catch {
     throw new UploadPostError("STORAGE_ERROR", "Failed to upload media to storage.", 502);
   }
 
   try {
-    return await withDb(async (client) => {
-      const tx = client.createTransaction("upload_post_tx");
-      await tx.begin();
+    return await withTx(async (tx) => {
+      let uniqueViewerIds: string[] | undefined;
 
-      try {
-        if (input.audienceType === "selected" && input.viewerIds) {
-          const uniqueViewerIds = [...new Set(input.viewerIds)];
+      if (input.audienceType === "selected" && input.viewerIds) {
+        uniqueViewerIds = [...new Set(input.viewerIds.map((id) => id.trim()))];
 
-          const friendCheckResult = await tx.queryObject<{ count: bigint }>`
-            SELECT COUNT(*) FROM (
-              SELECT user_high AS friend_id FROM friendships WHERE user_low = ${input.authorId}
-              UNION
-              SELECT user_low AS friend_id FROM friendships WHERE user_high = ${input.authorId}
-            ) AS f
-            WHERE friend_id = ANY(${uniqueViewerIds}::uuid[])
-          `;
+        const friendshipRows = await tx
+          .select({
+            userLow: friendships.userLow,
+            userHigh: friendships.userHigh,
+          })
+          .from(friendships)
+          .where(
+            or(
+              eq(friendships.userLow, normalizedAuthorId),
+              eq(friendships.userHigh, normalizedAuthorId),
+            ),
+          );
 
-          if (Number(friendCheckResult.rows[0]!.count) !== uniqueViewerIds.length) {
-            throw new UploadPostError(
-              "INVALID_AUDIENCE",
-              "One or more viewer IDs are invalid or not on your friends list.",
-              403,
-            );
-          }
+        const friendIds = new Set(
+          friendshipRows.map((row) =>
+            row.userLow === normalizedAuthorId ? row.userHigh : row.userLow,
+          ),
+        );
+
+        const allValid = uniqueViewerIds.every((viewerId) => friendIds.has(viewerId));
+        if (!allValid) {
+          throw new UploadPostError(
+            "INVALID_AUDIENCE",
+            "One or more viewer IDs are invalid or not on your friends list.",
+            403,
+          );
         }
+      }
 
-        const postResult = await tx.queryObject<{ created_at: Date }>`
-          INSERT INTO posts (id, author_id, caption, audience_type)
-          VALUES (${postId}, ${input.authorId}, ${input.caption || null}, ${input.audienceType})
-          RETURNING created_at
-        `;
-
-        await tx.queryObject`
-          INSERT INTO post_media (
-            post_id, media_type, object_key, thumbnail_key, content_type,
-            byte_size, duration_ms, width, height
-          )
-          VALUES (
-            ${postId}, ${input.mediaType}, ${objectKey}, ${thumbnailKey}, ${input.contentType},
-            ${input.byteSize}, ${input.durationMs || null}, ${input.width}, ${input.height}
-          )
-        `;
-
-        if (input.audienceType === "all") {
-          await tx.queryObject`
-            INSERT INTO post_visibility (post_id, viewer_id)
-            SELECT ${postId}, friend_id FROM (
-              SELECT user_high AS friend_id FROM friendships WHERE user_low = ${input.authorId}
-              UNION
-              SELECT user_low AS friend_id FROM friendships WHERE user_high = ${input.authorId}
-            ) AS f
-          `;
-        } else if (input.audienceType === "selected" && input.viewerIds) {
-          const uniqueViewerIds = [...new Set(input.viewerIds)];
-          await tx.queryObject`
-            INSERT INTO post_visibility (post_id, viewer_id)
-            SELECT ${postId}, unnest(${uniqueViewerIds}::uuid[])
-          `;
-        }
-
-        await tx.commit();
-        return {
+      const [insertedPost] = await tx
+        .insert(posts)
+        .values({
           id: postId,
-          authorId: input.authorId,
+          authorId: normalizedAuthorId,
           caption: input.caption || null,
           audienceType: input.audienceType,
-          createdAt: postResult.rows[0]!.created_at,
-          media: {
-            objectKey: objectKey,
-            thumbnailKey: thumbnailKey,
-            mediaType: input.mediaType,
-            width: input.width,
-            height: input.height,
-          },
-        };
-      } catch (error) {
-        await tx.rollback();
-        throw error;
+        })
+        .returning({
+          createdAt: posts.createdAt,
+        });
+
+      if (!insertedPost) {
+        throw new UploadPostError(
+          "INTERNAL_ERROR",
+          "Internal server error during post creation.",
+          500,
+        );
       }
+
+      await tx.insert(postMedia).values({
+        postId,
+        mediaType: input.mediaType,
+        objectKey,
+        thumbnailKey,
+        contentType: input.contentType,
+        byteSize: input.byteSize,
+        durationMs: input.durationMs ?? null,
+        width: input.width,
+        height: input.height,
+      });
+
+      if (input.audienceType === "all") {
+        const friendshipRows = await tx
+          .select({
+            userLow: friendships.userLow,
+            userHigh: friendships.userHigh,
+          })
+          .from(friendships)
+          .where(
+            or(
+              eq(friendships.userLow, normalizedAuthorId),
+              eq(friendships.userHigh, normalizedAuthorId),
+            ),
+          );
+
+        const viewerIds = friendshipRows.map((row) =>
+          row.userLow === normalizedAuthorId ? row.userHigh : row.userLow,
+        );
+
+        if (viewerIds.length > 0) {
+          await tx.insert(postVisibility).values(
+            viewerIds.map((viewerId) => ({
+              postId,
+              viewerId,
+            })),
+          );
+        }
+      } else if (uniqueViewerIds && uniqueViewerIds.length > 0) {
+        await tx.insert(postVisibility).values(
+          uniqueViewerIds.map((viewerId) => ({
+            postId,
+            viewerId,
+          })),
+        );
+      }
+
+      return {
+        id: postId,
+        authorId: normalizedAuthorId,
+        caption: input.caption || null,
+        audienceType: input.audienceType,
+        createdAt: insertedPost.createdAt,
+        media: {
+          objectKey,
+          thumbnailKey,
+          mediaType: input.mediaType,
+          width: input.width,
+          height: input.height,
+        },
+      };
     });
   } catch (error) {
     if (error instanceof UploadPostError) throw error;
-    if (isPgError(error) && error.code === "22P02") {
-      throw new UploadPostError("INVALID_AUDIENCE", "Invalid UUID format.", 400);
-    }
+
     throw new UploadPostError("INTERNAL_ERROR", "Internal server error during post creation.", 500);
   }
 }

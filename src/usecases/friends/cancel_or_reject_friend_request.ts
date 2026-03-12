@@ -1,5 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
+import { eq } from "drizzle-orm";
+import { withTx } from "../../db/client.ts";
+import { friendRequests } from "../../db/migrations/schema.ts";
 
 export type CancelOrRejectFriendRequestErrorType =
   | "MISSING_INPUT"
@@ -9,13 +10,9 @@ export type CancelOrRejectFriendRequestErrorType =
 
 export class CancelOrRejectFriendRequestError extends Error {
   readonly type: CancelOrRejectFriendRequestErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(
-    type: CancelOrRejectFriendRequestErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: CancelOrRejectFriendRequestErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "CancelOrRejectFriendRequestError";
     this.type = type;
@@ -23,57 +20,62 @@ export class CancelOrRejectFriendRequestError extends Error {
   }
 }
 
-type FriendRequestRow = {
-  id: string;
-  requester_id: string;
-  receiver_id: string;
-  created_at: Date;
-};
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
+function normalizeId(value: string, fieldName: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new CancelOrRejectFriendRequestError("MISSING_INPUT", `${fieldName} is required.`, 400);
+  }
+  if (!isValidUuid(normalized)) {
+    throw new CancelOrRejectFriendRequestError("MISSING_INPUT", `${fieldName} is invalid.`, 400);
+  }
+  return normalized;
+}
 
 export async function cancelOrRejectFriendRequest(
   userId: string,
   requestId: string,
 ): Promise<void> {
+  const normalizedUserId = normalizeId(userId, "User ID");
+  const normalizedRequestId = normalizeId(requestId, "Request ID");
+
   try {
-    return await withDb(async (client) => {
-      const tx = client.createTransaction("cancel_reject_tx");
-      await tx.begin();
+    await withTx(async (tx) => {
+      const [requestRow] = await tx
+        .select({
+          id: friendRequests.id,
+          requesterId: friendRequests.requesterId,
+          receiverId: friendRequests.receiverId,
+        })
+        .from(friendRequests)
+        .where(eq(friendRequests.id, normalizedRequestId))
+        .limit(1);
 
-      try {
-        const requestResult = await tx.queryObject<FriendRequestRow>`
-          SELECT id, requester_id, receiver_id, created_at
-          FROM friend_requests
-          WHERE id = ${requestId}
-          LIMIT 1
-        `;
-
-        const requestRow = requestResult.rows[0];
-        if (!requestRow) {
-          throw new CancelOrRejectFriendRequestError(
-            "REQUEST_NOT_FOUND",
-            "Friend request not found.",
-            404,
-          );
-        }
-
-        if (requestRow.requester_id === userId || requestRow.receiver_id === userId) {
-          await tx.queryObject`
-            DELETE FROM friend_requests
-            WHERE id = ${requestId}
-          `;
-        } else {
-          throw new CancelOrRejectFriendRequestError(
-            "NOT_REQUESTER_OR_RECEIVER",
-            "You are neither the requester nor the receiver.",
-            403,
-          );
-        }
-
-        await tx.commit();
-      } catch (error) {
-        await tx.rollback();
-        throw error;
+      if (!requestRow) {
+        throw new CancelOrRejectFriendRequestError(
+          "REQUEST_NOT_FOUND",
+          "Friend request not found.",
+          404,
+        );
       }
+
+      if (
+        requestRow.requesterId !== normalizedUserId &&
+        requestRow.receiverId !== normalizedUserId
+      ) {
+        throw new CancelOrRejectFriendRequestError(
+          "NOT_REQUESTER_OR_RECEIVER",
+          "You are neither the requester nor the receiver.",
+          403,
+        );
+      }
+
+      await tx.delete(friendRequests).where(eq(friendRequests.id, normalizedRequestId));
     });
   } catch (error) {
     if (error instanceof CancelOrRejectFriendRequestError) {

@@ -1,45 +1,44 @@
-import { Hono } from "@hono/hono";
-import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { Elysia, t } from "elysia";
+import { requireAuth } from "./middleware/require_auth.ts";
 import { deleteAccount, DeleteAccountError } from "../usecases/users/delete_account.ts";
 import { getPublicProfile, GetPublicProfileError } from "../usecases/users/get_public_profile.ts";
 import { registerDevice, RegisterDeviceError } from "../usecases/users/register_device.ts";
 import { updateProfile, UpdateProfileError } from "../usecases/users/update_profile.ts";
+import { withApiErrorHandler } from "./api_error_handler.ts";
 
-const usersRouter = new Hono<{ Variables: AuthVariables }>();
+const protectedUsersRouter = new Elysia()
+  .use(requireAuth)
 
-// Update user profile
-usersRouter.patch("/users/me", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const body = await c.req.parseBody();
+  // Update user profile
+  .patch(
+    "/users/me",
+    async ({ authUserId, body, set }) => {
+      const email = body.email;
+      const displayName = body.display_name;
 
-    const email = typeof body["email"] === "string" ? body["email"] : undefined;
-    const displayName = typeof body["display_name"] === "string" ? body["display_name"] : undefined;
+      const removeDisplayName = body.remove_display_name === "true";
+      const removeAvatar = body.remove_avatar === "true";
 
-    const removeDisplayName = body["remove_display_name"] === "true";
-    const removeAvatar = body["remove_avatar"] === "true";
+      let avatar: { buffer: Uint8Array; contentType: string } | undefined;
 
-    let avatar: { buffer: Uint8Array; contentType: string } | undefined = undefined;
-    const avatarFile = body["avatar"];
+      if (body.avatar) {
+        avatar = {
+          buffer: new Uint8Array(await body.avatar.arrayBuffer()),
+          contentType: body.avatar.type,
+        };
+      }
 
-    if (avatarFile instanceof File) {
-      avatar = {
-        buffer: new Uint8Array(await avatarFile.arrayBuffer()),
-        contentType: avatarFile.type,
-      };
-    }
+      const result = await updateProfile({
+        userId: authUserId,
+        email,
+        displayName,
+        removeDisplayName,
+        removeAvatar,
+        avatar,
+      });
 
-    const result = await updateProfile({
-      userId,
-      email,
-      displayName,
-      removeDisplayName,
-      removeAvatar,
-      avatar,
-    });
-
-    return c.json(
-      {
+      set.status = 200;
+      return {
         message: "Profile updated successfully.",
         user: {
           id: result.id,
@@ -49,94 +48,76 @@ usersRouter.patch("/users/me", requireAuth, async (c) => {
           avatar_key: result.avatar_key,
           updated_at: result.updated_at,
         },
-      },
-      200,
-    );
-  } catch (error) {
-    if (error instanceof UpdateProfileError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      parse: "formdata",
+      body: t.Object({
+        email: t.Optional(t.String()),
+        display_name: t.Optional(t.String()),
+        remove_display_name: t.Optional(t.String()),
+        remove_avatar: t.Optional(t.String()),
+        avatar: t.Optional(t.File()),
+      }),
+    },
+  )
 
-    return c.json(
-      {
-        error: { type: "INTERNAL_ERROR", message: "Internal server error." },
-      },
-      500,
-    );
-  }
-});
+  // Delete account
+  .delete("/users/me", async ({ authUserId, set }) => {
+    await deleteAccount(authUserId);
 
-// Delete account
-usersRouter.delete("/users/me", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
+    set.status = 200;
+    return {
+      message: "Account deleted successfully.",
+    };
+  })
 
-    await deleteAccount(userId);
+  // Register a device for push notifications
+  .post(
+    "/users/me/devices",
+    async ({ authUserId, body, set }) => {
+      await registerDevice({
+        userId: authUserId,
+        deviceToken: body.device_token,
+        platform: body.platform,
+      });
 
-    return c.json({ message: "Account deleted successfully." }, 200);
-  } catch (error) {
-    if (error instanceof DeleteAccountError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      set.status = 200;
+      return {
+        message: "Device registered successfully.",
+      };
+    },
+    {
+      body: t.Object({
+        device_token: t.String(),
+        platform: t.String(),
+      }),
+    },
+  )
 
-    return c.json(
-      {
-        error: { type: "INTERNAL_ERROR", message: "Internal server error." },
-      },
-      500,
-    );
-  }
-});
+  // Get user's public profile
+  .get(
+    "/users/public/:username",
+    async ({ params, set }) => {
+      const profile = await getPublicProfile(params.username);
 
-// Register a device for push notifications
-usersRouter.post("/users/me/devices", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const body = await c.req.json<{
-      device_token?: string;
-      platform?: string;
-    }>();
+      set.status = 200;
+      return {
+        profile,
+      };
+    },
+    {
+      params: t.Object({
+        username: t.String(),
+      }),
+    },
+  );
 
-    if (!body.device_token || !body.platform) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "device_token and platform are required." } },
-        400,
-      );
-    }
-
-    await registerDevice({
-      userId,
-      deviceToken: body.device_token,
-      platform: body.platform,
-    });
-
-    return c.json({ message: "Device registered successfully." }, 200);
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return c.json({ error: { type: "INVALID_JSON", message: "Invalid JSON body." } }, 400);
-    }
-
-    if (error instanceof RegisterDeviceError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
-
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
-
-// Get user's public profile
-usersRouter.get("/users/public/:username", requireAuth, async (c) => {
-  try {
-    const username = c.req.param("username");
-    const profile = await getPublicProfile(username);
-
-    return c.json({ profile }, 200);
-  } catch (error) {
-    if (error instanceof GetPublicProfileError) {
-      return c.json({ error: { message: error.message } }, error.statusCode);
-    }
-    return c.json({ error: { message: "Internal server error." } }, 500);
-  }
-});
+const usersRouter = withApiErrorHandler(new Elysia(), {
+  UpdateProfileError,
+  DeleteAccountError,
+  RegisterDeviceError,
+  GetPublicProfileError,
+}).use(protectedUsersRouter);
 
 export default usersRouter;

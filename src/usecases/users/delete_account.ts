@@ -1,15 +1,15 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { eq } from "drizzle-orm";
+import { withTx } from "../../db/client.ts";
+import { postMedia, posts, users } from "../../db/migrations/schema.ts";
 import { deleteFile } from "../../storage/s3.ts";
 
 export type DeleteAccountErrorType = "USER_NOT_FOUND" | "INTERNAL_ERROR";
 
 export class DeleteAccountError extends Error {
   readonly type: DeleteAccountErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: DeleteAccountErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: DeleteAccountErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "DeleteAccountError";
     this.type = type;
@@ -17,61 +17,68 @@ export class DeleteAccountError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function deleteAccount(userId: string): Promise<void> {
+  const normalizedUserId = userId.trim();
   const keysToDelete: string[] = [];
 
+  if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
+    throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
+  }
+
   try {
-    await withDb(async (client) => {
-      const tx = client.createTransaction("delete_account_tx");
-      await tx.begin();
+    await withTx(async (tx) => {
+      const [userRow] = await tx
+        .select({
+          avatarKey: users.avatarKey,
+        })
+        .from(users)
+        .where(eq(users.id, normalizedUserId))
+        .limit(1);
 
-      try {
-        const userResult = await tx.queryObject<{ avatar_key: string | null }>`
-          SELECT avatar_key FROM users WHERE id = ${userId} FOR UPDATE
-        `;
-
-        if (userResult.rows.length === 0) {
-          throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
-        }
-
-        if (userResult.rows[0].avatar_key) {
-          keysToDelete.push(userResult.rows[0].avatar_key);
-        }
-
-        const mediaResult = await tx.queryObject<{ object_key: string }>`
-          SELECT pm.object_key
-          FROM post_media pm
-          JOIN posts p ON p.id = pm.post_id
-          WHERE p.author_id = ${userId}
-        `;
-
-        for (const row of mediaResult.rows) {
-          keysToDelete.push(row.object_key);
-        }
-
-        await tx.queryObject`DELETE FROM users WHERE id = ${userId}`;
-        await tx.commit();
-      } catch (error) {
-        await tx.rollback();
-        throw error;
+      if (!userRow) {
+        throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
       }
+
+      if (userRow.avatarKey) {
+        keysToDelete.push(userRow.avatarKey);
+      }
+
+      const mediaRows = await tx
+        .select({
+          objectKey: postMedia.objectKey,
+          thumbnailKey: postMedia.thumbnailKey,
+        })
+        .from(postMedia)
+        .innerJoin(posts, eq(posts.id, postMedia.postId))
+        .where(eq(posts.authorId, normalizedUserId));
+
+      for (const row of mediaRows) {
+        keysToDelete.push(row.objectKey);
+        if (row.thumbnailKey) {
+          keysToDelete.push(row.thumbnailKey);
+        }
+      }
+
+      await tx.delete(users).where(eq(users.id, normalizedUserId));
     });
 
     if (keysToDelete.length > 0) {
       await Promise.allSettled(
-        keysToDelete.map((key) =>
+        [...new Set(keysToDelete)].map((key) =>
           deleteFile(key).catch((err) =>
-            console.error(`Failed to delete orphaned MinIO object: ${key}`, err)
-          )
+            console.error(`Failed to delete orphaned MinIO object: ${key}`, err),
+          ),
         ),
       );
     }
   } catch (error) {
     if (error instanceof DeleteAccountError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
-      throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
-    }
 
     throw new DeleteAccountError(
       "INTERNAL_ERROR",

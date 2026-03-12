@@ -1,6 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { eq } from "drizzle-orm";
+import { withTx } from "../../db/client.ts";
+import { postMedia, posts } from "../../db/migrations/schema.ts";
 import { deleteFile } from "../../storage/s3.ts";
 
 export type DeletePostErrorType =
@@ -11,9 +11,9 @@ export type DeletePostErrorType =
 
 export class DeletePostError extends Error {
   readonly type: DeletePostErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: DeletePostErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: DeletePostErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "DeletePostError";
     this.type = type;
@@ -21,56 +21,60 @@ export class DeletePostError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function deletePost(authorId: string, postId: string): Promise<void> {
-  if (!authorId || !postId) {
+  const normalizedAuthorId = authorId.trim();
+  const normalizedPostId = postId.trim();
+
+  if (!normalizedAuthorId || !normalizedPostId) {
     throw new DeletePostError("MISSING_INPUT", "Author ID and Post ID are required.", 400);
+  }
+
+  if (!isValidUuid(normalizedAuthorId) || !isValidUuid(normalizedPostId)) {
+    throw new DeletePostError("POST_NOT_FOUND", "Post not found.", 404);
   }
 
   let keysToDelete: string[] = [];
 
   try {
-    await withDb(async (client) => {
-      const tx = client.createTransaction("delete_post_tx");
-      await tx.begin();
+    await withTx(async (tx) => {
+      const [postRow] = await tx
+        .select({
+          authorId: posts.authorId,
+          objectKey: postMedia.objectKey,
+          thumbnailKey: postMedia.thumbnailKey,
+        })
+        .from(posts)
+        .innerJoin(postMedia, eq(postMedia.postId, posts.id))
+        .where(eq(posts.id, normalizedPostId))
+        .limit(1);
 
-      try {
-        const postResult = await tx.queryObject<{
-          author_id: string;
-          object_key: string;
-          thumbnail_key: string | null;
-        }>`
-          SELECT p.author_id, pm.object_key, pm.thumbnail_key
-          FROM posts p
-          JOIN post_media pm ON pm.post_id = p.id
-          WHERE p.id = ${postId}
-          FOR UPDATE
-        `;
-
-        if (postResult.rows.length === 0) {
-          throw new DeletePostError("POST_NOT_FOUND", "Post not found.", 404);
-        }
-
-        const post = postResult.rows[0];
-
-        if (post.author_id !== authorId) {
-          throw new DeletePostError(
-            "UNAUTHORIZED",
-            "You are not authorized to delete this post.",
-            403,
-          );
-        }
-
-        keysToDelete = [post.object_key, post.thumbnail_key].filter((k): k is string => !!k);
-        await tx.queryObject`DELETE FROM posts WHERE id = ${postId}`;
-        await tx.commit();
-      } catch (error) {
-        await tx.rollback();
-        throw error;
+      if (!postRow) {
+        throw new DeletePostError("POST_NOT_FOUND", "Post not found.", 404);
       }
+
+      if (postRow.authorId !== normalizedAuthorId) {
+        throw new DeletePostError(
+          "UNAUTHORIZED",
+          "You are not authorized to delete this post.",
+          403,
+        );
+      }
+
+      keysToDelete = [postRow.objectKey, postRow.thumbnailKey].filter((key): key is string =>
+        Boolean(key),
+      );
+
+      await tx.delete(posts).where(eq(posts.id, normalizedPostId));
     });
 
     if (keysToDelete.length > 0) {
-      Promise.allSettled(
+      void Promise.allSettled(
         keysToDelete.map(async (key) => {
           try {
             await deleteFile(key);
@@ -82,10 +86,6 @@ export async function deletePost(authorId: string, postId: string): Promise<void
     }
   } catch (error) {
     if (error instanceof DeletePostError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
-      throw new DeletePostError("POST_NOT_FOUND", "Post not found.", 404);
-    }
 
     throw new DeletePostError("INTERNAL_ERROR", "Internal server error during post deletion.", 500);
   }

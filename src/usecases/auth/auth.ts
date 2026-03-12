@@ -1,11 +1,9 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { randomBytes } from "node:crypto";
-import { encodeHex } from "@std/encoding/hex";
-import { v7 } from "@std/uuid";
-import * as argon2 from "argon2";
-import { withDb } from "../../db/postgres_client.ts";
+import { and, eq } from "drizzle-orm";
+import { createHash, randomBytes } from "node:crypto";
+import { db, withTx } from "../../db/client.ts";
+import { sessions, userDevices, userPasswords, users } from "../../db/migrations/schema.ts";
 import { createAccessToken } from "../../lib/jwt.ts";
-import { isPgError } from "../postgres_error.ts";
+import { isPgError, unwrapDbError } from "../postgres_error.ts";
 
 export type SignupInput = {
   username: string;
@@ -24,14 +22,14 @@ export type PublicUser = {
   email: string;
   displayName: string | null;
   avatarKey: string | null;
-  createdAt: Date;
+  createdAt: string;
 };
 
 export type SigninResult = {
   sessionId: string;
   accessToken: string;
   refreshToken: string;
-  expiresAt: Date;
+  expiresAt: string;
 };
 
 export type AuthErrorType =
@@ -54,9 +52,9 @@ export type AuthErrorType =
 
 export class AuthError extends Error {
   readonly type: AuthErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: AuthErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: AuthErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "AuthError";
     this.type = type;
@@ -68,13 +66,13 @@ type UserRow = {
   id: string;
   username: string;
   email: string;
-  display_name: string | null;
-  avatar_key: string | null;
-  created_at: Date;
+  displayName: string | null;
+  avatarKey: string | null;
+  createdAt: string;
 };
 
 type UserAuthRow = UserRow & {
-  password_hash: string | null;
+  passwordHash: string | null;
 };
 
 const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -153,9 +151,9 @@ function mapUser(row: UserRow): PublicUser {
     id: row.id,
     username: row.username,
     email: row.email,
-    displayName: row.display_name,
-    avatarKey: row.avatar_key,
-    createdAt: row.created_at,
+    displayName: row.displayName,
+    avatarKey: row.avatarKey,
+    createdAt: row.createdAt,
   };
 }
 
@@ -163,10 +161,8 @@ function generateSecureToken(byteLength = 32): string {
   return randomBytes(byteLength).toString("hex");
 }
 
-async function sha256Hex(value: string): Promise<string> {
-  const data = new TextEncoder().encode(value);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  return encodeHex(hashBuffer);
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 export async function signUp(input: SignupInput): Promise<PublicUser> {
@@ -174,56 +170,60 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
   const email = normalizeEmail(input.email);
   const password = validatePassword(input.password);
 
-  const passwordHash = await argon2.hash(password);
-  const userId = v7.generate();
+  const passwordHash = await Bun.password.hash(password, {
+    algorithm: "argon2id",
+  });
+  const userId = Bun.randomUUIDv7();
 
   try {
-    return await withDb(async (client) => {
-      const tx = client.createTransaction("signup_tx");
-      await tx.begin();
-
-      const result = await tx.queryObject<UserRow>`
-        INSERT INTO users (
-          id,
-          username,
-          email
-        )
-        VALUES (${userId}, ${username}, ${email})
-        RETURNING
-          id,
+    return await withTx(async (tx) => {
+      const [user] = await tx
+        .insert(users)
+        .values({
+          id: userId,
           username,
           email,
-          display_name,
-          avatar_key,
-          created_at
-      `;
+        })
+        .returning({
+          id: users.id,
+          username: users.username,
+          email: users.email,
+          displayName: users.displayName,
+          avatarKey: users.avatarKey,
+          createdAt: users.createdAt,
+        });
 
-      const row = result.rows[0];
-      if (!row) {
+      if (!user) {
         throw new AuthError("INTERNAL_ERROR", "Failed to create user.", 500);
       }
 
-      await tx.queryObject`
-        INSERT INTO user_passwords (user_id, password_hash)
-        VALUES (${userId}, ${passwordHash})
-      `;
+      await tx.insert(userPasswords).values({
+        userId,
+        passwordHash,
+      });
 
-      await tx.commit();
-      return mapUser(row);
+      return mapUser(user);
     });
   } catch (error) {
     if (error instanceof AuthError) {
       throw error;
     }
 
-    if (isPgError(error) && error.code === "23505") {
-      const constraint = error.constraint;
+    const pgError = unwrapDbError(error);
+    if (isPgError(error) && pgError?.code === "23505") {
+      const constraint =
+        pgError.constraint ??
+        pgError.constraint_name ??
+        pgError.fields?.constraint ??
+        pgError.fields?.constraint_name;
+
       if (constraint === "users_username_key") {
         throw new AuthError("USERNAME_TAKEN", "Username is already taken.", 409);
       }
       if (constraint === "users_email_key") {
         throw new AuthError("EMAIL_TAKEN", "Email is already in use.", 409);
       }
+
       throw new AuthError("IDENTIFIER_ALREADY_IN_USE", "Username or email is already in use.", 409);
     }
 
@@ -236,72 +236,81 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
   const password = requirePassword(input.password);
 
   try {
-    return await withDb(async (client) => {
-      const userResult = await client.queryObject<UserAuthRow>`
-        SELECT
-          u.id,
-          u.username,
-          u.email,
-          u.display_name,
-          u.avatar_key,
-          up.password_hash,
-          u.created_at
-        FROM users u
-        LEFT JOIN user_passwords up ON up.user_id = u.id
-        WHERE u.username = ${identifier} OR u.email = ${identifier}
-        LIMIT 1
-      `;
+    const userLookupCondition = identifier.includes("@")
+      ? eq(users.email, identifier)
+      : eq(users.username, identifier);
 
-      const row = userResult.rows[0];
-      if (!row) {
-        throw new AuthError("INVALID_CREDENTIALS", "Invalid username/email or password.", 401);
-      }
+    const [row] = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+        displayName: users.displayName,
+        avatarKey: users.avatarKey,
+        createdAt: users.createdAt,
+        passwordHash: userPasswords.passwordHash,
+      })
+      .from(users)
+      .leftJoin(userPasswords, eq(userPasswords.userId, users.id))
+      .where(userLookupCondition)
+      .limit(1);
 
-      if (!row.password_hash) {
-        throw new AuthError(
-          "INVALID_CREDENTIALS",
-          "Please sign in using your linked third-party account.",
-          401,
-        );
-      }
+    if (!row) {
+      throw new AuthError("INVALID_CREDENTIALS", "Invalid username/email or password.", 401);
+    }
 
-      const ok = await argon2.verify(row.password_hash, password);
-      if (!ok) {
-        throw new AuthError("INVALID_CREDENTIALS", "Invalid username/email or password.", 401);
-      }
+    const user: UserAuthRow = {
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      displayName: row.displayName,
+      avatarKey: row.avatarKey,
+      createdAt: row.createdAt,
+      passwordHash: row.passwordHash,
+    };
 
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS);
+    if (!user.passwordHash) {
+      throw new AuthError(
+        "INVALID_CREDENTIALS",
+        "Please sign in using your linked third-party account.",
+        401,
+      );
+    }
 
-      const sessionId = v7.generate();
-      const refreshToken = generateSecureToken();
-      const refreshTokenHash = await sha256Hex(refreshToken);
+    const ok = await Bun.password.verify(password, user.passwordHash);
+    if (!ok) {
+      throw new AuthError("INVALID_CREDENTIALS", "Invalid username/email or password.", 401);
+    }
 
-      await client.queryObject`
-        INSERT INTO sessions (
-          id,
-          user_id,
-          refresh_token_hash,
-          created_at,
-          last_used_at,
-          expires_at
-        )
-        VALUES (${sessionId}, ${row.id}, ${refreshTokenHash}, ${now}, ${now}, ${expiresAt})
-      `;
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS).toISOString();
 
-      const accessToken = createAccessToken({
-        sub: row.id,
-        sid: sessionId,
-        type: "access",
-      });
+    const sessionId = Bun.randomUUIDv7();
+    const refreshToken = generateSecureToken();
+    const refreshTokenHash = sha256Hex(refreshToken);
 
-      return {
-        sessionId,
-        accessToken,
-        refreshToken,
-        expiresAt,
-      };
+    await db.insert(sessions).values({
+      id: sessionId,
+      userId: user.id,
+      refreshTokenHash,
+      createdAt: nowIso,
+      lastUsedAt: nowIso,
+      expiresAt,
     });
+
+    const accessToken = createAccessToken({
+      sub: user.id,
+      sid: sessionId,
+      type: "access",
+    });
+
+    return {
+      sessionId,
+      accessToken,
+      refreshToken,
+      expiresAt,
+    };
   } catch (error) {
     if (error instanceof AuthError) {
       throw error;
@@ -312,31 +321,38 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
 }
 
 export async function logOut(sessionId: string, deviceToken?: string): Promise<boolean> {
-  sessionId = sessionId.trim();
+  const normalizedSessionId = sessionId.trim();
 
-  if (!sessionId) {
+  if (!normalizedSessionId) {
     throw new AuthError("MISSING_SESSION_ID", "Session id is missing.", 400);
   }
 
   try {
-    return await withDb(async (client) => {
-      const result = await client.queryObject<{ id: string }>`
-        DELETE FROM sessions
-        WHERE id = ${sessionId}
-        RETURNING id
-      `;
+    return await withTx(async (tx) => {
+      const [deletedSession] = await tx
+        .delete(sessions)
+        .where(eq(sessions.id, normalizedSessionId))
+        .returning({
+          id: sessions.id,
+          userId: sessions.userId,
+        });
 
-      if (result.rows.length === 0) {
+      if (!deletedSession) {
         throw new AuthError("SESSION_NOT_FOUND", "Session not found.", 404);
       }
 
       if (deviceToken) {
         const normalizedToken = deviceToken.trim();
+
         if (normalizedToken) {
-          await client.queryObject`
-            DELETE FROM user_devices
-            WHERE device_token = ${normalizedToken}
-          `;
+          await tx
+            .delete(userDevices)
+            .where(
+              and(
+                eq(userDevices.userId, deletedSession.userId),
+                eq(userDevices.deviceToken, normalizedToken),
+              ),
+            );
         }
       }
 
@@ -352,34 +368,31 @@ export async function logOut(sessionId: string, deviceToken?: string): Promise<b
 }
 
 export async function me(userId: string): Promise<PublicUser> {
-  userId = userId.trim();
+  const normalizedUserId = userId.trim();
 
-  if (!userId) {
+  if (!normalizedUserId) {
     throw new AuthError("MISSING_USER_ID", "User id is missing.", 400);
   }
 
   try {
-    return await withDb(async (client) => {
-      const result = await client.queryObject<UserRow>`
-        SELECT
-          id,
-          username,
-          email,
-          display_name,
-          avatar_key,
-          created_at
-        FROM users
-        WHERE id = ${userId}
-        LIMIT 1
-      `;
+    const [user] = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+        displayName: users.displayName,
+        avatarKey: users.avatarKey,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(eq(users.id, normalizedUserId))
+      .limit(1);
 
-      const row = result.rows[0];
-      if (!row) {
-        throw new AuthError("USER_NOT_FOUND", "User not found.", 404);
-      }
+    if (!user) {
+      throw new AuthError("USER_NOT_FOUND", "User not found.", 404);
+    }
 
-      return mapUser(row);
-    });
+    return mapUser(user);
   } catch (error) {
     if (error instanceof AuthError) {
       throw error;

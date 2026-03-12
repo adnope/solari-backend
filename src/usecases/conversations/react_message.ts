@@ -1,9 +1,14 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { v7 } from "@std/uuid";
-import { withDb } from "../../db/postgres_client.ts";
+import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { getFileUrl } from "../../storage/s3.ts";
+import { withTx } from "../../db/client.ts";
+import {
+  conversations,
+  messageReactions,
+  messages,
+  userDevices,
+  users,
+} from "../../db/migrations/schema.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
-import { isPgError } from "../postgres_error.ts";
 
 export type ReactMessageInput = {
   userId: string;
@@ -16,7 +21,7 @@ export type ReactMessageResult = {
   messageId: string;
   userId: string;
   emoji: string;
-  createdAt: Date;
+  createdAt: string;
 };
 
 export type ReactMessageErrorType =
@@ -27,14 +32,20 @@ export type ReactMessageErrorType =
 
 export class ReactMessageError extends Error {
   readonly type: ReactMessageErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: ReactMessageErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: ReactMessageErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "ReactMessageError";
     this.type = type;
     this.statusCode = statusCode;
   }
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
 }
 
 export function isSingleEmoji(input: string): boolean {
@@ -43,8 +54,11 @@ export function isSingleEmoji(input: string): boolean {
 }
 
 export async function reactMessage(input: ReactMessageInput): Promise<ReactMessageResult> {
+  const normalizedUserId = input.userId.trim();
+  const normalizedMessageId = input.messageId.trim();
   const trimmedEmoji = input.emoji?.trim();
-  if (!input.userId || !input.messageId || !trimmedEmoji) {
+
+  if (!normalizedUserId || !normalizedMessageId || !trimmedEmoji) {
     throw new ReactMessageError(
       "MISSING_INPUT",
       "User ID, Message ID, and Emoji are required.",
@@ -52,95 +66,136 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
     );
   }
 
+  if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedMessageId)) {
+    throw new ReactMessageError("UNAUTHORIZED_OR_NOT_FOUND", "Invalid ID.", 404);
+  }
+
   if (!isSingleEmoji(trimmedEmoji)) {
     throw new ReactMessageError("INVALID_EMOJI", "Invalid emoji.", 400);
   }
 
-  const reactionId = v7.generate();
+  const reactionId = Bun.randomUUIDv7();
 
   try {
-    const { reactionResult, pushData } = await withDb(async (client) => {
-      const tx = client.createTransaction("react_message_tx");
-      await tx.begin();
+    const { reactionResult, pushData } = await withTx(async (tx) => {
+      const [messageRow] = await tx
+        .select({
+          senderId: messages.senderId,
+          conversationId: messages.conversationId,
+        })
+        .from(messages)
+        .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+        .where(
+          and(
+            eq(messages.id, normalizedMessageId),
+            or(
+              and(
+                eq(conversations.userLow, normalizedUserId),
+                or(
+                  isNull(conversations.userLowClearedAt),
+                  gte(messages.createdAt, conversations.userLowClearedAt),
+                ),
+              ),
+              and(
+                eq(conversations.userHigh, normalizedUserId),
+                or(
+                  isNull(conversations.userHighClearedAt),
+                  gte(messages.createdAt, conversations.userHighClearedAt),
+                ),
+              ),
+            ),
+          ),
+        )
+        .limit(1);
 
-      try {
-        const msgResult = await tx.queryObject<{ sender_id: string; conversation_id: string }>`
-          SELECT m.sender_id, m.conversation_id
-          FROM messages m
-          JOIN conversations c ON c.id = m.conversation_id
-          WHERE m.id = ${input.messageId}
-            AND (
-              (c.user_low = ${input.userId} AND (c.user_low_cleared_at IS NULL OR m.created_at >= c.user_low_cleared_at))
-              OR
-              (c.user_high = ${input.userId} AND (c.user_high_cleared_at IS NULL OR m.created_at >= c.user_high_cleared_at))
-            )
-          LIMIT 1
-        `;
-
-        if (msgResult.rows.length === 0) {
-          throw new ReactMessageError(
-            "UNAUTHORIZED_OR_NOT_FOUND",
-            "Message not found or authorized.",
-            404,
-          );
-        }
-
-        const msg = msgResult.rows[0];
-        const result = await tx.queryObject<{ id: string; created_at: Date }>`
-          INSERT INTO message_reactions (id, message_id, user_id, emoji)
-          VALUES (${reactionId}, ${input.messageId}, ${input.userId}, ${trimmedEmoji})
-          ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji
-          RETURNING id, created_at
-        `;
-
-        let pushData = null;
-        if (msg.sender_id !== input.userId) {
-          const reactorResult = await tx.queryObject<
-            { username: string; display_name: string | null; avatar_key: string | null }
-          >`
-            SELECT username, display_name, avatar_key FROM users WHERE id = ${input.userId} LIMIT 1
-          `;
-          const reactor = reactorResult.rows[0];
-          const tokensResult = await tx.queryObject<{ device_token: string }>`
-            SELECT device_token FROM user_devices WHERE user_id = ${msg.sender_id}
-          `;
-
-          pushData = {
-            tokens: tokensResult.rows.map((r) => r.device_token),
-            reactorName: reactor?.display_name || reactor?.username || "Someone",
-            reactorAvatarKey: reactor?.avatar_key,
-            conversationId: msg.conversation_id,
-          };
-        }
-
-        await tx.commit();
-        return {
-          reactionResult: {
-            id: result.rows[0].id,
-            messageId: input.messageId,
-            userId: input.userId,
-            emoji: trimmedEmoji,
-            createdAt: result.rows[0].created_at,
-          },
-          pushData,
-        };
-      } catch (error) {
-        await tx.rollback();
-        throw error;
+      if (!messageRow) {
+        throw new ReactMessageError(
+          "UNAUTHORIZED_OR_NOT_FOUND",
+          "Message not found or authorized.",
+          404,
+        );
       }
+
+      const [reactionRow] = await tx
+        .insert(messageReactions)
+        .values({
+          id: reactionId,
+          messageId: normalizedMessageId,
+          userId: normalizedUserId,
+          emoji: trimmedEmoji,
+        })
+        .onConflictDoUpdate({
+          target: [messageReactions.messageId, messageReactions.userId],
+          set: {
+            emoji: trimmedEmoji,
+          },
+        })
+        .returning({
+          id: messageReactions.id,
+          createdAt: messageReactions.createdAt,
+        });
+
+      if (!reactionRow) {
+        throw new ReactMessageError("INTERNAL_ERROR", "Error adding reaction.", 500);
+      }
+
+      let pushData: {
+        tokens: string[];
+        reactorName: string;
+        reactorAvatarKey: string | null;
+        conversationId: string;
+      } | null = null;
+
+      if (messageRow.senderId !== normalizedUserId) {
+        const [reactor] = await tx
+          .select({
+            username: users.username,
+            displayName: users.displayName,
+            avatarKey: users.avatarKey,
+          })
+          .from(users)
+          .where(eq(users.id, normalizedUserId))
+          .limit(1);
+
+        const tokensRows = await tx
+          .select({
+            deviceToken: userDevices.deviceToken,
+          })
+          .from(userDevices)
+          .where(eq(userDevices.userId, messageRow.senderId));
+
+        pushData = {
+          tokens: tokensRows.map((row) => row.deviceToken),
+          reactorName: reactor?.displayName || reactor?.username || "Someone",
+          reactorAvatarKey: reactor?.avatarKey ?? null,
+          conversationId: messageRow.conversationId,
+        };
+      }
+
+      return {
+        reactionResult: {
+          id: reactionRow.id,
+          messageId: normalizedMessageId,
+          userId: normalizedUserId,
+          emoji: trimmedEmoji,
+          createdAt: reactionRow.createdAt,
+        },
+        pushData,
+      };
     });
 
     if (pushData && pushData.tokens.length > 0) {
       const avatarUrl = pushData.reactorAvatarKey
         ? await getFileUrl(pushData.reactorAvatarKey)
         : "";
+
       const extraData = {
         conversationId: pushData.conversationId,
         messageId: reactionResult.messageId,
         avatarUrl,
       };
 
-      Promise.allSettled(
+      void Promise.allSettled(
         pushData.tokens.map((token) =>
           sendPushNotification(
             token,
@@ -148,7 +203,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
             `${pushData.reactorName} reacted ${trimmedEmoji}`,
             "NEW_MESSAGE_REACTION",
             extraData,
-          )
+          ),
         ),
       ).catch(console.error);
     }
@@ -156,9 +211,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
     return reactionResult;
   } catch (error) {
     if (error instanceof ReactMessageError) throw error;
-    if (isPgError(error) && error.code === "22P02") {
-      throw new ReactMessageError("UNAUTHORIZED_OR_NOT_FOUND", "Invalid ID.", 404);
-    }
+
     throw new ReactMessageError("INTERNAL_ERROR", "Error adding reaction.", 500);
   }
 }

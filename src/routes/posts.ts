@@ -1,5 +1,5 @@
-import { Hono } from "@hono/hono";
-import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { Elysia, t } from "elysia";
+import { requireAuth } from "./middleware/require_auth.ts";
 import { deletePost, DeletePostError } from "../usecases/posts/delete_post.ts";
 import { deleteReaction, DeleteReactionError } from "../usecases/posts/delete_reaction.ts";
 import { getPostViewers, GetPostViewersError } from "../usecases/posts/get_post_viewers.ts";
@@ -11,107 +11,102 @@ import {
   ViewPostReactionsError,
 } from "../usecases/posts/view_post_reactions.ts";
 import { extractMediaMetadata } from "../utils/media_parser.ts";
+import { withApiErrorHandler } from "./api_error_handler.ts";
 
-const postsRouter = new Hono<{
-  Variables: AuthVariables;
-}>();
+class PostsRequestError extends Error {
+  constructor(
+    public type: string,
+    public override message: string,
+    public statusCode: number,
+  ) {
+    super(message);
+  }
+}
 
-// Upload a post
-postsRouter.post("/posts", requireAuth, async (c) => {
-  try {
-    const authorId = c.get("authUserId");
-    const body = await c.req.parseBody();
+const isInvalidMediaParseError = (error: unknown) =>
+  error instanceof Error &&
+  (error.message.includes("Could not parse") || error.message.includes("ffprobe"));
 
-    const mediaFile = body["media"];
-    if (!(mediaFile instanceof File)) {
-      return c.json(
-        {
-          error: { type: "MISSING_INPUT", message: "Media file is required." },
-        },
-        400,
-      );
-    }
+const protectedPostsRouter = new Elysia()
+  .use(requireAuth)
 
-    if (body["audience_type"] !== "selected" && body["audience_type"] !== "all") {
-      return c.json(
-        {
-          error: {
-            type: "INVALID_AUDIENCE",
-            message: `Invalid audience type, it should be 'all' or 'selected'`,
-          },
-        },
-        400,
-      );
-    }
-    const audienceType = body["audience_type"];
+  // Upload a post
+  .post(
+    "/posts",
+    async ({ authUserId, body, set }) => {
+      const mediaFile = body.media;
 
-    const buffer = new Uint8Array(await mediaFile.arrayBuffer());
-    const contentType = mediaFile.type;
-    const byteSize = mediaFile.size;
+      const contentType = mediaFile.type;
+      const byteSize = mediaFile.size;
 
-    if (!contentType.startsWith("image/") && !contentType.startsWith("video/")) {
-      return c.json(
-        {
-          error: { type: "INVALID_MEDIA", message: "Only image and video files are allowed." },
-        },
-        400,
-      );
-    }
+      if (!contentType.startsWith("image/") && !contentType.startsWith("video/")) {
+        throw new PostsRequestError(
+          "INVALID_MEDIA",
+          "Only image and video files are allowed.",
+          400,
+        );
+      }
 
-    const metadata = await extractMediaMetadata(buffer, contentType);
+      const caption = body.caption?.trim() ? body.caption : undefined;
+      const audienceType = body.audience_type;
 
-    const caption = typeof body["caption"] === "string" ? body["caption"] : undefined;
+      let viewerIds: string[] | undefined;
 
-    let viewerIds: string[] | undefined = undefined;
-    const rawViewerIds = body["viewer_ids"];
+      if (body.viewer_ids?.trim()) {
+        viewerIds = body.viewer_ids
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0);
+      }
 
-    if (typeof rawViewerIds === "string" && rawViewerIds.trim().length > 0) {
-      viewerIds = rawViewerIds
-        .split(",")
-        .map((id) => id.trim())
-        .filter((id) => id.length > 0);
-    }
+      if (audienceType === "selected" && (!viewerIds || viewerIds.length === 0)) {
+        throw new PostsRequestError(
+          "INVALID_AUDIENCE",
+          "At least 1 viewer id must be specified if audience type is 'selected'",
+          400,
+        );
+      }
 
-    if (audienceType === "selected" && (!viewerIds || viewerIds.length === 0)) {
-      return c.json(
-        {
-          error: {
-            type: "INVALID_AUDIENCE",
-            message: "At least 1 viewer id must be specified if audience type is 'selected'",
-          },
-        },
-        400,
-      );
-    }
+      if (audienceType === "all" && viewerIds && viewerIds.length > 0) {
+        throw new PostsRequestError(
+          "INVALID_AUDIENCE",
+          "No viewer ids should be specified when audience type is 'all'",
+          400,
+        );
+      }
 
-    if (audienceType === "all" && viewerIds) {
-      return c.json(
-        {
-          error: {
-            type: "INVALID_AUDIENCE",
-            message: "No viewer ids should be specified when audience type is 'all'",
-          },
-        },
-        400,
-      );
-    }
+      const buffer = new Uint8Array(await mediaFile.arrayBuffer());
 
-    const result = await uploadPost({
-      authorId,
-      caption,
-      audienceType,
-      viewerIds,
-      buffer,
-      contentType,
-      byteSize,
-      mediaType: metadata.mediaType,
-      width: metadata.width,
-      height: metadata.height,
-      durationMs: metadata.durationMs,
-    });
+      let metadata;
+      try {
+        metadata = await extractMediaMetadata(buffer, contentType);
+      } catch (error) {
+        if (isInvalidMediaParseError(error)) {
+          throw new PostsRequestError(
+            "INVALID_MEDIA",
+            "The uploaded media file is invalid or corrupt.",
+            400,
+          );
+        }
+        throw error;
+      }
 
-    return c.json(
-      {
+      const result = await uploadPost({
+        authorId: authUserId,
+        caption,
+        audienceType,
+        viewerIds,
+        buffer,
+        contentType,
+        byteSize,
+        mediaType: metadata.mediaType,
+        width: metadata.width,
+        height: metadata.height,
+        durationMs: metadata.durationMs,
+      });
+
+      set.status = 201;
+      return {
         message: "Post uploaded successfully.",
         post: {
           id: result.id,
@@ -126,76 +121,50 @@ postsRouter.post("/posts", requireAuth, async (c) => {
             height: result.media.height,
           },
         },
-      },
-      201,
-    );
-  } catch (error) {
-    if (error instanceof UploadPostError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      parse: "formdata",
+      body: t.Object({
+        media: t.File(),
+        caption: t.Optional(t.String()),
+        audience_type: t.Union([t.Literal("all"), t.Literal("selected")]),
+        viewer_ids: t.Optional(t.String()),
+      }),
+    },
+  )
 
-    if (
-      error instanceof Error &&
-      (error.message.includes("Could not parse") || error.message.includes("ffprobe"))
-    ) {
-      return c.json(
-        {
-          error: {
-            type: "INVALID_MEDIA",
-            message: "The uploaded media file is invalid or corrupt.",
-          },
-        },
-        400,
-      );
-    }
+  // Delete a post
+  .delete(
+    "/posts/:postId",
+    async ({ authUserId, params, set }) => {
+      await deletePost(authUserId, params.postId);
 
-    return c.json(
-      {
-        error: { type: "INTERNAL_ERROR", message: "Internal server error." },
-      },
-      500,
-    );
-  }
-});
+      set.status = 200;
+      return {
+        message: "Post deleted successfully.",
+      };
+    },
+    {
+      params: t.Object({
+        postId: t.String(),
+      }),
+    },
+  )
 
-// Delete a post
-postsRouter.delete("/posts/:postId", requireAuth, async (c) => {
-  try {
-    const authorId = c.get("authUserId");
-    const postId = c.req.param("postId");
+  // Send a reaction to a post
+  .post(
+    "/posts/:postId/reactions",
+    async ({ authUserId, params, body, set }) => {
+      const result = await reactPost({
+        userId: authUserId,
+        postId: params.postId,
+        emoji: body.emoji,
+        note: body.note,
+      });
 
-    if (!postId) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Post ID is required." } }, 400);
-    }
-
-    await deletePost(authorId, postId);
-
-    return c.json({ message: "Post deleted successfully." }, 200);
-  } catch (error) {
-    if (error instanceof DeletePostError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
-
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
-
-// Send a reaction to a post
-postsRouter.post("/posts/:postId/reactions", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const postId = c.req.param("postId");
-    const body = await c.req.json();
-
-    const result = await reactPost({
-      userId,
-      postId,
-      emoji: body.emoji,
-      note: body.note,
-    });
-
-    return c.json(
-      {
+      set.status = 201;
+      return {
         message: "Reaction sent successfully.",
         reaction: {
           id: result.id,
@@ -205,65 +174,47 @@ postsRouter.post("/posts/:postId/reactions", requireAuth, async (c) => {
           note: result.note,
           created_at: result.createdAt,
         },
-      },
-      201,
-    );
-  } catch (error) {
-    if (error instanceof ReactPostError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      params: t.Object({
+        postId: t.String(),
+      }),
+      body: t.Object({
+        emoji: t.String(),
+        note: t.Optional(t.String()),
+      }),
+    },
+  )
 
-    if (error instanceof SyntaxError) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Invalid JSON body." } }, 400);
-    }
+  // Delete a reaction of a post
+  .delete(
+    "/posts/:postId/reactions/:reactionId",
+    async ({ authUserId, params, set }) => {
+      await deleteReaction(authUserId, params.postId, params.reactionId);
 
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
+      set.status = 200;
+      return {
+        message: "Reaction deleted successfully.",
+      };
+    },
+    {
+      params: t.Object({
+        postId: t.String(),
+        reactionId: t.String(),
+      }),
+    },
+  )
 
-// Delete a reaction of a post
-postsRouter.delete("/posts/:postId/reactions/:reactionId", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const postId = c.req.param("postId");
-    const reactionId = c.req.param("reactionId");
+  // View the reactions of a post
+  .get(
+    "/posts/:postId/reactions",
+    async ({ authUserId, params, query, set }) => {
+      const limit = query.limit === undefined || query.limit === "" ? 100 : Number(query.limit);
+      const result = await viewPostReactions(authUserId, params.postId, limit, query.cursor);
 
-    if (!postId || !reactionId) {
-      return c.json(
-        { error: { type: "MISSING_INPUT", message: "Post ID and Reaction ID are required." } },
-        400,
-      );
-    }
-
-    await deleteReaction(userId, postId, reactionId);
-
-    return c.json({ message: "Reaction deleted successfully." }, 200);
-  } catch (error) {
-    if (error instanceof DeleteReactionError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
-
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
-
-// View the reactions of a post
-postsRouter.get("/posts/:postId/reactions", requireAuth, async (c) => {
-  try {
-    const viewerId = c.get("authUserId");
-    const postId = c.req.param("postId");
-
-    if (!postId) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Post ID is required." } }, 400);
-    }
-
-    const limit = c.req.query("limit") ? Number(c.req.query("limit")) : 100;
-    const cursor = c.req.query("cursor");
-
-    const result = await viewPostReactions(viewerId, postId, limit, cursor);
-
-    return c.json(
-      {
+      set.status = 200;
+      return {
         items: result.items.map((reaction) => ({
           id: reaction.id,
           emoji: reaction.emoji,
@@ -277,57 +228,46 @@ postsRouter.get("/posts/:postId/reactions", requireAuth, async (c) => {
           },
         })),
         next_cursor: result.nextCursor,
-      },
-      200,
-    );
-  } catch (error) {
-    if (error instanceof ViewPostReactionsError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      params: t.Object({
+        postId: t.String(),
+      }),
+      query: t.Object({
+        limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
+        cursor: t.Optional(t.String()),
+      }),
+    },
+  )
 
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
+  // View a post
+  .post(
+    "/posts/:postId/views",
+    async ({ authUserId, params, set }) => {
+      await viewPost(authUserId, params.postId);
 
-// View a post
-postsRouter.post("/posts/:postId/views", requireAuth, async (c) => {
-  try {
-    const viewerId = c.get("authUserId");
-    const postId = c.req.param("postId");
+      set.status = 200;
+      return {
+        message: "Post view recorded successfully.",
+      };
+    },
+    {
+      params: t.Object({
+        postId: t.String(),
+      }),
+    },
+  )
 
-    if (!postId) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Post ID is required." } }, 400);
-    }
+  // Get the viewers of a post
+  .get(
+    "/posts/:postId/viewers",
+    async ({ authUserId, params, query, set }) => {
+      const limit = query.limit === undefined || query.limit === "" ? 50 : Number(query.limit);
+      const result = await getPostViewers(authUserId, params.postId, limit, query.cursor);
 
-    await viewPost(viewerId, postId);
-
-    return c.json({ message: "Post view recorded successfully." }, 200);
-  } catch (error) {
-    if (error instanceof ViewPostError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
-
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
-
-// Get the viewers of a post
-postsRouter.get("/posts/:postId/viewers", requireAuth, async (c) => {
-  try {
-    const authorId = c.get("authUserId");
-    const postId = c.req.param("postId");
-
-    if (!postId) {
-      return c.json({ error: { type: "MISSING_INPUT", message: "Post ID is required." } }, 400);
-    }
-
-    const limit = c.req.query("limit") ? Number(c.req.query("limit")) : 50;
-    const cursor = c.req.query("cursor");
-
-    const result = await getPostViewers(authorId, postId, limit, cursor);
-
-    return c.json(
-      {
+      set.status = 200;
+      return {
         items: result.items.map((viewer) => ({
           id: viewer.id,
           username: viewer.username,
@@ -336,16 +276,28 @@ postsRouter.get("/posts/:postId/viewers", requireAuth, async (c) => {
           viewed_at: viewer.viewedAt,
         })),
         next_cursor: result.nextCursor,
-      },
-      200,
-    );
-  } catch (error) {
-    if (error instanceof GetPostViewersError) {
-      return c.json({ error: { type: error.type, message: error.message } }, error.statusCode);
-    }
+      };
+    },
+    {
+      params: t.Object({
+        postId: t.String(),
+      }),
+      query: t.Object({
+        limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
+        cursor: t.Optional(t.String()),
+      }),
+    },
+  );
 
-    return c.json({ error: { type: "INTERNAL_ERROR", message: "Internal server error." } }, 500);
-  }
-});
+const postsRouter = withApiErrorHandler(new Elysia(), {
+  PostsRequestError,
+  UploadPostError,
+  DeletePostError,
+  ReactPostError,
+  DeleteReactionError,
+  ViewPostReactionsError,
+  ViewPostError,
+  GetPostViewersError,
+}).use(protectedPostsRouter);
 
 export default postsRouter;

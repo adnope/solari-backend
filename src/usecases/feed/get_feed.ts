@@ -1,7 +1,7 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
+import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { postMedia, postVisibility, posts, users } from "../../db/migrations/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
-import { isPgError } from "../postgres_error.ts";
 
 export type FeedAuthor = {
   id: string;
@@ -22,7 +22,7 @@ export type FeedMedia = {
 export type FeedPost = {
   id: string;
   caption: string | null;
-  createdAt: Date;
+  createdAt: string;
   author: FeedAuthor;
   media: FeedMedia;
 };
@@ -40,9 +40,9 @@ export type GetFeedErrorType =
 
 export class GetFeedError extends Error {
   readonly type: GetFeedErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: GetFeedErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: GetFeedErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "GetFeedError";
     this.type = type;
@@ -50,21 +50,47 @@ export class GetFeedError extends Error {
   }
 }
 
-type FeedRow = {
-  id: string;
-  created_at: Date;
-  caption: string | null;
-  author_id: string;
-  author_username: string;
-  author_display_name: string | null;
-  author_avatar_key: string | null;
-  media_type: string;
-  object_key: string;
-  thumbnail_key: string | null;
-  width: number;
-  height: number;
-  duration_ms: number | null;
-};
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
+function normalizeViewerId(viewerId: string): string {
+  const value = viewerId.trim();
+  if (!value) {
+    throw new GetFeedError("INVALID_FILTER", "Viewer ID is required.", 400);
+  }
+  if (!isValidUuid(value)) {
+    throw new GetFeedError("INVALID_FILTER", "Invalid viewer ID.", 400);
+  }
+  return value;
+}
+
+function normalizeCursor(cursor?: string): string | undefined {
+  if (!cursor) return undefined;
+
+  const parsed = new Date(cursor);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new GetFeedError("INVALID_CURSOR", "Cursor must be a valid ISO date string.", 400);
+  }
+
+  return parsed.toISOString();
+}
+
+function normalizeAuthorIds(authorIds?: string[]): string[] | undefined {
+  if (!authorIds || authorIds.length === 0) return undefined;
+
+  const normalized = [...new Set(authorIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+
+  if (normalized.length === 0) return undefined;
+
+  if (!normalized.every(isValidUuid)) {
+    throw new GetFeedError("INVALID_AUTHORS", "Invalid author UUIDs.", 400);
+  }
+
+  return normalized;
+}
 
 export async function getFeed(
   viewerId: string,
@@ -72,88 +98,98 @@ export async function getFeed(
   cursor?: string,
   authorIds?: string[],
 ): Promise<GetFeedResult> {
-  let parsedCursor: Date | null = null;
-  if (cursor) {
-    parsedCursor = new Date(cursor);
-    if (isNaN(parsedCursor.getTime())) {
-      throw new GetFeedError("INVALID_CURSOR", "Cursor must be a valid ISO date string.", 400);
-    }
-  }
-
+  const normalizedViewerId = normalizeViewerId(viewerId);
+  const normalizedCursor = normalizeCursor(cursor);
+  const normalizedAuthorIds = normalizeAuthorIds(authorIds);
   const normalizedLimit = Math.min(Math.max(1, limit), 50);
 
   try {
-    return await withDb(async (client) => {
-      const validAuthorIds = authorIds && authorIds.length > 0 ? authorIds : null;
+    if (normalizedAuthorIds) {
+      const existingAuthors = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(inArray(users.id, normalizedAuthorIds));
 
-      if (validAuthorIds) {
-        const uniqueAuthorIds = [...new Set(validAuthorIds)];
-        const userCheckResult = await client.queryObject<{ count: bigint }>`
-          SELECT COUNT(id) FROM users WHERE id = ANY(${uniqueAuthorIds})
-        `;
-
-        if (Number(userCheckResult.rows[0]!.count) !== uniqueAuthorIds.length) {
-          throw new GetFeedError("INVALID_AUTHORS", "One or more author IDs do not exist.", 404);
-        }
+      if (existingAuthors.length !== normalizedAuthorIds.length) {
+        throw new GetFeedError("INVALID_AUTHORS", "One or more author IDs do not exist.", 404);
       }
-
-      const result = await client.queryObject<FeedRow>`
-        SELECT
-          p.id, p.created_at, p.caption,
-          u.id AS author_id, u.username AS author_username,
-          u.display_name AS author_display_name, u.avatar_key AS author_avatar_key,
-          pm.media_type, pm.object_key, pm.thumbnail_key,
-          pm.width, pm.height, pm.duration_ms
-        FROM posts p
-        JOIN users u ON u.id = p.author_id
-        JOIN post_media pm ON pm.post_id = p.id
-        WHERE
-          (p.author_id = ${viewerId} OR EXISTS (
-            SELECT 1 FROM post_visibility pv WHERE pv.post_id = p.id AND pv.viewer_id = ${viewerId}
-          ))
-          AND (${validAuthorIds}::uuid[] IS NULL OR p.author_id = ANY(${validAuthorIds}::uuid[]))
-          AND (${parsedCursor}::timestamptz IS NULL OR p.created_at < ${parsedCursor})
-        ORDER BY p.created_at DESC
-        LIMIT ${normalizedLimit}
-      `;
-
-      const items: FeedPost[] = await Promise.all(
-        result.rows.map(async (row) => {
-          const signedUrl = await getFileUrl(row.object_key);
-          const thumbnailUrl = row.thumbnail_key ? await getFileUrl(row.thumbnail_key) : signedUrl;
-
-          return {
-            id: row.id,
-            caption: row.caption,
-            createdAt: row.created_at,
-            author: {
-              id: row.author_id,
-              username: row.author_username,
-              displayName: row.author_display_name,
-              avatarKey: row.author_avatar_key,
-            },
-            media: {
-              url: signedUrl,
-              thumbnailUrl: thumbnailUrl,
-              mediaType: row.media_type,
-              width: row.width,
-              height: row.height,
-              durationMs: row.duration_ms,
-            },
-          };
-        }),
-      );
-
-      return {
-        items,
-        nextCursor: items.length > 0 ? items[items.length - 1]!.createdAt.toISOString() : null,
-      };
-    });
-  } catch (error) {
-    if (error instanceof GetFeedError) throw error;
-    if (isPgError(error) && error.code === "22P02") {
-      throw new GetFeedError("INVALID_AUTHORS", "Invalid author UUIDs.", 400);
     }
+
+    const rows = await db
+      .select({
+        id: posts.id,
+        createdAt: posts.createdAt,
+        caption: posts.caption,
+        authorId: users.id,
+        authorUsername: users.username,
+        authorDisplayName: users.displayName,
+        authorAvatarKey: users.avatarKey,
+        mediaType: postMedia.mediaType,
+        objectKey: postMedia.objectKey,
+        thumbnailKey: postMedia.thumbnailKey,
+        width: postMedia.width,
+        height: postMedia.height,
+        durationMs: postMedia.durationMs,
+      })
+      .from(posts)
+      .innerJoin(users, eq(users.id, posts.authorId))
+      .innerJoin(postMedia, eq(postMedia.postId, posts.id))
+      .where(
+        and(
+          or(
+            eq(posts.authorId, normalizedViewerId),
+            sql`exists (
+              select 1
+              from ${postVisibility} pv
+              where pv.post_id = ${posts.id}
+                and pv.viewer_id = ${normalizedViewerId}
+            )`,
+          ),
+          normalizedAuthorIds ? inArray(posts.authorId, normalizedAuthorIds) : undefined,
+          normalizedCursor ? lt(posts.createdAt, normalizedCursor) : undefined,
+        ),
+      )
+      .orderBy(desc(posts.createdAt))
+      .limit(normalizedLimit);
+
+    const items: FeedPost[] = await Promise.all(
+      rows.map(async (row) => {
+        const [url, thumbnailUrl] = await Promise.all([
+          getFileUrl(row.objectKey),
+          row.thumbnailKey ? getFileUrl(row.thumbnailKey) : Promise.resolve<string | null>(null),
+        ]);
+
+        return {
+          id: row.id,
+          caption: row.caption,
+          createdAt: row.createdAt,
+          author: {
+            id: row.authorId,
+            username: row.authorUsername,
+            displayName: row.authorDisplayName,
+            avatarKey: row.authorAvatarKey,
+          },
+          media: {
+            url,
+            thumbnailUrl: thumbnailUrl ?? url,
+            mediaType: row.mediaType,
+            width: row.width,
+            height: row.height,
+            durationMs: row.durationMs,
+          },
+        };
+      }),
+    );
+
+    return {
+      items,
+      nextCursor: items.length > 0 ? items[items.length - 1]!.createdAt : null,
+    };
+  } catch (error) {
+    if (error instanceof GetFeedError) {
+      throw error;
+    }
+
     throw new GetFeedError("INTERNAL_ERROR", "Internal server error fetching feed.", 500);
   }
 }

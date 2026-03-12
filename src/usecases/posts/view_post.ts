@@ -1,6 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { and, eq } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { postVisibility, postViews, posts } from "../../db/migrations/schema.ts";
 
 export type ViewPostErrorType =
   | "MISSING_INPUT"
@@ -10,9 +10,9 @@ export type ViewPostErrorType =
 
 export class ViewPostError extends Error {
   readonly type: ViewPostErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: ViewPostErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: ViewPostErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "ViewPostError";
     this.type = type;
@@ -20,45 +20,67 @@ export class ViewPostError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function viewPost(viewerId: string, postId: string): Promise<void> {
-  if (!viewerId || !postId) {
+  const normalizedViewerId = viewerId.trim();
+  const normalizedPostId = postId.trim();
+
+  if (!normalizedViewerId || !normalizedPostId) {
     throw new ViewPostError("MISSING_INPUT", "Viewer ID and Post ID are required.", 400);
   }
 
+  if (!isValidUuid(normalizedViewerId) || !isValidUuid(normalizedPostId)) {
+    throw new ViewPostError("POST_NOT_FOUND", "Post not found.", 404);
+  }
+
   try {
-    await withDb(async (client) => {
-      const authCheckResult = await client.queryObject<{ author_id: string; is_visible: boolean }>`
-        SELECT p.author_id, (pv.viewer_id IS NOT NULL) AS is_visible
-        FROM posts p
-        LEFT JOIN post_visibility pv ON pv.post_id = p.id AND pv.viewer_id = ${viewerId}
-        WHERE p.id = ${postId}
-      `;
+    const [post] = await db
+      .select({
+        authorId: posts.authorId,
+      })
+      .from(posts)
+      .where(eq(posts.id, normalizedPostId))
+      .limit(1);
 
-      if (authCheckResult.rows.length === 0) {
-        throw new ViewPostError("POST_NOT_FOUND", "Post not found.", 404);
-      }
-
-      const post = authCheckResult.rows[0]!;
-      if (post.author_id === viewerId) {
-        return;
-      }
-
-      if (!post.is_visible) {
-        throw new ViewPostError("UNAUTHORIZED", "You are not authorized to view this post.", 403);
-      }
-
-      await client.queryObject`
-        INSERT INTO post_views (post_id, user_id)
-        VALUES (${postId}, ${viewerId})
-        ON CONFLICT (post_id, user_id) DO NOTHING
-      `;
-    });
-  } catch (error) {
-    if (error instanceof ViewPostError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
+    if (!post) {
       throw new ViewPostError("POST_NOT_FOUND", "Post not found.", 404);
     }
+
+    if (post.authorId === normalizedViewerId) {
+      return;
+    }
+
+    const [visible] = await db
+      .select({ viewerId: postVisibility.viewerId })
+      .from(postVisibility)
+      .where(
+        and(
+          eq(postVisibility.postId, normalizedPostId),
+          eq(postVisibility.viewerId, normalizedViewerId),
+        ),
+      )
+      .limit(1);
+
+    if (!visible) {
+      throw new ViewPostError("UNAUTHORIZED", "You are not authorized to view this post.", 403);
+    }
+
+    await db
+      .insert(postViews)
+      .values({
+        postId: normalizedPostId,
+        userId: normalizedViewerId,
+      })
+      .onConflictDoNothing({
+        target: [postViews.postId, postViews.userId],
+      });
+  } catch (error) {
+    if (error instanceof ViewPostError) throw error;
 
     throw new ViewPostError("INTERNAL_ERROR", "Internal server error recording post view.", 500);
   }

@@ -1,5 +1,4 @@
 import jwt from "jsonwebtoken";
-import "@std/dotenv/load";
 
 export type AccessTokenPayload = {
   sub: string;
@@ -7,17 +6,17 @@ export type AccessTokenPayload = {
   type: "access";
 };
 
-const JWT_SECRET = Deno.env.get("JWT_SECRET")!;
+const JWT_SECRET = process.env.JWT_SECRET!;
 if (!JWT_SECRET) {
   throw new Error("Missing JWT_SECRET in environment.");
 }
 
-const ACCESS_TOKEN_EXPIRES_IN = Deno.env.get("ACCESS_TOKEN_EXPIRES_IN") ?? "15m";
+const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN ?? "15m";
 
 export function createAccessToken(payload: AccessTokenPayload): string {
   return jwt.sign(payload, JWT_SECRET, {
     algorithm: "HS256",
-    expiresIn: ACCESS_TOKEN_EXPIRES_IN,
+    expiresIn: ACCESS_TOKEN_EXPIRES_IN as any,
   });
 }
 

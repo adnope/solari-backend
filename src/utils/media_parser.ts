@@ -1,4 +1,8 @@
 import { imageSize } from "image-size";
+import { unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 export type MediaMetadata = {
   mediaType: "image" | "video";
@@ -8,7 +12,7 @@ export type MediaMetadata = {
 };
 
 export async function extractMediaMetadata(
-  buffer: Uint8Array,
+  buffer: Uint8Array | Buffer,
   contentType: string,
 ): Promise<MediaMetadata> {
   if (contentType.startsWith("image/")) {
@@ -24,13 +28,15 @@ export async function extractMediaMetadata(
   }
 
   if (contentType.startsWith("video/")) {
-    const tempFilePath = await Deno.makeTempFile({ suffix: ".media" });
+    const tempFilePath = join(tmpdir(), `${randomUUID()}.media`);
 
     try {
-      await Deno.writeFile(tempFilePath, buffer);
+      // Bun.write is natively optimized and extremely fast
+      await Bun.write(tempFilePath, buffer);
 
-      const command = new Deno.Command("ffprobe", {
-        args: [
+      const proc = Bun.spawn(
+        [
+          "ffprobe",
           "-v",
           "error",
           "-select_streams",
@@ -41,18 +47,17 @@ export async function extractMediaMetadata(
           "json",
           tempFilePath,
         ],
-        stdout: "piped",
-        stderr: "piped",
-      });
+        { stdout: "pipe", stderr: "pipe" },
+      );
 
-      const { code, stdout, stderr } = await command.output();
+      const exitCode = await proc.exited;
 
-      if (code !== 0) {
-        const errorStr = new TextDecoder().decode(stderr);
+      if (exitCode !== 0) {
+        const errorStr = await new Response(proc.stderr).text();
         throw new Error(`ffprobe failed. Error: ${errorStr}`);
       }
 
-      const outputStr = new TextDecoder().decode(stdout);
+      const outputStr = await new Response(proc.stdout).text();
       const data = JSON.parse(outputStr);
       const stream = data.streams?.[0];
 
@@ -67,7 +72,7 @@ export async function extractMediaMetadata(
         durationMs: stream.duration ? Math.round(Number(stream.duration) * 1000) : undefined,
       };
     } finally {
-      await Deno.remove(tempFilePath).catch(() => {});
+      await unlink(tempFilePath).catch(() => {});
     }
   }
 

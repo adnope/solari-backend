@@ -7,15 +7,14 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import "@std/dotenv/load";
 
-const internalEndpoint = Deno.env.get("S3_ENDPOINT");
-const publicEndpoint = Deno.env.get("S3_PUBLIC_ENDPOINT") || internalEndpoint;
-const region = Deno.env.get("S3_REGION") || "us-east-1";
+const internalEndpoint = process.env.S3_ENDPOINT;
+const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT || internalEndpoint;
+const region = process.env.S3_REGION || "us-east-1";
 
-const accessKeyId = Deno.env.get("S3_ACCESS_KEY_ID");
-const secretAccessKey = Deno.env.get("S3_SECRET_ACCESS_KEY");
-export const s3BucketName = Deno.env.get("S3_BUCKET_NAME") || "solari-media";
+const accessKeyId = process.env.S3_ACCESS_KEY_ID;
+const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
+export const s3BucketName = process.env.S3_BUCKET_NAME || "solari-media";
 
 if (!internalEndpoint || !accessKeyId || !secretAccessKey) {
   throw new Error(
@@ -54,7 +53,7 @@ try {
 
 export async function uploadFile(
   objectKey: string,
-  buffer: Uint8Array,
+  buffer: Uint8Array | Buffer,
   contentType: string,
 ): Promise<void> {
   const command = new PutObjectCommand({

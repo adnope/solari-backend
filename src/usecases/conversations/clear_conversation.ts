@@ -1,6 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { and, eq, or, sql } from "drizzle-orm";
+import { withTx } from "../../db/client.ts";
+import { conversations } from "../../db/migrations/schema.ts";
 
 export type ClearConversationErrorType =
   | "MISSING_INPUT"
@@ -9,9 +9,9 @@ export type ClearConversationErrorType =
 
 export class ClearConversationError extends Error {
   readonly type: ClearConversationErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: ClearConversationErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: ClearConversationErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "ClearConversationError";
     this.type = type;
@@ -19,8 +19,17 @@ export class ClearConversationError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function clearConversation(userId: string, conversationId: string): Promise<void> {
-  if (!userId || !conversationId) {
+  const normalizedUserId = userId.trim();
+  const normalizedConversationId = conversationId.trim();
+
+  if (!normalizedUserId || !normalizedConversationId) {
     throw new ClearConversationError(
       "MISSING_INPUT",
       "User ID and Conversation ID are required.",
@@ -28,31 +37,47 @@ export async function clearConversation(userId: string, conversationId: string):
     );
   }
 
-  try {
-    await withDb(async (client) => {
-      const result = await client.queryObject<{ id: string }>`
-        UPDATE conversations
-        SET
-          user_low_cleared_at = CASE WHEN user_low = ${userId} THEN now() ELSE user_low_cleared_at END,
-          user_high_cleared_at = CASE WHEN user_high = ${userId} THEN now() ELSE user_high_cleared_at END
-        WHERE id = ${conversationId} AND (user_low = ${userId} OR user_high = ${userId})
-        RETURNING id
-      `;
+  if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedConversationId)) {
+    throw new ClearConversationError("CONVERSATION_NOT_FOUND", "Invalid ID format.", 404);
+  }
 
-      if (result.rows.length === 0) {
-        throw new ClearConversationError(
-          "CONVERSATION_NOT_FOUND",
-          "Conversation not found or you are not a participant.",
-          404,
-        );
-      }
+  try {
+    const [updated] = await withTx(async (tx) => {
+      return await tx
+        .update(conversations)
+        .set({
+          userLowClearedAt: sql`CASE
+            WHEN ${conversations.userLow} = ${normalizedUserId}
+            THEN now()
+            ELSE ${conversations.userLowClearedAt}
+          END`,
+          userHighClearedAt: sql`CASE
+            WHEN ${conversations.userHigh} = ${normalizedUserId}
+            THEN now()
+            ELSE ${conversations.userHighClearedAt}
+          END`,
+        })
+        .where(
+          and(
+            eq(conversations.id, normalizedConversationId),
+            or(
+              eq(conversations.userLow, normalizedUserId),
+              eq(conversations.userHigh, normalizedUserId),
+            ),
+          ),
+        )
+        .returning({ id: conversations.id });
     });
+
+    if (!updated) {
+      throw new ClearConversationError(
+        "CONVERSATION_NOT_FOUND",
+        "Conversation not found or you are not a participant.",
+        404,
+      );
+    }
   } catch (error) {
     if (error instanceof ClearConversationError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
-      throw new ClearConversationError("CONVERSATION_NOT_FOUND", "Invalid ID format.", 404);
-    }
 
     throw new ClearConversationError(
       "INTERNAL_ERROR",

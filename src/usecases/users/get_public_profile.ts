@@ -1,5 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
+import { sql } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { users } from "../../db/migrations/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 
 export type PublicProfileResult = {
@@ -9,11 +10,16 @@ export type PublicProfileResult = {
   avatarUrl: string | null;
 };
 
+export type GetPublicProfileErrorType = "INVALID_INPUT" | "USER_NOT_FOUND" | "INTERNAL_ERROR";
+
 export class GetPublicProfileError extends Error {
-  readonly statusCode: ContentfulStatusCode;
-  constructor(message: string, statusCode: ContentfulStatusCode) {
+  readonly type: GetPublicProfileErrorType;
+  readonly statusCode: number;
+
+  constructor(type: GetPublicProfileErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "GetPublicProfileError";
+    this.type = type;
     this.statusCode = statusCode;
   }
 }
@@ -22,42 +28,43 @@ export async function getPublicProfile(username: string): Promise<PublicProfileR
   const normalizedUsername = username.trim().toLowerCase();
 
   if (!normalizedUsername) {
-    throw new GetPublicProfileError("Username is required.", 400);
+    throw new GetPublicProfileError("INVALID_INPUT", "Username is required.", 400);
   }
 
   try {
-    const user = await withDb(async (client) => {
-      const result = await client.queryObject<{
-        id: string;
-        username: string;
-        display_name: string | null;
-        avatar_key: string | null;
-      }>`
-        SELECT id, username, display_name, avatar_key
-        FROM users
-        WHERE lower(username) = ${normalizedUsername}
-        LIMIT 1
-      `;
-      return result.rows[0];
-    });
+    const [user] = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        displayName: users.displayName,
+        avatarKey: users.avatarKey,
+      })
+      .from(users)
+      .where(sql`lower(${users.username}) = ${normalizedUsername}`)
+      .limit(1);
 
     if (!user) {
-      throw new GetPublicProfileError("User not found.", 404);
+      throw new GetPublicProfileError("USER_NOT_FOUND", "User not found.", 404);
     }
 
     let avatarUrl: string | null = null;
-    if (user.avatar_key) {
-      avatarUrl = await getFileUrl(user.avatar_key);
+    if (user.avatarKey) {
+      avatarUrl = await getFileUrl(user.avatarKey);
     }
 
     return {
       id: user.id,
       username: user.username,
-      displayName: user.display_name,
+      displayName: user.displayName,
       avatarUrl,
     };
   } catch (error) {
     if (error instanceof GetPublicProfileError) throw error;
-    throw new GetPublicProfileError("Internal server error fetching profile.", 500);
+
+    throw new GetPublicProfileError(
+      "INTERNAL_ERROR",
+      "Internal server error fetching profile.",
+      500,
+    );
   }
 }

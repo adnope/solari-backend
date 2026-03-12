@@ -1,28 +1,67 @@
-import { Hono } from "@hono/hono";
+import { Elysia, t } from "elysia";
+import { requireAuth } from "./middleware/require_auth.ts";
 import { AuthError, logOut, me, signIn, signUp } from "../usecases/auth/auth.ts";
-import { type AuthVariables, requireAuth } from "../middleware/require_auth.ts";
+import { withApiErrorHandler } from "./api_error_handler.ts";
 
-const authRouter = new Hono<{
-  Variables: AuthVariables;
-}>();
+const protectedAuthRouter = new Elysia()
+  .use(requireAuth)
 
-// Create a new account
-authRouter.post("/users", async (c) => {
-  try {
-    const body = await c.req.json<{
-      username: string;
-      email: string;
-      password: string;
-    }>();
+  // Log out
+  .delete(
+    "/sessions/current",
+    async ({ body, authSessionId, set }) => {
+      const deleted = await logOut(authSessionId, body?.device_token);
 
-    const user = await signUp({
-      username: body.username,
-      email: body.email,
-      password: body.password,
-    });
+      set.status = 200;
+      return {
+        message: deleted ? "Logged out successfully." : "Logged out successfully.",
+      };
+    },
+    {
+      body: t.Optional(
+        t.Object({
+          device_token: t.Optional(t.String()),
+        }),
+      ),
+    },
+  )
 
-    return c.json(
-      {
+  // Get current logged-in user's info
+  .get("/me", async ({ authUserId, authSessionId, set }) => {
+    const result = await me(authUserId);
+
+    set.status = 200;
+    return {
+      message: "Got me",
+      session_id: authSessionId,
+      user: {
+        id: result.id,
+        username: result.username,
+        email: result.email,
+        display_name: result.displayName,
+        avatar_key: result.avatarKey,
+        created_at: result.createdAt,
+      },
+    };
+  });
+
+const authRouter = withApiErrorHandler(
+  new Elysia(),
+  { AuthError },
+  { validationErrorType: "INVALID_JSON" },
+)
+  // Sign up a new account
+  .post(
+    "/users",
+    async ({ body, set }) => {
+      const user = await signUp({
+        username: body.username,
+        email: body.email,
+        password: body.password,
+      });
+
+      set.status = 201;
+      return {
         message: "Account created successfully.",
         user: {
           id: user.id,
@@ -32,246 +71,42 @@ authRouter.post("/users", async (c) => {
           avatar_key: user.avatarKey,
           created_at: user.createdAt,
         },
-      },
-      201,
-    );
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return c.json(
-        {
-          error: {
-            type: "INVALID_JSON",
-            message: "Invalid JSON body.",
-          },
-        },
-        400,
-      );
-    }
+      };
+    },
+    {
+      body: t.Object({
+        username: t.String(),
+        email: t.String(),
+        password: t.String(),
+      }),
+    },
+  )
 
-    if (error instanceof AuthError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
-    }
+  // Sign in
+  .post(
+    "/sessions",
+    async ({ body, set }) => {
+      const result = await signIn({
+        identifier: body.identifier,
+        password: body.password,
+      });
 
-    if (error instanceof Error) {
-      return c.json(
-        {
-          error: {
-            type: "INTERNAL_ERROR",
-            message: error.message,
-          },
-        },
-        500,
-      );
-    }
-
-    return c.json(
-      {
-        error: {
-          type: "INTERNAL_ERROR",
-          message: "Internal server error.",
-        },
-      },
-      500,
-    );
-  }
-});
-
-// Sign in (create new session)
-authRouter.post("/sessions", async (c) => {
-  try {
-    const body = await c.req.json<{
-      identifier: string;
-      password: string;
-    }>();
-
-    const result = await signIn({
-      identifier: body.identifier,
-      password: body.password,
-    });
-
-    return c.json(
-      {
+      set.status = 200;
+      return {
         message: "Signed in successfully.",
         session_id: result.sessionId,
         access_token: result.accessToken,
         refresh_token: result.refreshToken,
         expires_at: result.expiresAt,
-      },
-      200,
-    );
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return c.json(
-        {
-          error: {
-            type: "INVALID_JSON",
-            message: "Invalid JSON body.",
-          },
-        },
-        400,
-      );
-    }
-
-    if (error instanceof AuthError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
-    }
-
-    if (error instanceof Error) {
-      return c.json(
-        {
-          error: {
-            type: "INTERNAL_ERROR",
-            message: error.message,
-          },
-        },
-        500,
-      );
-    }
-
-    return c.json(
-      {
-        error: {
-          type: "INTERNAL_ERROR",
-          message: "Internal server error.",
-        },
-      },
-      500,
-    );
-  }
-});
-
-// Log out of current session
-authRouter.delete("/sessions/current", requireAuth, async (c) => {
-  try {
-    const sessionId = c.get("authSessionId");
-
-    let deviceToken: string | undefined = undefined;
-    const contentType = c.req.header("Content-Type") || "";
-    if (contentType.includes("application/json")) {
-      const body = await c.req
-        .json<{ device_token?: string }>()
-        .catch(() => ({ device_token: undefined }));
-      deviceToken = body.device_token;
-    }
-
-    const deleted = await logOut(sessionId, deviceToken);
-
-    return c.json(
-      {
-        message: deleted ? "Logged out successfully." : "Logged out successfully.",
-      },
-      200,
-    );
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
-    }
-
-    if (error instanceof Error) {
-      return c.json(
-        {
-          error: {
-            type: "INTERNAL_ERROR",
-            message: error.message,
-          },
-        },
-        500,
-      );
-    }
-
-    return c.json(
-      {
-        error: {
-          type: "INTERNAL_ERROR",
-          message: "Internal server error.",
-        },
-      },
-      500,
-    );
-  }
-});
-
-// Get current user info
-authRouter.get("/me", requireAuth, async (c) => {
-  try {
-    const userId = c.get("authUserId");
-    const sessionId = c.get("authSessionId");
-    const result = await me(userId);
-
-    return c.json(
-      {
-        message: "Got me",
-        session_id: sessionId,
-        user: {
-          id: result.id,
-          username: result.username,
-          email: result.email,
-          display_name: result.displayName,
-          avatar_key: result.avatarKey,
-          created_at: result.createdAt,
-        },
-      },
-      200,
-    );
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return c.json(
-        {
-          error: {
-            type: error.type,
-            message: error.message,
-          },
-        },
-        error.statusCode,
-      );
-    }
-
-    if (error instanceof Error) {
-      return c.json(
-        {
-          error: {
-            type: "INTERNAL_ERROR",
-            message: error.message,
-          },
-        },
-        500,
-      );
-    }
-
-    return c.json(
-      {
-        error: {
-          type: "INTERNAL_ERROR",
-          message: "Internal server error.",
-        },
-      },
-      500,
-    );
-  }
-});
+      };
+    },
+    {
+      body: t.Object({
+        identifier: t.String(),
+        password: t.String(),
+      }),
+    },
+  )
+  .use(protectedAuthRouter);
 
 export default authRouter;

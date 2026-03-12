@@ -1,6 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { conversations, users } from "../../db/migrations/schema.ts";
 
 export type ConversationPartner = {
   id: string;
@@ -13,8 +13,8 @@ export type ConversationItem = {
   id: string;
   userLow: string;
   userHigh: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
   partner: ConversationPartner;
 };
 
@@ -27,9 +27,9 @@ export type GetConversationsErrorType = "MISSING_INPUT" | "INVALID_CURSOR" | "IN
 
 export class GetConversationsError extends Error {
   readonly type: GetConversationsErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: GetConversationsErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: GetConversationsErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "GetConversationsError";
     this.type = type;
@@ -37,89 +37,131 @@ export class GetConversationsError extends Error {
   }
 }
 
-type ConversationRow = {
-  id: string;
-  user_low: string;
-  user_high: string;
-  created_at: Date;
-  updated_at: Date;
-  partner_id: string;
-  partner_username: string;
-  partner_display_name: string | null;
-  partner_avatar_key: string | null;
-};
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
 
 export async function getConversations(
   userId: string,
   limit = 50,
   cursor?: string,
 ): Promise<GetConversationsResult> {
-  if (!userId) {
+  const normalizedUserId = userId.trim();
+
+  if (!normalizedUserId) {
     throw new GetConversationsError("MISSING_INPUT", "User ID is required.", 400);
   }
 
-  let parsedCursor: Date | null = null;
+  if (!isValidUuid(normalizedUserId)) {
+    throw new GetConversationsError("MISSING_INPUT", "Invalid user ID format.", 400);
+  }
+
+  let parsedCursor: string | undefined;
   if (cursor) {
-    parsedCursor = new Date(cursor);
-    if (isNaN(parsedCursor.getTime())) {
+    const parsed = new Date(cursor);
+    if (Number.isNaN(parsed.getTime())) {
       throw new GetConversationsError(
         "INVALID_CURSOR",
         "Cursor must be a valid ISO date string.",
         400,
       );
     }
+    parsedCursor = parsed.toISOString();
   }
 
   const normalizedLimit = Math.min(Math.max(1, limit), 100);
 
   try {
-    return await withDb(async (client) => {
-      const result = await client.queryObject<ConversationRow>`
-        SELECT
-          c.id,
-          c.user_low,
-          c.user_high,
-          c.created_at,
-          c.updated_at,
-          u.id AS partner_id,
-          u.username AS partner_username,
-          u.display_name AS partner_display_name,
-          u.avatar_key AS partner_avatar_key
-        FROM conversations c
-        JOIN users u ON u.id = CASE WHEN c.user_low = ${userId} THEN c.user_high ELSE c.user_low END
-        WHERE (c.user_low = ${userId} OR c.user_high = ${userId})
-          AND (${parsedCursor}::timestamptz IS NULL OR c.updated_at < ${parsedCursor})
-        ORDER BY c.updated_at DESC
-        LIMIT ${normalizedLimit}
-      `;
+    const conversationRows = await db
+      .select({
+        id: conversations.id,
+        userLow: conversations.userLow,
+        userHigh: conversations.userHigh,
+        createdAt: conversations.createdAt,
+        updatedAt: conversations.updatedAt,
+      })
+      .from(conversations)
+      .where(
+        and(
+          or(
+            eq(conversations.userLow, normalizedUserId),
+            eq(conversations.userHigh, normalizedUserId),
+          ),
+          parsedCursor ? lt(conversations.updatedAt, parsedCursor) : undefined,
+        ),
+      )
+      .orderBy(desc(conversations.updatedAt))
+      .limit(normalizedLimit);
 
-      const items: ConversationItem[] = result.rows.map((row) => ({
-        id: row.id,
-        userLow: row.user_low,
-        userHigh: row.user_high,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        partner: {
-          id: row.partner_id,
-          username: row.partner_username,
-          displayName: row.partner_display_name,
-          avatarKey: row.partner_avatar_key,
+    if (conversationRows.length === 0) {
+      return {
+        items: [],
+        nextCursor: null,
+      };
+    }
+
+    const partnerIds = [
+      ...new Set(
+        conversationRows.map((row) =>
+          row.userLow === normalizedUserId ? row.userHigh : row.userLow,
+        ),
+      ),
+    ];
+
+    const partnerRows = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        displayName: users.displayName,
+        avatarKey: users.avatarKey,
+      })
+      .from(users)
+      .where(inArray(users.id, partnerIds));
+
+    const partnerMap = new Map(
+      partnerRows.map((partner) => [
+        partner.id,
+        {
+          id: partner.id,
+          username: partner.username,
+          displayName: partner.displayName,
+          avatarKey: partner.avatarKey,
         },
-      }));
+      ]),
+    );
 
-      const nextCursor = items.length > 0 ? items[items.length - 1]!.updatedAt.toISOString() : null;
+    const items: ConversationItem[] = conversationRows.map((row) => {
+      const partnerId = row.userLow === normalizedUserId ? row.userHigh : row.userLow;
+      const partner = partnerMap.get(partnerId);
+
+      if (!partner) {
+        throw new GetConversationsError(
+          "INTERNAL_ERROR",
+          "Internal server error fetching conversations.",
+          500,
+        );
+      }
 
       return {
-        items,
-        nextCursor,
+        id: row.id,
+        userLow: row.userLow,
+        userHigh: row.userHigh,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        partner,
       };
     });
+
+    const nextCursor = items.length > 0 ? items[items.length - 1]!.updatedAt : null;
+
+    return {
+      items,
+      nextCursor,
+    };
   } catch (error) {
     if (error instanceof GetConversationsError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
-      throw new GetConversationsError("MISSING_INPUT", "Invalid user ID format.", 400);
-    }
 
     throw new GetConversationsError(
       "INTERNAL_ERROR",

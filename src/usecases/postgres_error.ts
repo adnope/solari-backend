@@ -1,35 +1,51 @@
-export type PgError = Error & {
-  code: string;
+import { DrizzleQueryError } from "drizzle-orm/errors";
+
+export type PgLikeError = Error & {
+  code?: string;
   constraint?: string;
-  fields: {
-    code: string;
-    message: string;
+  constraint_name?: string;
+  detail?: string;
+  fields?: {
+    code?: string;
     constraint?: string;
+    constraint_name?: string;
     [key: string]: unknown;
   };
-  query?: unknown;
 };
 
-export function isPgError(error: unknown): error is PgError {
-  if (typeof error !== "object" || error === null) {
+export function unwrapDbError(error: unknown): PgLikeError | null {
+  if (error instanceof DrizzleQueryError && error.cause && typeof error.cause === "object") {
+    return error.cause as PgLikeError;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    return error as PgLikeError;
+  }
+
+  return null;
+}
+
+export function isPgError(error: unknown): error is PgLikeError & { code: string } {
+  const target = unwrapDbError(error);
+  if (!target) return false;
+
+  const code = target.code ?? target.fields?.code;
+
+  if (typeof code !== "string") {
     return false;
   }
 
-  const target = "cause" in error && typeof error.cause === "object" && error.cause !== null
-    ? error.cause
-    : error;
+  target.code = code;
 
-  const fields = (target as Record<string, unknown>).fields;
-  if (typeof fields !== "object" || fields === null || !("code" in fields)) {
-    return false;
+  const constraint =
+    target.constraint ??
+    target.constraint_name ??
+    target.fields?.constraint ??
+    target.fields?.constraint_name;
+
+  if (typeof constraint === "string") {
+    target.constraint = constraint;
   }
-
-  const err = error as Record<string, unknown>;
-  const pgFields = fields as Record<string, unknown>;
-
-  err.code = pgFields.code;
-  err.constraint = pgFields.constraint;
-  err.fields = pgFields;
 
   return true;
 }

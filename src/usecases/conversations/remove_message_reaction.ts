@@ -1,6 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { and, eq, gte, isNull, or } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { conversations, messageReactions, messages } from "../../db/migrations/schema.ts";
 
 export type RemoveMessageReactionErrorType =
   | "MISSING_INPUT"
@@ -9,13 +9,9 @@ export type RemoveMessageReactionErrorType =
 
 export class RemoveMessageReactionError extends Error {
   readonly type: RemoveMessageReactionErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(
-    type: RemoveMessageReactionErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: RemoveMessageReactionErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "RemoveMessageReactionError";
     this.type = type;
@@ -23,8 +19,17 @@ export class RemoveMessageReactionError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function removeMessageReaction(userId: string, messageId: string): Promise<void> {
-  if (!userId || !messageId) {
+  const normalizedUserId = userId.trim();
+  const normalizedMessageId = messageId.trim();
+
+  if (!normalizedUserId || !normalizedMessageId) {
     throw new RemoveMessageReactionError(
       "MISSING_INPUT",
       "User ID and Message ID are required.",
@@ -32,45 +37,61 @@ export async function removeMessageReaction(userId: string, messageId: string): 
     );
   }
 
+  if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedMessageId)) {
+    throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Invalid message ID format.", 404);
+  }
+
   try {
-    await withDb(async (client) => {
-      const authCheckResult = await client.queryObject<{ exists: boolean }>`
-        SELECT EXISTS (
-          SELECT 1 FROM messages m
-          JOIN conversations c ON c.id = m.conversation_id
-          WHERE m.id = ${messageId}
-            AND (
-              (c.user_low = ${userId} AND (c.user_low_cleared_at IS NULL OR m.created_at >= c.user_low_cleared_at))
-              OR
-              (c.user_high = ${userId} AND (c.user_high_cleared_at IS NULL OR m.created_at >= c.user_high_cleared_at))
-            )
-        ) AS exists
-      `;
+    const [authorizedMessage] = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+      .where(
+        and(
+          eq(messages.id, normalizedMessageId),
+          or(
+            and(
+              eq(conversations.userLow, normalizedUserId),
+              or(
+                isNull(conversations.userLowClearedAt),
+                gte(messages.createdAt, conversations.userLowClearedAt),
+              ),
+            ),
+            and(
+              eq(conversations.userHigh, normalizedUserId),
+              or(
+                isNull(conversations.userHighClearedAt),
+                gte(messages.createdAt, conversations.userHighClearedAt),
+              ),
+            ),
+          ),
+        ),
+      )
+      .limit(1);
 
-      if (!authCheckResult.rows[0]?.exists) {
-        throw new RemoveMessageReactionError(
-          "REACTION_NOT_FOUND",
-          "Message not found, deleted, or you are not authorized.",
-          404,
-        );
-      }
+    if (!authorizedMessage) {
+      throw new RemoveMessageReactionError(
+        "REACTION_NOT_FOUND",
+        "Message not found, deleted, or you are not authorized.",
+        404,
+      );
+    }
 
-      const result = await client.queryObject<{ id: string }>`
-        DELETE FROM message_reactions
-        WHERE message_id = ${messageId} AND user_id = ${userId}
-        RETURNING id
-      `;
+    const [deletedReaction] = await db
+      .delete(messageReactions)
+      .where(
+        and(
+          eq(messageReactions.messageId, normalizedMessageId),
+          eq(messageReactions.userId, normalizedUserId),
+        ),
+      )
+      .returning({ id: messageReactions.id });
 
-      if (result.rows.length === 0) {
-        throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Reaction not found.", 404);
-      }
-    });
+    if (!deletedReaction) {
+      throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Reaction not found.", 404);
+    }
   } catch (error) {
     if (error instanceof RemoveMessageReactionError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
-      throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Invalid message ID format.", 404);
-    }
 
     throw new RemoveMessageReactionError(
       "INTERNAL_ERROR",

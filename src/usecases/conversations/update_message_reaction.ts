@@ -1,6 +1,6 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { and, eq } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { messageReactions } from "../../db/migrations/schema.ts";
 import { isSingleEmoji } from "./react_message.ts";
 
 export type UpdateMessageReactionInput = {
@@ -14,7 +14,7 @@ export type UpdateMessageReactionResult = {
   messageId: string;
   userId: string;
   emoji: string;
-  createdAt: Date;
+  createdAt: string;
 };
 
 export type UpdateMessageReactionErrorType =
@@ -25,13 +25,9 @@ export type UpdateMessageReactionErrorType =
 
 export class UpdateMessageReactionError extends Error {
   readonly type: UpdateMessageReactionErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(
-    type: UpdateMessageReactionErrorType,
-    message: string,
-    statusCode: ContentfulStatusCode,
-  ) {
+  constructor(type: UpdateMessageReactionErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "UpdateMessageReactionError";
     this.type = type;
@@ -39,17 +35,29 @@ export class UpdateMessageReactionError extends Error {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 export async function updateMessageReaction(
   input: UpdateMessageReactionInput,
 ): Promise<UpdateMessageReactionResult> {
+  const normalizedUserId = input.userId.trim();
+  const normalizedMessageId = input.messageId.trim();
   const trimmedEmoji = input.emoji?.trim();
 
-  if (!input.userId || !input.messageId || !trimmedEmoji) {
+  if (!normalizedUserId || !normalizedMessageId || !trimmedEmoji) {
     throw new UpdateMessageReactionError(
       "MISSING_INPUT",
       "User ID, Message ID, and Emoji are required.",
       400,
     );
+  }
+
+  if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedMessageId)) {
+    throw new UpdateMessageReactionError("REACTION_NOT_FOUND", "Invalid message ID format.", 404);
   }
 
   if (!isSingleEmoji(trimmedEmoji)) {
@@ -61,40 +69,39 @@ export async function updateMessageReaction(
   }
 
   try {
-    return await withDb(async (client) => {
-      // Transitioned to Deno's native queryObject and .rows accessor
-      const result = await client.queryObject<{ id: string; created_at: Date }>`
-        UPDATE message_reactions
-        SET emoji = ${trimmedEmoji}
-        WHERE message_id = ${input.messageId} AND user_id = ${input.userId}
-        RETURNING id, created_at
-      `;
-
-      if (result.rows.length === 0) {
-        throw new UpdateMessageReactionError(
-          "REACTION_NOT_FOUND",
-          "Reaction not found. You must react to the message first.",
-          404,
-        );
-      }
-
-      const row = result.rows[0];
-
-      return {
-        id: row.id,
-        messageId: input.messageId,
-        userId: input.userId,
+    const [updated] = await db
+      .update(messageReactions)
+      .set({
         emoji: trimmedEmoji,
-        createdAt: row.created_at,
-      };
-    });
+      })
+      .where(
+        and(
+          eq(messageReactions.messageId, normalizedMessageId),
+          eq(messageReactions.userId, normalizedUserId),
+        ),
+      )
+      .returning({
+        id: messageReactions.id,
+        createdAt: messageReactions.createdAt,
+      });
+
+    if (!updated) {
+      throw new UpdateMessageReactionError(
+        "REACTION_NOT_FOUND",
+        "Reaction not found. You must react to the message first.",
+        404,
+      );
+    }
+
+    return {
+      id: updated.id,
+      messageId: normalizedMessageId,
+      userId: normalizedUserId,
+      emoji: trimmedEmoji,
+      createdAt: updated.createdAt,
+    };
   } catch (error) {
     if (error instanceof UpdateMessageReactionError) throw error;
-
-    // Standardized error handling without explicit 'any'
-    if (isPgError(error) && error.code === "22P02") {
-      throw new UpdateMessageReactionError("REACTION_NOT_FOUND", "Invalid message ID format.", 404);
-    }
 
     throw new UpdateMessageReactionError(
       "INTERNAL_ERROR",

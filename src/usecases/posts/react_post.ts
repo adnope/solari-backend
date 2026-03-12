@@ -1,9 +1,14 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
+import { and, eq } from "drizzle-orm";
+import { withTx } from "../../db/client.ts";
+import {
+  postReactions,
+  postVisibility,
+  posts,
+  userDevices,
+  users,
+} from "../../db/migrations/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
-import { isPgError } from "../postgres_error.ts";
-import { v7 } from "@std/uuid";
 
 export type ReactPostInput = {
   userId: string;
@@ -18,7 +23,7 @@ export type ReactPostResult = {
   userId: string;
   emoji: string;
   note: string | null;
-  createdAt: Date;
+  createdAt: string;
 };
 
 export type ReactPostErrorType =
@@ -31,14 +36,20 @@ export type ReactPostErrorType =
 
 export class ReactPostError extends Error {
   readonly type: ReactPostErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: ReactPostErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: ReactPostErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "ReactPostError";
     this.type = type;
     this.statusCode = statusCode;
   }
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
 }
 
 export function isSingleEmoji(input: string): boolean {
@@ -47,11 +58,17 @@ export function isSingleEmoji(input: string): boolean {
 }
 
 export async function reactPost(input: ReactPostInput): Promise<ReactPostResult> {
+  const normalizedUserId = input.userId.trim();
+  const normalizedPostId = input.postId.trim();
   const trimmedEmoji = input.emoji.trim();
   const trimmedNote = input.note?.trim();
 
-  if (!input.userId || !input.postId || !trimmedEmoji) {
+  if (!normalizedUserId || !normalizedPostId || !trimmedEmoji) {
     throw new ReactPostError("MISSING_INPUT", "User ID, Post ID, and Emoji are required.", 400);
+  }
+
+  if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedPostId)) {
+    throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
   }
 
   if (!isSingleEmoji(trimmedEmoji)) {
@@ -62,81 +79,98 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
     throw new ReactPostError("INVALID_NOTE", "Note must be 20 characters or fewer.", 400);
   }
 
-  const reactionId = v7.generate();
+  const reactionId = Bun.randomUUIDv7();
 
   try {
-    const { reactionResult, pushData } = await withDb(async (client) => {
-      const tx = client.createTransaction("send_reaction_tx");
-      await tx.begin();
-
-      try {
-        const postCheckResult = await tx.queryObject<{ author_id: string; is_visible: boolean }>`
-            SELECT
-              p.author_id,
-              EXISTS (
-                SELECT 1 FROM post_visibility pv
-                WHERE pv.post_id = p.id AND pv.viewer_id = ${input.userId}
-              ) AS is_visible
-            FROM posts p
-            WHERE p.id = ${input.postId}
-            LIMIT 1
-          `;
-
-        const postInfo = postCheckResult.rows[0];
-        if (!postInfo) {
-          throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
-        }
-
-        if (!postInfo.is_visible || postInfo.author_id === input.userId) {
-          throw new ReactPostError(
-            "UNAUTHORIZED",
-            "You are not authorized to react to this post, or it is your own post.",
-            403,
-          );
-        }
-
-        const insertResult = await tx.queryObject<{ created_at: Date }>`
-            INSERT INTO post_reactions (id, post_id, user_id, emoji, note)
-            VALUES (${reactionId}, ${input.postId}, ${input.userId}, ${trimmedEmoji}, ${
-          trimmedNote || null
+    const { reactionResult, pushData } = await withTx(async (tx) => {
+      const [postInfo] = await tx
+        .select({
+          authorId: posts.authorId,
         })
-            RETURNING created_at
-          `;
+        .from(posts)
+        .where(eq(posts.id, normalizedPostId))
+        .limit(1);
 
-        const reactorResult = await tx.queryObject<{
-          username: string;
-          display_name: string | null;
-          avatar_key: string | null;
-        }>`
-            SELECT username, display_name, avatar_key FROM users WHERE id = ${input.userId} LIMIT 1
-          `;
-
-        const reactor = reactorResult.rows[0];
-        const reactorName = reactor?.display_name || reactor?.username || "Someone";
-        const reactorAvatarKey = reactor?.avatar_key;
-
-        const devicesResult = await tx.queryObject<{ device_token: string }>`
-            SELECT device_token FROM user_devices WHERE user_id = ${postInfo.author_id}
-          `;
-        const tokens = devicesResult.rows.map((row) => row.device_token);
-
-        await tx.commit();
-
-        return {
-          reactionResult: {
-            id: reactionId,
-            postId: input.postId,
-            userId: input.userId,
-            emoji: trimmedEmoji,
-            note: trimmedNote || null,
-            createdAt: insertResult.rows[0]!.created_at,
-          },
-          pushData: { tokens, reactorName, reactorAvatarKey },
-        };
-      } catch (error) {
-        await tx.rollback();
-        throw error;
+      if (!postInfo) {
+        throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
       }
+
+      if (postInfo.authorId === normalizedUserId) {
+        throw new ReactPostError(
+          "UNAUTHORIZED",
+          "You are not authorized to react to this post, or it is your own post.",
+          403,
+        );
+      }
+
+      const [visible] = await tx
+        .select({ viewerId: postVisibility.viewerId })
+        .from(postVisibility)
+        .where(
+          and(
+            eq(postVisibility.postId, normalizedPostId),
+            eq(postVisibility.viewerId, normalizedUserId),
+          ),
+        )
+        .limit(1);
+
+      if (!visible) {
+        throw new ReactPostError(
+          "UNAUTHORIZED",
+          "You are not authorized to react to this post, or it is your own post.",
+          403,
+        );
+      }
+
+      const [inserted] = await tx
+        .insert(postReactions)
+        .values({
+          id: reactionId,
+          postId: normalizedPostId,
+          userId: normalizedUserId,
+          emoji: trimmedEmoji,
+          note: trimmedNote || null,
+        })
+        .returning({
+          createdAt: postReactions.createdAt,
+        });
+
+      if (!inserted) {
+        throw new ReactPostError("INTERNAL_ERROR", "Internal server error sending reaction.", 500);
+      }
+
+      const [reactor] = await tx
+        .select({
+          username: users.username,
+          displayName: users.displayName,
+          avatarKey: users.avatarKey,
+        })
+        .from(users)
+        .where(eq(users.id, normalizedUserId))
+        .limit(1);
+
+      const deviceRows = await tx
+        .select({
+          deviceToken: userDevices.deviceToken,
+        })
+        .from(userDevices)
+        .where(eq(userDevices.userId, postInfo.authorId));
+
+      return {
+        reactionResult: {
+          id: reactionId,
+          postId: normalizedPostId,
+          userId: normalizedUserId,
+          emoji: trimmedEmoji,
+          note: trimmedNote || null,
+          createdAt: inserted.createdAt,
+        },
+        pushData: {
+          tokens: deviceRows.map((row) => row.deviceToken),
+          reactorName: reactor?.displayName || reactor?.username || "Someone",
+          reactorAvatarKey: reactor?.avatarKey ?? null,
+        },
+      };
     });
 
     if (pushData.tokens.length > 0) {
@@ -152,12 +186,12 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
         reactionId: reactionResult.id,
         postId: reactionResult.postId,
         emoji: reactionResult.emoji,
-        avatarUrl: avatarUrl,
+        avatarUrl,
       };
 
-      Promise.allSettled(
+      void Promise.allSettled(
         pushData.tokens.map((token) =>
-          sendPushNotification(token, title, body, "NEW_POST_REACTION", extraData)
+          sendPushNotification(token, title, body, "NEW_POST_REACTION", extraData),
         ),
       ).catch(console.error);
     }
@@ -165,10 +199,6 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
     return reactionResult;
   } catch (error) {
     if (error instanceof ReactPostError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
-      throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
-    }
 
     throw new ReactPostError("INTERNAL_ERROR", "Internal server error sending reaction.", 500);
   }

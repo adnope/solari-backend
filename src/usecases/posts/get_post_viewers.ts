@@ -1,13 +1,13 @@
-import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { withDb } from "../../db/postgres_client.ts";
-import { isPgError } from "../postgres_error.ts";
+import { and, desc, eq, lt } from "drizzle-orm";
+import { db } from "../../db/client.ts";
+import { postViews, posts, users } from "../../db/migrations/schema.ts";
 
 export type PostViewerUser = {
   id: string;
   username: string;
   displayName: string | null;
   avatarKey: string | null;
-  viewedAt: Date;
+  viewedAt: string;
 };
 
 export type GetPostViewersResult = {
@@ -24,9 +24,9 @@ export type GetPostViewersErrorType =
 
 export class GetPostViewersError extends Error {
   readonly type: GetPostViewersErrorType;
-  readonly statusCode: ContentfulStatusCode;
+  readonly statusCode: number;
 
-  constructor(type: GetPostViewersErrorType, message: string, statusCode: ContentfulStatusCode) {
+  constructor(type: GetPostViewersErrorType, message: string, statusCode: number) {
     super(message);
     this.name = "GetPostViewersError";
     this.type = type;
@@ -34,13 +34,11 @@ export class GetPostViewersError extends Error {
   }
 }
 
-type ViewerRow = {
-  user_id: string;
-  username: string;
-  display_name: string | null;
-  avatar_key: string | null;
-  viewed_at: Date;
-};
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
 
 export async function getPostViewers(
   authorId: string,
@@ -48,77 +46,80 @@ export async function getPostViewers(
   limit = 50,
   cursor?: string,
 ): Promise<GetPostViewersResult> {
-  if (!authorId || !postId) {
+  const normalizedAuthorId = authorId.trim();
+  const normalizedPostId = postId.trim();
+
+  if (!normalizedAuthorId || !normalizedPostId) {
     throw new GetPostViewersError("MISSING_INPUT", "Author ID and Post ID are required.", 400);
   }
 
-  let parsedCursor: Date | null = null;
+  if (!isValidUuid(normalizedAuthorId) || !isValidUuid(normalizedPostId)) {
+    throw new GetPostViewersError("POST_NOT_FOUND", "Post not found.", 404);
+  }
+
+  let parsedCursor: string | undefined;
   if (cursor) {
-    parsedCursor = new Date(cursor);
-    if (isNaN(parsedCursor.getTime())) {
+    const parsed = new Date(cursor);
+    if (Number.isNaN(parsed.getTime())) {
       throw new GetPostViewersError(
         "INVALID_CURSOR",
         "Cursor must be a valid ISO date string.",
         400,
       );
     }
+    parsedCursor = parsed.toISOString();
   }
 
   const normalizedLimit = Math.min(Math.max(1, limit), 50);
 
   try {
-    return await withDb(async (client) => {
-      const authCheckResult = await client.queryObject<{ exists: boolean }>`
-        SELECT EXISTS (
-          SELECT 1 FROM posts
-          WHERE id = ${postId} AND author_id = ${authorId}
-        ) AS exists
-      `;
+    const [authorizedPost] = await db
+      .select({ id: posts.id })
+      .from(posts)
+      .where(and(eq(posts.id, normalizedPostId), eq(posts.authorId, normalizedAuthorId)))
+      .limit(1);
 
-      if (!authCheckResult.rows[0]?.exists) {
-        throw new GetPostViewersError(
-          "UNAUTHORIZED",
-          "You are not authorized to view this post's viewers (only the author can), or it does not exist.",
-          403,
-        );
-      }
+    if (!authorizedPost) {
+      throw new GetPostViewersError(
+        "UNAUTHORIZED",
+        "You are not authorized to view this post's viewers (only the author can), or it does not exist.",
+        403,
+      );
+    }
 
-      const result = await client.queryObject<ViewerRow>`
-        SELECT
-          pv.viewed_at,
-          u.id AS user_id,
-          u.username,
-          u.display_name,
-          u.avatar_key
-        FROM post_views pv
-        JOIN users u ON u.id = pv.user_id
-        WHERE pv.post_id = ${postId}
-          AND (${parsedCursor}::timestamptz IS NULL OR pv.viewed_at < ${parsedCursor})
-        ORDER BY pv.viewed_at DESC
-        LIMIT ${normalizedLimit}
-      `;
+    const rows = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        displayName: users.displayName,
+        avatarKey: users.avatarKey,
+        viewedAt: postViews.viewedAt,
+      })
+      .from(postViews)
+      .innerJoin(users, eq(users.id, postViews.userId))
+      .where(
+        and(
+          eq(postViews.postId, normalizedPostId),
+          parsedCursor ? lt(postViews.viewedAt, parsedCursor) : undefined,
+        ),
+      )
+      .orderBy(desc(postViews.viewedAt))
+      .limit(normalizedLimit);
 
-      const items: PostViewerUser[] = result.rows.map((row) => ({
-        id: row.user_id,
-        username: row.username,
-        displayName: row.display_name,
-        avatarKey: row.avatar_key,
-        viewedAt: row.viewed_at,
-      }));
+    const items: PostViewerUser[] = rows.map((row) => ({
+      id: row.id,
+      username: row.username,
+      displayName: row.displayName,
+      avatarKey: row.avatarKey,
+      viewedAt: row.viewedAt,
+    }));
 
-      const nextCursor = items.length > 0 ? items[items.length - 1]!.viewedAt.toISOString() : null;
-
-      return {
-        items,
-        nextCursor,
-      };
-    });
+    return {
+      items,
+      nextCursor: items.length > 0 ? items[items.length - 1]!.viewedAt : null,
+    };
   } catch (error) {
     if (error instanceof GetPostViewersError) throw error;
-
-    if (isPgError(error) && error.code === "22P02") {
-      throw new GetPostViewersError("POST_NOT_FOUND", "Post not found.", 404);
-    }
 
     throw new GetPostViewersError("INTERNAL_ERROR", "Internal server error fetching viewers.", 500);
   }
