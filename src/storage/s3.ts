@@ -1,4 +1,5 @@
 import {
+  CreateBucketCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -8,18 +9,16 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import "@std/dotenv/load";
 
-const host = Deno.env.get("MINIO_HOST") || "localhost";
-const port = Deno.env.get("MINIO_PORT") || "9000";
-const endpoint = `http://${host}:${port}`;
-const region = "us-east-1";
+const endpoint = Deno.env.get("S3_ENDPOINT");
+const region = Deno.env.get("S3_REGION") || "us-east-1";
 
-const accessKeyId = Deno.env.get("MINIO_ROOT_USER");
-const secretAccessKey = Deno.env.get("MINIO_ROOT_PASSWORD");
-export const minioBucketName = Deno.env.get("MINIO_BUCKET_NAME") || "solari-media";
+const accessKeyId = Deno.env.get("S3_ACCESS_KEY_ID");
+const secretAccessKey = Deno.env.get("S3_SECRET_ACCESS_KEY");
+export const s3BucketName = Deno.env.get("S3_BUCKET_NAME") || "solari-media";
 
-if (!accessKeyId || !secretAccessKey) {
+if (!endpoint || !accessKeyId || !secretAccessKey) {
   throw new Error(
-    "Missing required MinIO environment variables: MINIO_ROOT_USER or MINIO_ROOT_PASSWORD",
+    "Missing required S3 environment variables: S3_ENDPOINT, S3_ACCESS_KEY_ID, or S3_SECRET_ACCESS_KEY",
   );
 }
 
@@ -34,10 +33,16 @@ export const s3Client = new S3Client({
 });
 
 try {
-  await s3Client.send(new HeadBucketCommand({ Bucket: minioBucketName }));
-  console.log(`[INFO] Connected to MinIO S3 at ${endpoint}`);
-} catch (error) {
-  console.error(`[ERROR] Failed to connect to MinIO at ${endpoint}. Does the bucket exist?`, error);
+  await s3Client.send(new HeadBucketCommand({ Bucket: s3BucketName }));
+  console.log(`[INFO] Connected to S3 Storage at ${endpoint}`);
+} catch (_error) {
+  console.log(`[INFO] Bucket '${s3BucketName}' not found. Creating it now...`);
+  try {
+    await s3Client.send(new CreateBucketCommand({ Bucket: s3BucketName }));
+    console.log(`[INFO] Bucket '${s3BucketName}' created successfully.`);
+  } catch (createError) {
+    console.error(`[ERROR] Failed to create bucket '${s3BucketName}'.`, createError);
+  }
 }
 
 export async function uploadFile(
@@ -46,7 +51,7 @@ export async function uploadFile(
   contentType: string,
 ): Promise<void> {
   const command = new PutObjectCommand({
-    Bucket: minioBucketName,
+    Bucket: s3BucketName,
     Key: objectKey,
     Body: buffer,
     ContentType: contentType,
@@ -56,7 +61,7 @@ export async function uploadFile(
 
 export async function getFileUrl(objectKey: string, expiresInSeconds = 3600): Promise<string> {
   const command = new GetObjectCommand({
-    Bucket: minioBucketName,
+    Bucket: s3BucketName,
     Key: objectKey,
   });
   return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
@@ -64,7 +69,7 @@ export async function getFileUrl(objectKey: string, expiresInSeconds = 3600): Pr
 
 export async function deleteFile(objectKey: string): Promise<void> {
   const command = new DeleteObjectCommand({
-    Bucket: minioBucketName,
+    Bucket: s3BucketName,
     Key: objectKey,
   });
   await s3Client.send(command);

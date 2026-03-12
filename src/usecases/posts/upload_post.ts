@@ -1,6 +1,6 @@
 import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
-import { uploadFile } from "../../storage/minio.ts";
+import { uploadFile } from "../../storage/s3.ts";
 import { generateThumbnail } from "../../utils/thumbnail.ts";
 import { isPgError } from "../postgres_error.ts";
 import { v7 } from "@std/uuid";

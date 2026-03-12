@@ -10,7 +10,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      minio:
+      s3:
         condition: service_healthy
 
   db:
@@ -33,25 +33,26 @@ services:
       timeout: 3s
       retries: 30
 
-  minio:
-    image: minio/minio:latest
-    container_name: solari-minio
+  s3:
+    image: chrislusf/seaweedfs:latest
+    container_name: solari-storage
     restart: unless-stopped
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin1234}
+    env_file:
+      - .env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'mkdir -p /etc/seaweedfs && echo "{\"identities\": [{\"name\": \"solari\", \"credentials\": [{\"accessKey\": \"${S3_ACCESS_KEY_ID}\", \"secretKey\": \"${S3_SECRET_ACCESS_KEY}\"}], \"actions\": [\"Read\", \"Write\", \"List\", \"Tagging\", \"Admin\"]}]}" > /etc/seaweedfs/s3.json && exec weed server -s3 -filer -dir=/data -s3.config=/etc/seaweedfs/s3.json'
     ports:
-      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
-      - "127.0.0.1:${MINIO_WEBCONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${S3_API_PORT:-8333}:8333"
+      - "127.0.0.1:8888:8888"
     volumes:
-      - miniodata:/data
-    command: server /data --console-address ":9001"
+      - s3data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 2s
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8333 || exit 1"]
+      interval: 5s
       timeout: 3s
-      retries: 30
+      retries: 5
 
 volumes:
   pgdata:
-  miniodata:
+  s3data:

@@ -1,7 +1,7 @@
 import type { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { withDb } from "../../db/postgres_client.ts";
 import { isPgError } from "../postgres_error.ts";
-import { deleteFile, uploadFile } from "../../storage/minio.ts";
+import { deleteFile, uploadFile } from "../../storage/s3.ts";
 
 export type UpdateProfileInput = {
   userId: string;
