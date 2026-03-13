@@ -115,8 +115,9 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
         throw new SendMessageError("CONVERSATION_NOT_FOUND", "Unauthorized.", 404);
       }
 
-      const receiverId =
-        conversation.userLow === normalizedSenderId ? conversation.userHigh : conversation.userLow;
+      const isSenderLow = conversation.userLow === normalizedSenderId;
+      
+      const receiverId = isSenderLow ? conversation.userHigh : conversation.userLow;
 
       const [insertedMessage] = await tx
         .insert(messages)
@@ -138,9 +139,17 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
       await tx
         .update(conversations)
-        .set({
-          updatedAt: insertedMessage.createdAt,
-        })
+        .set(
+          isSenderLow
+            ? {
+                updatedAt: insertedMessage.createdAt,
+                userLowLastReadAt: insertedMessage.createdAt,
+              }
+            : {
+                updatedAt: insertedMessage.createdAt,
+                userHighLastReadAt: insertedMessage.createdAt,
+              },
+        )
         .where(eq(conversations.id, normalizedConversationId));
 
       const [sender] = await tx

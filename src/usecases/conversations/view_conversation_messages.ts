@@ -19,6 +19,7 @@ export type ConversationMessage = {
 export type ViewConversationMessagesResult = {
   items: ConversationMessage[];
   nextCursor: string | null;
+  partnerLastReadAt: string | null;
 };
 
 export type ViewConversationMessagesErrorType =
@@ -93,6 +94,8 @@ export async function viewConversationMessages(
         userHigh: conversations.userHigh,
         userLowClearedAt: conversations.userLowClearedAt,
         userHighClearedAt: conversations.userHighClearedAt,
+        userLowLastReadAt: conversations.userLowLastReadAt,
+        userHighLastReadAt: conversations.userHighLastReadAt,
       })
       .from(conversations)
       .where(eq(conversations.id, normalizedConversationId))
@@ -117,10 +120,13 @@ export async function viewConversationMessages(
       );
     }
 
-    const clearedAt =
-      conversation.userLow === normalizedViewerId
-        ? conversation.userLowClearedAt
-        : conversation.userHighClearedAt;
+    const isViewerLow = conversation.userLow === normalizedViewerId;
+
+    const clearedAt = isViewerLow ? conversation.userLowClearedAt : conversation.userHighClearedAt;
+
+    const partnerLastReadAt = isViewerLow
+      ? conversation.userHighLastReadAt
+      : conversation.userLowLastReadAt;
 
     const messageRows = await db
       .select({
@@ -145,6 +151,7 @@ export async function viewConversationMessages(
       return {
         items: [],
         nextCursor: null,
+        partnerLastReadAt: partnerLastReadAt ?? null,
       };
     }
 
@@ -184,6 +191,7 @@ export async function viewConversationMessages(
     return {
       items,
       nextCursor,
+      partnerLastReadAt: partnerLastReadAt ?? null,
     };
   } catch (error) {
     if (error instanceof ViewConversationMessagesError) throw error;

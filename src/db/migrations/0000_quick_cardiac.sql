@@ -159,6 +159,7 @@ CREATE TABLE "post_views" (
 	CONSTRAINT "post_views_pkey" PRIMARY KEY("post_id","user_id")
 );
 --> statement-breakpoint
+ALTER TABLE conversations ADD COLUMN user_low_last_read_at timestamptz, ADD COLUMN user_high_last_read_at timestamptz;
 ALTER TABLE "user_passwords" ADD CONSTRAINT "user_passwords_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_oauth_accounts" ADD CONSTRAINT "user_oauth_accounts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

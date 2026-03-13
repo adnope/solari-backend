@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { conversations, users } from "../../db/migrations/schema.ts";
+import { conversations, messages, users } from "../../db/migrations/schema.ts";
 
 export type ConversationPartner = {
   id: string;
@@ -9,6 +9,13 @@ export type ConversationPartner = {
   avatarKey: string | null;
 };
 
+export type ConversationLastMessage = {
+  id: string;
+  senderId: string;
+  content: string;
+  createdAt: string;
+} | null;
+
 export type ConversationItem = {
   id: string;
   userLow: string;
@@ -16,6 +23,9 @@ export type ConversationItem = {
   createdAt: string;
   updatedAt: string;
   partner: ConversationPartner;
+  lastMessage: ConversationLastMessage;
+  currentUserLastReadAt: string | null;
+  partnerLastReadAt: string | null;
 };
 
 export type GetConversationsResult = {
@@ -81,6 +91,8 @@ export async function getConversations(
         userHigh: conversations.userHigh,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
+        userLowLastReadAt: conversations.userLowLastReadAt,
+        userHighLastReadAt: conversations.userHighLastReadAt,
       })
       .from(conversations)
       .where(
@@ -101,6 +113,8 @@ export async function getConversations(
         nextCursor: null,
       };
     }
+
+    const conversationIds = conversationRows.map((row) => row.id);
 
     const partnerIds = [
       ...new Set(
@@ -132,6 +146,30 @@ export async function getConversations(
       ]),
     );
 
+    const lastMessageRows = await db
+      .selectDistinctOn([messages.conversationId], {
+        conversationId: messages.conversationId,
+        id: messages.id,
+        senderId: messages.senderId,
+        content: messages.content,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(inArray(messages.conversationId, conversationIds))
+      .orderBy(messages.conversationId, desc(messages.createdAt));
+
+    const lastMessageMap = new Map(
+      lastMessageRows.map((message) => [
+        message.conversationId,
+        {
+          id: message.id,
+          senderId: message.senderId,
+          content: message.content,
+          createdAt: message.createdAt,
+        },
+      ]),
+    );
+
     const items: ConversationItem[] = conversationRows.map((row) => {
       const partnerId = row.userLow === normalizedUserId ? row.userHigh : row.userLow;
       const partner = partnerMap.get(partnerId);
@@ -144,6 +182,8 @@ export async function getConversations(
         );
       }
 
+      const isViewerLow = row.userLow === normalizedUserId;
+
       return {
         id: row.id,
         userLow: row.userLow,
@@ -151,6 +191,9 @@ export async function getConversations(
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         partner,
+        lastMessage: lastMessageMap.get(row.id) ?? null,
+        currentUserLastReadAt: isViewerLow ? row.userLowLastReadAt : row.userHighLastReadAt,
+        partnerLastReadAt: isViewerLow ? row.userHighLastReadAt : row.userLowLastReadAt,
       };
     });
 

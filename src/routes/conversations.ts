@@ -1,5 +1,4 @@
 import { Elysia, t } from "elysia";
-import { requireAuth } from "./middleware/require_auth.ts";
 import {
   clearConversation,
   ClearConversationError,
@@ -12,6 +11,10 @@ import {
   getConversations,
   GetConversationsError,
 } from "../usecases/conversations/get_conversations.ts";
+import {
+  markConversationAsRead,
+  MarkConversationAsReadError,
+} from "../usecases/conversations/mark_conversation_as_read.ts";
 import { reactMessage, ReactMessageError } from "../usecases/conversations/react_message.ts";
 import {
   removeMessageReaction,
@@ -27,6 +30,7 @@ import {
   ViewConversationMessagesError,
 } from "../usecases/conversations/view_conversation_messages.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
+import { requireAuth } from "./middleware/require_auth.ts";
 
 const protectedConversationsRouter = new Elysia()
   .use(requireAuth)
@@ -116,6 +120,7 @@ const protectedConversationsRouter = new Elysia()
           })),
         })),
         next_cursor: result.nextCursor,
+        partner_last_read_at: result.partnerLastReadAt,
       };
     },
     {
@@ -125,6 +130,29 @@ const protectedConversationsRouter = new Elysia()
       query: t.Object({
         limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
         cursor: t.Optional(t.String()),
+      }),
+    },
+  )
+
+  // Mark a conversation as read
+  .post(
+    "/conversations/:conversationId/read",
+    async ({ authUserId, params, set }) => {
+      const result = await markConversationAsRead(authUserId, params.conversationId);
+
+      set.status = 200;
+      return {
+        message: "Conversation marked as read.",
+        read_state: {
+          conversation_id: result.conversationId,
+          user_id: result.userId,
+          last_read_at: result.lastReadAt,
+        },
+      };
+    },
+    {
+      params: t.Object({
+        conversationId: t.String(),
       }),
     },
   )
@@ -150,6 +178,16 @@ const protectedConversationsRouter = new Elysia()
             display_name: conv.partner.displayName,
             avatar_key: conv.partner.avatarKey,
           },
+          last_message: conv.lastMessage
+            ? {
+                id: conv.lastMessage.id,
+                sender_id: conv.lastMessage.senderId,
+                content: conv.lastMessage.content,
+                created_at: conv.lastMessage.createdAt,
+              }
+            : null,
+          current_user_last_read_at: conv.currentUserLastReadAt,
+          partner_last_read_at: conv.partnerLastReadAt,
         })),
         next_cursor: result.nextCursor,
       };
@@ -266,6 +304,7 @@ const conversationsRouter = withApiErrorHandler(new Elysia(), {
   CreateConversationError,
   SendMessageError,
   ViewConversationMessagesError,
+  MarkConversationAsReadError,
   GetConversationsError,
   ClearConversationError,
   ReactMessageError,

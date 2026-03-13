@@ -271,6 +271,8 @@ export const conversations = pgTable(
     userHigh: uuid("user_high").notNull(),
     userLowClearedAt: timestamp("user_low_cleared_at", { withTimezone: true, mode: "string" }),
     userHighClearedAt: timestamp("user_high_cleared_at", { withTimezone: true, mode: "string" }),
+    userLowLastReadAt: timestamp("user_low_last_read_at", { withTimezone: true, mode: "string" }),
+    userHighLastReadAt: timestamp("user_high_last_read_at", { withTimezone: true, mode: "string" }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
