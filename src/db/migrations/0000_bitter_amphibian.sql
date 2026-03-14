@@ -101,6 +101,8 @@ CREATE TABLE "conversations" (
 	"user_high_cleared_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"user_low_last_read_at" timestamp with time zone,
+	"user_high_last_read_at" timestamp with time zone,
 	CONSTRAINT "conversations_unique_pair" UNIQUE("user_low","user_high"),
 	CONSTRAINT "conversations_no_self" CHECK (user_low <> user_high),
 	CONSTRAINT "conversations_canonical_order" CHECK (user_low < user_high)
@@ -136,6 +138,20 @@ CREATE TABLE "user_devices" (
 	CONSTRAINT "user_devices_device_token_key" UNIQUE("device_token")
 );
 --> statement-breakpoint
+CREATE TABLE "password_reset_codes" (
+	"id" uuid PRIMARY KEY NOT NULL,
+	"user_id" uuid NOT NULL,
+	"code_hash" text NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"verified_at" timestamp with time zone,
+	"used_at" timestamp with time zone,
+	"attempt_count" integer DEFAULT 0 NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "password_reset_codes_code_hash_key" UNIQUE("code_hash"),
+	CONSTRAINT "password_reset_codes_attempt_count_check" CHECK (attempt_count >= 0),
+	CONSTRAINT "password_reset_codes_expiry_check" CHECK (expires_at > created_at)
+);
+--> statement-breakpoint
 CREATE TABLE "friendships" (
 	"user_low" uuid NOT NULL,
 	"user_high" uuid NOT NULL,
@@ -159,7 +175,6 @@ CREATE TABLE "post_views" (
 	CONSTRAINT "post_views_pkey" PRIMARY KEY("post_id","user_id")
 );
 --> statement-breakpoint
-ALTER TABLE conversations ADD COLUMN user_low_last_read_at timestamptz, ADD COLUMN user_high_last_read_at timestamptz;
 ALTER TABLE "user_passwords" ADD CONSTRAINT "user_passwords_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_oauth_accounts" ADD CONSTRAINT "user_oauth_accounts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -177,6 +192,7 @@ ALTER TABLE "messages" ADD CONSTRAINT "messages_referenced_post_id_fkey" FOREIGN
 ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "public"."messages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_devices" ADD CONSTRAINT "user_devices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "password_reset_codes" ADD CONSTRAINT "password_reset_codes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "friendships" ADD CONSTRAINT "friendships_user_low_fkey" FOREIGN KEY ("user_low") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "friendships" ADD CONSTRAINT "friendships_user_high_fkey" FOREIGN KEY ("user_high") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "post_visibility" ADD CONSTRAINT "post_visibility_post_id_fkey" FOREIGN KEY ("post_id") REFERENCES "public"."posts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -199,6 +215,8 @@ CREATE INDEX "idx_conversations_user_low" ON "conversations" USING btree ("user_
 CREATE INDEX "idx_messages_conversation_id_created_at" ON "messages" USING btree ("conversation_id" timestamptz_ops,"created_at" timestamptz_ops);--> statement-breakpoint
 CREATE INDEX "idx_message_reactions_message_id" ON "message_reactions" USING btree ("message_id" uuid_ops);--> statement-breakpoint
 CREATE INDEX "idx_user_devices_user_id" ON "user_devices" USING btree ("user_id" uuid_ops);--> statement-breakpoint
+CREATE INDEX "idx_password_reset_codes_expires_at" ON "password_reset_codes" USING btree ("expires_at" timestamptz_ops);--> statement-breakpoint
+CREATE INDEX "idx_password_reset_codes_user_id" ON "password_reset_codes" USING btree ("user_id" uuid_ops);--> statement-breakpoint
 CREATE INDEX "idx_friendships_user_high" ON "friendships" USING btree ("user_high" uuid_ops);--> statement-breakpoint
 CREATE INDEX "idx_friendships_user_low" ON "friendships" USING btree ("user_low" uuid_ops);--> statement-breakpoint
 CREATE INDEX "idx_post_visibility_viewer_id_post_id" ON "post_visibility" USING btree ("viewer_id" uuid_ops,"post_id" uuid_ops);--> statement-breakpoint

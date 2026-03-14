@@ -30,7 +30,9 @@ export const users = pgTable(
   "users",
   {
     id: uuid().primaryKey().notNull(),
+    // TODO: failed to parse database type 'citext'
     username: citext("username").notNull(),
+    // TODO: failed to parse database type 'citext'
     email: citext("email").notNull(),
     displayName: text("display_name"),
     avatarKey: text("avatar_key"),
@@ -196,6 +198,7 @@ export const postMedia = pgTable(
     mediaType: text("media_type").notNull(),
     objectKey: text("object_key").notNull(),
     contentType: text("content_type").notNull(),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
     durationMs: integer("duration_ms"),
     thumbnailKey: text("thumbnail_key"),
@@ -271,14 +274,14 @@ export const conversations = pgTable(
     userHigh: uuid("user_high").notNull(),
     userLowClearedAt: timestamp("user_low_cleared_at", { withTimezone: true, mode: "string" }),
     userHighClearedAt: timestamp("user_high_cleared_at", { withTimezone: true, mode: "string" }),
-    userLowLastReadAt: timestamp("user_low_last_read_at", { withTimezone: true, mode: "string" }),
-    userHighLastReadAt: timestamp("user_high_last_read_at", { withTimezone: true, mode: "string" }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
+    userLowLastReadAt: timestamp("user_low_last_read_at", { withTimezone: true, mode: "string" }),
+    userHighLastReadAt: timestamp("user_high_last_read_at", { withTimezone: true, mode: "string" }),
   },
   (table) => [
     index("idx_conversations_updated_at").using(
@@ -402,6 +405,40 @@ export const userDevices = pgTable(
   ],
 );
 
+export const passwordResetCodes = pgTable(
+  "password_reset_codes",
+  {
+    id: uuid().primaryKey().notNull(),
+    userId: uuid("user_id").notNull(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true, mode: "string" }),
+    usedAt: timestamp("used_at", { withTimezone: true, mode: "string" }),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_password_reset_codes_expires_at").using(
+      "btree",
+      table.expiresAt.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    index("idx_password_reset_codes_user_id").using(
+      "btree",
+      table.userId.asc().nullsLast().op("uuid_ops"),
+    ),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: "password_reset_codes_user_id_fkey",
+    }).onDelete("cascade"),
+    unique("password_reset_codes_code_hash_key").on(table.codeHash),
+    check("password_reset_codes_attempt_count_check", sql`attempt_count >= 0`),
+    check("password_reset_codes_expiry_check", sql`expires_at > created_at`),
+  ],
+);
+
 export const friendships = pgTable(
   "friendships",
   {
@@ -489,39 +526,5 @@ export const postViews = pgTable(
       name: "post_views_user_id_fkey",
     }).onDelete("cascade"),
     primaryKey({ columns: [table.postId, table.userId], name: "post_views_pkey" }),
-  ],
-);
-
-export const passwordResetCodes = pgTable(
-  "password_reset_codes",
-  {
-    id: uuid().primaryKey().notNull(),
-    userId: uuid("user_id").notNull(),
-    codeHash: text("code_hash").notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
-    verifiedAt: timestamp("verified_at", { withTimezone: true, mode: "string" }),
-    usedAt: timestamp("used_at", { withTimezone: true, mode: "string" }),
-    attemptCount: integer("attempt_count").default(0).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    index("idx_password_reset_codes_user_id").using(
-      "btree",
-      table.userId.asc().nullsLast().op("uuid_ops"),
-    ),
-    index("idx_password_reset_codes_expires_at").using(
-      "btree",
-      table.expiresAt.asc().nullsLast().op("timestamptz_ops"),
-    ),
-    foreignKey({
-      columns: [table.userId],
-      foreignColumns: [users.id],
-      name: "password_reset_codes_user_id_fkey",
-    }).onDelete("cascade"),
-    unique("password_reset_codes_code_hash_key").on(table.codeHash),
-    check("password_reset_codes_attempt_count_check", sql`attempt_count >= 0`),
-    check("password_reset_codes_expiry_check", sql`expires_at > created_at`),
   ],
 );
