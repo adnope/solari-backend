@@ -1,7 +1,16 @@
 import { Elysia, t } from "elysia";
-import { requireAuth } from "./middleware/require_auth.ts";
 import { AuthError, logOut, me, signIn, signUp } from "../usecases/auth/auth.ts";
+import {
+  requestPasswordResetCode,
+  RequestPasswordResetCodeError,
+} from "../usecases/auth/request_password_reset_code.ts";
+import { resetPassword, ResetPasswordError } from "../usecases/auth/reset_password.ts";
+import {
+  verifyPasswordResetCode,
+  VerifyPasswordResetCodeError,
+} from "../usecases/auth/verify_password_reset_code.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
+import { requireAuth } from "./middleware/require_auth.ts";
 
 const protectedAuthRouter = new Elysia()
   .use(requireAuth)
@@ -47,7 +56,12 @@ const protectedAuthRouter = new Elysia()
 
 const authRouter = withApiErrorHandler(
   new Elysia(),
-  { AuthError },
+  {
+    AuthError,
+    RequestPasswordResetCodeError,
+    VerifyPasswordResetCodeError,
+    ResetPasswordError,
+  },
   { validationErrorType: "INVALID_JSON" },
 )
   // Sign up a new account
@@ -104,6 +118,70 @@ const authRouter = withApiErrorHandler(
       body: t.Object({
         identifier: t.String(),
         password: t.String(),
+      }),
+    },
+  )
+
+  // Request password reset code
+  .post(
+    "/password-resets",
+    async ({ body, set }) => {
+      await requestPasswordResetCode(body.email);
+
+      set.status = 200;
+      return {
+        message: "If that account exists, a password reset code has been sent.",
+      };
+    },
+    {
+      body: t.Object({
+        email: t.String(),
+      }),
+    },
+  )
+
+  // Verify password reset code
+  .post(
+    "/password-resets/verify",
+    async ({ body, set }) => {
+      await verifyPasswordResetCode({
+        email: body.email,
+        code: body.code,
+      });
+
+      set.status = 200;
+      return {
+        message: "Password reset code verified successfully.",
+        verified: true,
+      };
+    },
+    {
+      body: t.Object({
+        email: t.String(),
+        code: t.String(),
+      }),
+    },
+  )
+
+  // Set new password after code verification
+  .post(
+    "/password-resets/complete",
+    async ({ body, set }) => {
+      await resetPassword({
+        email: body.email,
+        newPassword: body.new_password,
+      });
+
+      set.status = 200;
+
+      return {
+        message: "Password reset successfully.",
+      };
+    },
+    {
+      body: t.Object({
+        email: t.String(),
+        new_password: t.String(),
       }),
     },
   )

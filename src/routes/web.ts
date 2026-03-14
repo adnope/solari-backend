@@ -44,19 +44,19 @@ export const webRouter = new Elysia().get(
             <title>Add ${displayName} on Solari</title>
             <link rel="icon" type="image/x-icon" href="https://cloudreve.adnope.io.vn/f/Z7I7/solari-icon.png">
 
-            <meta name="description" content="Pics from your best friends on your Home Screen">
+            <meta name="description" content="See photos of your best friends on your Home Screen">
 
             <meta property="og:type" content="website">
             <meta property="og:url" content="${appUrl}">
             <meta property="og:title" content="Add ${displayName} on Solari">
-            <meta property="og:description" content="Pics from your best friends on your Home Screen">
+            <meta property="og:description" content="See photos of your best friends on your Home Screen">
             <meta property="og:image" content="${ogImageUrl}">
             <meta property="og:site_name" content="Solari">
 
             <meta property="twitter:card" content="summary_large_image">
             <meta property="twitter:url" content="${appUrl}">
             <meta property="twitter:title" content="Add ${displayName} on Solari">
-            <meta property="twitter:description" content="Pics from your best friends on your Home Screen">
+            <meta property="twitter:description" content="See photos of your best friends on your Home Screen">
             <meta property="twitter:image" content="${ogImageUrl}">
 
             <style>
@@ -144,7 +144,7 @@ export const webRouter = new Elysia().get(
             </div>
 
             <h1>Add ${displayName} on Solari</h1>
-            <p>Pics from your best friends on<br>your Home Screen</p>
+            <p>See photos of your best friends on<br>your Home Screen</p>
 
             <a class="btn" href="${intentUrl}">
               Open Solari

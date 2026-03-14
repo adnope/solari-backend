@@ -1,4 +1,24 @@
 services:
+  api:
+    container_name: solari-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${SERVER_BUILD_TARGET:-dev}
+    depends_on:
+      db:
+        condition: service_healthy
+      s3:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-5050}:5050"
+    volumes:
+      - .:/app
+      - /app/node_modules
+
   db:
     image: postgres:16.13-alpine
     container_name: solari-postgres
@@ -18,26 +38,6 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-
-  # s3:
-  #   image: chrislusf/seaweedfs:latest
-  #   container_name: solari-storage
-  #   restart: unless-stopped
-  #   env_file:
-  #     - .env
-  #   entrypoint: ["/bin/sh", "-c"]
-  #   command:
-  #     - 'mkdir -p /etc/seaweedfs && echo "{\"identities\": [{\"name\": \"solari\", \"credentials\": [{\"accessKey\": \"${S3_ACCESS_KEY_ID}\", \"secretKey\": \"${S3_SECRET_ACCESS_KEY}\"}], \"actions\": [\"Read\", \"Write\", \"List\", \"Tagging\", \"Admin\"]}]}" > /etc/seaweedfs/s3.json && exec weed server -s3 -filer -dir=/data -s3.config=/etc/seaweedfs/s3.json'
-  #   ports:
-  #     - "127.0.0.1:${S3_API_PORT:-8333}:8333"
-  #     - "127.0.0.1:8888:8888"
-  #   volumes:
-  #     - s3data:/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "curl -i http://localhost:8888 || exit 1"]
-  #     interval: 5s
-  #     timeout: 3s
-  #     retries: 5
 
   s3:
     image: minio/minio:latest

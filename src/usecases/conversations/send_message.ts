@@ -116,7 +116,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
       }
 
       const isSenderLow = conversation.userLow === normalizedSenderId;
-      
+
       const receiverId = isSenderLow ? conversation.userHigh : conversation.userLow;
 
       const [insertedMessage] = await tx

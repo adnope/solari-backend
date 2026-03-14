@@ -5,6 +5,7 @@ import { getPublicProfile, GetPublicProfileError } from "../usecases/users/get_p
 import { registerDevice, RegisterDeviceError } from "../usecases/users/register_device.ts";
 import { updateProfile, UpdateProfileError } from "../usecases/users/update_profile.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
+import { updatePassword, UpdatePasswordError } from "../usecases/auth/update_password.ts";
 
 const protectedUsersRouter = new Elysia()
   .use(requireAuth)
@@ -57,7 +58,7 @@ const protectedUsersRouter = new Elysia()
         display_name: t.Optional(t.String()),
         remove_display_name: t.Optional(t.String()),
         remove_avatar: t.Optional(t.String()),
-        avatar: t.Optional(t.File()),
+        avatar: t.Optional(t.Union([t.File(), t.Literal("")])),
       }),
     },
   )
@@ -111,6 +112,30 @@ const protectedUsersRouter = new Elysia()
         username: t.String(),
       }),
     },
+  )
+
+  // Update a user's password
+  .patch(
+    "/users/password",
+    async ({ authUserId, authSessionId, body, set }) => {
+      await updatePassword({
+        userId: authUserId,
+        currentSessionId: authSessionId,
+        oldPassword: body.old_password,
+        newPassword: body.new_password,
+      });
+
+      set.status = 200;
+      return {
+        message: "Password updated successfully.",
+      };
+    },
+    {
+      body: t.Object({
+        old_password: t.String(),
+        new_password: t.String(),
+      }),
+    },
   );
 
 const usersRouter = withApiErrorHandler(new Elysia(), {
@@ -118,6 +143,7 @@ const usersRouter = withApiErrorHandler(new Elysia(), {
   DeleteAccountError,
   RegisterDeviceError,
   GetPublicProfileError,
+  UpdatePasswordError,
 }).use(protectedUsersRouter);
 
 export default usersRouter;
