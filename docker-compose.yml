@@ -7,7 +7,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: ${SERVER_BUILD_TARGET:-dev}
+      target: ${SERVER_ENV:-dev}
     depends_on:
       db:
         condition: service_healthy

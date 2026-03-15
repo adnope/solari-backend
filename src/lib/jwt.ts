@@ -11,7 +11,7 @@ if (!JWT_SECRET) {
   throw new Error("Missing JWT_SECRET in environment.");
 }
 
-const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN ?? "15m";
+const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN ?? "30m";
 
 export function createAccessToken(payload: AccessTokenPayload): string {
   return jwt.sign(payload, JWT_SECRET, {

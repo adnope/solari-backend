@@ -5,12 +5,14 @@ import {
   RequestPasswordResetCodeError,
 } from "../usecases/auth/request_password_reset_code.ts";
 import { resetPassword, ResetPasswordError } from "../usecases/auth/reset_password.ts";
+import { signInWithGoogle } from "../usecases/auth/sign_in_with_google.ts";
 import {
   verifyPasswordResetCode,
   VerifyPasswordResetCodeError,
 } from "../usecases/auth/verify_password_reset_code.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
+import { refreshSession } from "../usecases/auth/refresh_session.ts";
 
 const protectedAuthRouter = new Elysia()
   .use(requireAuth)
@@ -118,6 +120,54 @@ const authRouter = withApiErrorHandler(
       body: t.Object({
         identifier: t.String(),
         password: t.String(),
+      }),
+    },
+  )
+
+  // Sign in with google
+  .post(
+    "/sessions/google",
+    async ({ body, set }) => {
+      const result = await signInWithGoogle(body.id_token);
+
+      set.status = 200;
+      return {
+        message: "Signed in with Google successfully.",
+        session_id: result.sessionId,
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+        expires_at: result.expiresAt,
+      };
+    },
+    {
+      body: t.Object({
+        id_token: t.String(),
+      }),
+    },
+  )
+
+  // Refresh session
+  .post(
+    "/sessions/refresh",
+    async ({ body, set }) => {
+      const result = await refreshSession({
+        sessionId: body.session_id,
+        refreshToken: body.refresh_token,
+      });
+
+      set.status = 200;
+      return {
+        message: "Session refreshed successfully.",
+        session_id: result.sessionId,
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+        expires_at: result.expiresAt,
+      };
+    },
+    {
+      body: t.Object({
+        session_id: t.String(),
+        refresh_token: t.String(),
       }),
     },
   )

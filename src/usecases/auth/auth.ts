@@ -75,7 +75,7 @@ type UserAuthRow = UserRow & {
   passwordHash: string | null;
 };
 
-const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
 function normalizeUsername(username: string): string {
   const value = username.trim();
