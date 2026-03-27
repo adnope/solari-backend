@@ -4,7 +4,8 @@ import { withTx } from "../../db/client.ts";
 import { sessions, userOauthAccounts, users } from "../../db/migrations/schema.ts";
 import { createAccessToken } from "../../lib/jwt.ts";
 import { uploadFile } from "../../storage/s3.ts";
-import { AuthError, type SigninResult } from "./auth.ts";
+import { AuthError } from "./error_type.ts";
+import type { SigninResult } from "./sign_in.ts";
 
 const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 

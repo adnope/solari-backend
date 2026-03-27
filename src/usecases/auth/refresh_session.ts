@@ -2,8 +2,9 @@ import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { sessions } from "../../db/migrations/schema.ts";
 import { createAccessToken } from "../../lib/jwt.ts";
-import { AuthError, type SigninResult } from "./auth.ts";
+import { AuthError } from "./error_type.ts";
 import { createHash, randomBytes } from "node:crypto";
+import type { SigninResult } from "./sign_in.ts";
 
 const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
@@ -42,13 +43,11 @@ export async function refreshSession(input: RefreshSessionInput): Promise<Signin
         throw new AuthError("SESSION_NOT_FOUND", "Invalid session or refresh token.", 401);
       }
 
-      // 2. Check if the session has expired
       if (new Date(session.expiresAt) < now) {
         await tx.delete(sessions).where(eq(sessions.id, sessionId));
         throw new AuthError("SESSION_NOT_FOUND", "Session expired. Please sign in again.", 401);
       }
 
-      // 3. Rotate Refresh Token
       const newRefreshToken = generateSecureToken();
       const newRefreshTokenHash = sha256Hex(newRefreshToken);
       const nowIso = now.toISOString();
@@ -63,7 +62,6 @@ export async function refreshSession(input: RefreshSessionInput): Promise<Signin
         })
         .where(eq(sessions.id, sessionId));
 
-      // 4. Generate fresh Access Token
       const newAccessToken = createAccessToken({
         sub: session.userId,
         sid: sessionId,

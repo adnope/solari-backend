@@ -40,6 +40,7 @@ export type UploadPostErrorType =
   | "INVALID_AUDIENCE"
   | "INVALID_MEDIA"
   | "STORAGE_ERROR"
+  | "CAPTION_TOO_LONG"
   | "INTERNAL_ERROR";
 
 export class UploadPostError extends Error {
@@ -63,6 +64,14 @@ function isValidUuid(value: string): boolean {
 function validatePostInput(input: UploadPostInput) {
   if (!input.contentType.startsWith("image/") && !input.contentType.startsWith("video/")) {
     throw new UploadPostError("INVALID_MEDIA", "Only images and videos are allowed.", 400);
+  }
+
+  if (input.caption && input.caption.length >= 48) {
+    throw new UploadPostError(
+      "CAPTION_TOO_LONG",
+      "Captions mustn't be longer than 48 characters",
+      400,
+    );
   }
 
   if (!input.authorId || !input.buffer || !input.contentType) {

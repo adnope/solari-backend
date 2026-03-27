@@ -1,5 +1,9 @@
 import { Elysia, t } from "elysia";
-import { AuthError, logOut, me, signIn, signUp } from "../usecases/auth/auth.ts";
+import { AuthError } from "../usecases/auth/error_type.ts";
+import { signOut } from "../usecases/auth/sign_out.ts";
+import { me } from "../usecases/auth/me.ts";
+import { signIn } from "../usecases/auth/sign_in.ts";
+import { signUp } from "../usecases/auth/sign_up.ts";
 import {
   requestPasswordResetCode,
   RequestPasswordResetCodeError,
@@ -17,11 +21,11 @@ import { refreshSession } from "../usecases/auth/refresh_session.ts";
 const protectedAuthRouter = new Elysia()
   .use(requireAuth)
 
-  // Log out
+  // Sign out
   .delete(
     "/sessions/current",
     async ({ body, authSessionId, set }) => {
-      const deleted = await logOut(authSessionId, body?.device_token);
+      const deleted = await signOut(authSessionId, body?.device_token);
 
       set.status = 200;
       return {
@@ -37,7 +41,7 @@ const protectedAuthRouter = new Elysia()
     },
   )
 
-  // Get current logged-in user's info
+  // Me (Get current logged-in user's info)
   .get("/me", async ({ authUserId, authSessionId, set }) => {
     const result = await me(authUserId);
 
