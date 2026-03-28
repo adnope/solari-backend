@@ -1,6 +1,6 @@
 import { desc, eq, inArray, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { friendRequests, users } from "../../db/migrations/schema.ts";
+import { friendRequests, users } from "../../db/schema.ts";
 
 export type FriendRequestUser = {
   id: string;

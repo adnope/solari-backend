@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { sessions } from "../../db/migrations/schema.ts";
+import { sessions } from "../../db/schema.ts";
 import { createAccessToken } from "../../lib/jwt.ts";
 import { AuthError } from "./error_type.ts";
 import { createHash, randomBytes } from "node:crypto";

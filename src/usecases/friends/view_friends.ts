@@ -1,6 +1,6 @@
 import { desc, eq, inArray, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { friendships, users } from "../../db/migrations/schema.ts";
+import { friendships, users } from "../../db/schema.ts";
 
 export type ViewFriendsErrorType =
   | "MISSING_USER_ID"

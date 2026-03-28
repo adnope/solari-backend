@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendRequests } from "../../db/migrations/schema.ts";
+import { friendRequests } from "../../db/schema.ts";
 
 export type CancelOrRejectFriendRequestErrorType =
   | "MISSING_INPUT"

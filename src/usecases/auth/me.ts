@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { users } from "../../db/migrations/schema.ts";
+import { users } from "../../db/schema.ts";
 import { AuthError } from "./error_type.ts";
 import type { PublicUser } from "./sign_up.ts";
 

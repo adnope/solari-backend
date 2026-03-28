@@ -1,6 +1,6 @@
 import { and, eq, ne } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { sessions, userPasswords, users } from "../../db/migrations/schema.ts";
+import { sessions, userPasswords, users } from "../../db/schema.ts";
 
 export type UpdatePasswordInput = {
   userId: string;

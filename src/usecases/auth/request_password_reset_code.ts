@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
-import { passwordResetCodes, users } from "../../db/migrations/schema.ts";
+import { passwordResetCodes, users } from "../../db/schema.ts";
 import { sendPasswordResetCodeEmail } from "../../utils/send_password_reset_email.ts";
 
 export type RequestPasswordResetCodeErrorType =

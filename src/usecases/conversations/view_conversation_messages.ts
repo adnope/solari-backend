@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { conversations, messageReactions, messages } from "../../db/migrations/schema.ts";
+import { conversations, messageReactions, messages } from "../../db/schema.ts";
 
 export type MessageReaction = {
   userId: string;

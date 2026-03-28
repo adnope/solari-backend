@@ -1,6 +1,6 @@
 import { and, eq, or, sql } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { conversations } from "../../db/migrations/schema.ts";
+import { conversations } from "../../db/schema.ts";
 
 export type ClearConversationErrorType =
   | "MISSING_INPUT"

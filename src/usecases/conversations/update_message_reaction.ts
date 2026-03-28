@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { messageReactions } from "../../db/migrations/schema.ts";
+import { messageReactions } from "../../db/schema.ts";
 import { isSingleEmoji } from "./react_message.ts";
 
 export type UpdateMessageReactionInput = {

@@ -2,7 +2,7 @@ import { Elysia } from "elysia";
 import { eq, and, gt } from "drizzle-orm";
 import { verifyAccessToken } from "../../lib/jwt.ts";
 import { db } from "../../db/client.ts";
-import { sessions } from "../../db/migrations/schema.ts";
+import { sessions } from "../../db/schema.ts";
 
 export class AuthorizationError extends Error {
   public status = 401;

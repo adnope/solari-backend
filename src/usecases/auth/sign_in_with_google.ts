@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { withTx } from "../../db/client.ts";
-import { sessions, userOauthAccounts, users } from "../../db/migrations/schema.ts";
+import { sessions, userOauthAccounts, users } from "../../db/schema.ts";
 import { createAccessToken } from "../../lib/jwt.ts";
 import { uploadFile } from "../../storage/s3.ts";
 import { AuthError } from "./error_type.ts";

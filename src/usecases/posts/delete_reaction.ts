@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { postReactions } from "../../db/migrations/schema.ts";
+import { postReactions } from "../../db/schema.ts";
 
 export type DeleteReactionErrorType = "MISSING_INPUT" | "REACTION_NOT_FOUND" | "INTERNAL_ERROR";
 

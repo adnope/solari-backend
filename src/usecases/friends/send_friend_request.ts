@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendRequests, friendships, userDevices, users } from "../../db/migrations/schema.ts";
+import { friendRequests, friendships, userDevices, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 import { isPgError } from "../postgres_error.ts";

@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { sessions, userDevices } from "../../db/migrations/schema.ts";
+import { sessions, userDevices } from "../../db/schema.ts";
 import { AuthError } from "./error_type.ts";
 
 export async function signOut(sessionId: string, deviceToken?: string): Promise<boolean> {

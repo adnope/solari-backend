@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { friendships } from "../../db/migrations/schema.ts";
+import { friendships } from "../../db/schema.ts";
 
 export type UnfriendErrorType =
   | "MISSING_INPUT"

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { users } from "../../db/migrations/schema.ts";
+import { users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 
 export type PublicProfileResult = {

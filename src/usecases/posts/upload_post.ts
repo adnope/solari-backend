@@ -1,6 +1,6 @@
 import { eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendships, postMedia, posts, postVisibility } from "../../db/migrations/schema.ts";
+import { friendships, postMedia, posts, postVisibility } from "../../db/schema.ts";
 import { uploadFile } from "../../storage/s3.ts";
 import { generateThumbnail } from "../../utils/thumbnail.ts";
 

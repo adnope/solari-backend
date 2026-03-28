@@ -1,6 +1,6 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { conversations, messages } from "../../db/migrations/schema.ts";
+import { conversations, messages } from "../../db/schema.ts";
 
 export type MarkConversationAsReadResult = {
   conversationId: string;

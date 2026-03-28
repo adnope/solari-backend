@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { users } from "../../db/migrations/schema.ts";
+import { users } from "../../db/schema.ts";
 import { deleteFile, uploadFile } from "../../storage/s3.ts";
 import { isPgError } from "../postgres_error.ts";
 

@@ -6,7 +6,7 @@ import {
   posts,
   userDevices,
   users,
-} from "../../db/migrations/schema.ts";
+} from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 

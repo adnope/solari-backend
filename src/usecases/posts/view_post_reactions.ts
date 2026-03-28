@@ -1,6 +1,6 @@
 import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { postReactions, posts, users } from "../../db/migrations/schema.ts";
+import { postReactions, posts, users } from "../../db/schema.ts";
 
 export type ReactionUser = {
   id: string;

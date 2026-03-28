@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { postMedia, posts } from "../../db/migrations/schema.ts";
+import { postMedia, posts } from "../../db/schema.ts";
 import { deleteFile } from "../../storage/s3.ts";
 
 export type DeletePostErrorType =

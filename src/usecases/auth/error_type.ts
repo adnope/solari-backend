@@ -14,6 +14,7 @@ export type AuthErrorType =
   | "SESSION_NOT_FOUND"
   | "MISSING_USER_ID"
   | "USER_NOT_FOUND"
+  | "LINKED_THIRD_PARTY_ACCOUNT"
   | "INTERNAL_ERROR";
 
 export class AuthError extends Error {

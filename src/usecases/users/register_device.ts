@@ -1,5 +1,5 @@
 import { db } from "../../db/client.ts";
-import { userDevices } from "../../db/migrations/schema.ts";
+import { userDevices } from "../../db/schema.ts";
 
 export type RegisterDeviceInput = {
   userId: string;

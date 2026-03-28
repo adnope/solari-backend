@@ -1,4 +1,5 @@
 .zed/
-.env
+.VSCodeCounter/
 node_modules/
+.env
 firebase-service-account.json

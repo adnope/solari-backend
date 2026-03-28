@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { postMedia, postVisibility, posts, users } from "../../db/migrations/schema.ts";
+import { postMedia, postVisibility, posts, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 
 export type FeedAuthor = {

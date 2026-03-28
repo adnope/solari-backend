@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { db } from "../../db/client.ts";
-import { sessions, userPasswords, users } from "../../db/migrations/schema.ts";
+import { sessions, userPasswords, users } from "../../db/schema.ts";
 import { createAccessToken } from "../../lib/jwt.ts";
 import { AuthError } from "./error_type.ts";
 
@@ -74,7 +74,7 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
 
     if (!row.passwordHash) {
       throw new AuthError(
-        "INVALID_CREDENTIALS",
+        "LINKED_THIRD_PARTY_ACCOUNT",
         "Please sign in using your linked third-party account.",
         401,
       );

@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { postVisibility, postViews, posts } from "../../db/migrations/schema.ts";
+import { postVisibility, postViews, posts } from "../../db/schema.ts";
 
 export type ViewPostErrorType =
   | "MISSING_INPUT"

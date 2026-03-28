@@ -1,6 +1,6 @@
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { conversations, messageReactions, messages } from "../../db/migrations/schema.ts";
+import { conversations, messageReactions, messages } from "../../db/schema.ts";
 
 export type RemoveMessageReactionErrorType =
   | "MISSING_INPUT"

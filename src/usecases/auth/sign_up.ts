@@ -1,5 +1,5 @@
 import { withTx } from "../../db/client.ts";
-import { userPasswords, users } from "../../db/migrations/schema.ts";
+import { userPasswords, users } from "../../db/schema.ts";
 import { isPgError, unwrapDbError } from "../postgres_error.ts";
 import { AuthError } from "./error_type.ts";
 

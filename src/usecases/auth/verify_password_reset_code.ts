@@ -1,6 +1,6 @@
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { passwordResetCodes, users } from "../../db/migrations/schema.ts";
+import { passwordResetCodes, users } from "../../db/schema.ts";
 
 export type VerifyPasswordResetCodeInput = {
   email: string;

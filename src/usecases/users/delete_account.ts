@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { postMedia, posts, users } from "../../db/migrations/schema.ts";
+import { postMedia, posts, users } from "../../db/schema.ts";
 import { deleteFile } from "../../storage/s3.ts";
 
 export type DeleteAccountErrorType = "USER_NOT_FOUND" | "INTERNAL_ERROR";

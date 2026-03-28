@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getFileUrl } from "../../storage/s3.ts";
 import { withTx } from "../../db/client.ts";
-import { conversations, messages, posts, userDevices, users } from "../../db/migrations/schema.ts";
+import { conversations, messages, posts, userDevices, users } from "../../db/schema.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 
 export type SendMessageInput = {

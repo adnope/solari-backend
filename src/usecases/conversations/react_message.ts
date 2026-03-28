@@ -7,7 +7,7 @@ import {
   messages,
   userDevices,
   users,
-} from "../../db/migrations/schema.ts";
+} from "../../db/schema.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 
 export type ReactMessageInput = {
