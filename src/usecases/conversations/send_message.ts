@@ -209,6 +209,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
   } catch (error) {
     if (error instanceof SendMessageError) throw error;
 
+    console.error(`[ERROR] Unexpected error in use case: Send message\n${error}`)
     throw new SendMessageError("INTERNAL_ERROR", "Error sending message.", 500);
   }
 }

@@ -142,6 +142,7 @@ export async function updatePassword(input: UpdatePasswordInput): Promise<void> 
       throw error;
     }
 
+    console.error(`[ERROR] Unexpected error in use case: Update password\n${error}`)
     throw new UpdatePasswordError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

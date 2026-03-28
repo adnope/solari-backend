@@ -206,6 +206,7 @@ export async function getConversations(
   } catch (error) {
     if (error instanceof GetConversationsError) throw error;
 
+    console.error(`[ERROR] Unexpected error in use case: Get conversations\n${error}`)
     throw new GetConversationsError(
       "INTERNAL_ERROR",
       "Internal server error fetching conversations.",

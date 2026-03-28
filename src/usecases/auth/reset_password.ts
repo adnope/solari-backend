@@ -129,6 +129,7 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
   } catch (error) {
     if (error instanceof ResetPasswordError) throw error;
 
+    console.error(`[ERROR] Unexpected error in use case: Reset password\n${error}`)
     throw new ResetPasswordError(
       "INTERNAL_ERROR",
       "Internal server error resetting password.",

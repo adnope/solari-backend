@@ -16,7 +16,7 @@ const protectedFeedRouter = new Elysia().use(requireAuth).get(
         .filter((id) => id.length > 0);
     }
 
-    const limit = query.limit === undefined || query.limit === "" ? 50 : Number(query.limit);
+    const limit = Number(query.limit) || 50;
 
     const result = await getFeed(authUserId, limit, query.cursor, authorIds);
 
@@ -46,7 +46,7 @@ const protectedFeedRouter = new Elysia().use(requireAuth).get(
   },
   {
     query: t.Object({
-      limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
+      limit: t.Optional(t.String()),
       cursor: t.Optional(t.String()),
       authors: t.Optional(t.String()),
     }),

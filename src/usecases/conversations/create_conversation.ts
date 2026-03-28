@@ -111,6 +111,7 @@ export async function createConversation(
   } catch (error) {
     if (error instanceof CreateConversationError) throw error;
 
+    console.error(`[ERROR] Unexpected error in use case: Create conversation\n${error}`)
     throw new CreateConversationError("INTERNAL_ERROR", "Error creating conversation.", 500);
   }
 }

@@ -21,6 +21,31 @@ import { refreshSession } from "../usecases/auth/refresh_session.ts";
 const protectedAuthRouter = new Elysia()
   .use(requireAuth)
 
+  // Refresh session
+  .post(
+    "/sessions/refresh",
+    async ({ body, authSessionId, set }) => {
+      const result = await refreshSession({
+        sessionId: authSessionId,
+        refreshToken: body.refresh_token,
+      });
+
+      set.status = 200;
+      return {
+        message: "Session refreshed successfully.",
+        session_id: result.sessionId,
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+        expires_at: result.expiresAt,
+      };
+    },
+    {
+      body: t.Object({
+        refresh_token: t.String(),
+      }),
+    },
+  )
+
   // Sign out
   .delete(
     "/sessions/current",
@@ -146,32 +171,6 @@ const authRouter = withApiErrorHandler(
     {
       body: t.Object({
         id_token: t.String(),
-      }),
-    },
-  )
-
-  // Refresh session
-  .post(
-    "/sessions/refresh",
-    async ({ body, set }) => {
-      const result = await refreshSession({
-        sessionId: body.session_id,
-        refreshToken: body.refresh_token,
-      });
-
-      set.status = 200;
-      return {
-        message: "Session refreshed successfully.",
-        session_id: result.sessionId,
-        access_token: result.accessToken,
-        refresh_token: result.refreshToken,
-        expires_at: result.expiresAt,
-      };
-    },
-    {
-      body: t.Object({
-        session_id: t.String(),
-        refresh_token: t.String(),
       }),
     },
   )

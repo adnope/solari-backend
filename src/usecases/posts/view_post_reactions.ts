@@ -135,7 +135,7 @@ export async function viewPostReactions(
     };
   } catch (error) {
     if (error instanceof ViewPostReactionsError) throw error;
-
+    console.error(`[ERROR] Unexpected error in use case: View post reactions\n${error}`)
     throw new ViewPostReactionsError(
       "INTERNAL_ERROR",
       "Internal server error fetching reactions.",

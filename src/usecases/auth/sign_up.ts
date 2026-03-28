@@ -138,6 +138,7 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
       throw new AuthError("IDENTIFIER_ALREADY_IN_USE", "Username or email is already in use.", 409);
     }
 
+    console.error(`[ERROR] Unexpected error in use case: Sign up\n${error}`)
     throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

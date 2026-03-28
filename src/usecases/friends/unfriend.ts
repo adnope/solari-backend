@@ -63,6 +63,7 @@ export async function unfriend(userId: string, otherUserId: string): Promise<voi
       throw error;
     }
 
+    console.error(`[ERROR] Unexpected error in use case: Unfriend\n${error}`)
     throw new UnfriendError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

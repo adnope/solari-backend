@@ -67,7 +67,7 @@ const protectedConversationsRouter = new Elysia()
         senderId: authUserId,
         conversationId: params.conversationId,
         content: body.content,
-        referencedPostId: body.referenced_post_id,
+        referencedPostId: body.referenced_post_id as string,
       });
 
       set.status = 201;
@@ -98,7 +98,7 @@ const protectedConversationsRouter = new Elysia()
   .get(
     "/conversations/:conversationId/messages",
     async ({ authUserId, params, query, set }) => {
-      const limit = query.limit === undefined || query.limit === "" ? 50 : Number(query.limit);
+      const limit = Number(query.limit) || 50;
       const result = await viewConversationMessages(
         authUserId,
         params.conversationId,
@@ -128,7 +128,7 @@ const protectedConversationsRouter = new Elysia()
         conversationId: t.String(),
       }),
       query: t.Object({
-        limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
+        limit: t.Optional(t.String()),
         cursor: t.Optional(t.String()),
       }),
     },
@@ -161,7 +161,7 @@ const protectedConversationsRouter = new Elysia()
   .get(
     "/conversations",
     async ({ authUserId, query, set }) => {
-      const limit = query.limit === undefined || query.limit === "" ? 50 : Number(query.limit);
+      const limit = Number(query.limit) || 50;
       const result = await getConversations(authUserId, limit, query.cursor);
 
       set.status = 200;
@@ -194,7 +194,7 @@ const protectedConversationsRouter = new Elysia()
     },
     {
       query: t.Object({
-        limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
+        limit: t.Optional(t.String()),
         cursor: t.Optional(t.String()),
       }),
     },

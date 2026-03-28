@@ -171,6 +171,7 @@ export async function acceptFriendRequest(
       throw error;
     }
 
+    console.error(`[ERROR] Unexpected error in use case: Accept friend request\n${error}`);
     throw new AcceptFriendRequestError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

@@ -145,6 +145,7 @@ export async function viewFriends(
       throw error;
     }
 
+    console.error(`[ERROR] Unexpected error in use case: View friends\n${error}`);
     throw new ViewFriendsError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

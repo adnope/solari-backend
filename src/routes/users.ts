@@ -14,13 +14,13 @@ const protectedUsersRouter = new Elysia()
   .patch(
     "/users/me",
     async ({ authUserId, body, set }) => {
-      const email = body.email;
-      const displayName = body.display_name;
+      const email = body.email ?? "";
+      const displayName = body.display_name ?? "";
 
       const removeDisplayName = body.remove_display_name === "true";
       const removeAvatar = body.remove_avatar === "true";
 
-      let avatar: { buffer: Uint8Array; contentType: string } | undefined;
+      let avatar: { buffer: Uint8Array; contentType: string } | undefined = undefined;
 
       if (body.avatar) {
         avatar = {
@@ -58,7 +58,7 @@ const protectedUsersRouter = new Elysia()
         display_name: t.Optional(t.String()),
         remove_display_name: t.Optional(t.String()),
         remove_avatar: t.Optional(t.String()),
-        avatar: t.Optional(t.Union([t.File(), t.Literal("")])),
+        avatar: t.Optional(t.File()),
       }),
     },
   )

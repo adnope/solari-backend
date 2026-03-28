@@ -103,6 +103,7 @@ export async function updateMessageReaction(
   } catch (error) {
     if (error instanceof UpdateMessageReactionError) throw error;
 
+    console.error(`[ERROR] Unexpected error in use case: Update message reaction\n${error}`)
     throw new UpdateMessageReactionError(
       "INTERNAL_ERROR",
       "Internal server error updating reaction.",

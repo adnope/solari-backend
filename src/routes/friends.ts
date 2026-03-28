@@ -157,8 +157,9 @@ const protectedFriendsRouter = new Elysia()
   .get(
     "/friends",
     async ({ authUserId, query, set }) => {
-      const limit = query.limit === undefined || query.limit === "" ? 50 : Number(query.limit);
-      const result = await viewFriends(authUserId, query.offset, limit);
+      const offset = Number(query.offset) || 0;
+      const limit = Number(query.limit) || 50;
+      const result = await viewFriends(authUserId, offset, limit);
 
       set.status = 200;
       return {
@@ -174,8 +175,8 @@ const protectedFriendsRouter = new Elysia()
     },
     {
       query: t.Object({
-        offset: t.Optional(t.Numeric({ default: 0 })),
-        limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
+        offset: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
       }),
     },
   );

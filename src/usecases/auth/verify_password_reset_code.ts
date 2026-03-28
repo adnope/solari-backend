@@ -143,6 +143,7 @@ export async function verifyPasswordResetCode(
       throw error;
     }
 
+    console.error(`[ERROR] Unexpected error in use case: Verify password reset code\n${error}`)
     throw new VerifyPasswordResetCodeError(
       "INTERNAL_ERROR",
       "Internal server error verifying password reset code.",

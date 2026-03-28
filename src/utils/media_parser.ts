@@ -8,7 +8,7 @@ export type MediaMetadata = {
   mediaType: "image" | "video";
   width: number;
   height: number;
-  durationMs?: number;
+  durationMs?: number | undefined;
 };
 
 export async function extractMediaMetadata(
@@ -31,7 +31,6 @@ export async function extractMediaMetadata(
     const tempFilePath = join(tmpdir(), `${randomUUID()}.media`);
 
     try {
-      // Bun.write is natively optimized and extremely fast
       await Bun.write(tempFilePath, buffer);
 
       const proc = Bun.spawn(

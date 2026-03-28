@@ -240,6 +240,7 @@ export async function sendFriendRequest(
       throw new SendFriendRequestError("REQUEST_ALREADY_SENT", "Friend request already sent.", 409);
     }
 
+    console.error(`[ERROR] Unexpected error in use case: Send friend request\n${error}`);
     throw new SendFriendRequestError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

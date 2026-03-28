@@ -257,7 +257,7 @@ export async function uploadPost(input: UploadPostInput): Promise<UploadPostResu
     });
   } catch (error) {
     if (error instanceof UploadPostError) throw error;
-
+    console.error(`[ERROR] Unexpected error in use case: Upload post\n${error}`);
     throw new UploadPostError("INTERNAL_ERROR", "Internal server error during post creation.", 500);
   }
 }

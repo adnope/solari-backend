@@ -212,6 +212,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
   } catch (error) {
     if (error instanceof ReactMessageError) throw error;
 
+    console.error(`[ERROR] Unexpected error in use case: React message\n${error}`)
     throw new ReactMessageError("INTERNAL_ERROR", "Error adding reaction.", 500);
   }
 }

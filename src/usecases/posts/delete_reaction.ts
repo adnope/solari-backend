@@ -72,7 +72,7 @@ export async function deleteReaction(
     }
   } catch (error) {
     if (error instanceof DeleteReactionError) throw error;
-
+    console.error(`[ERROR] Unexpected error in use case: Delete reaction\n${error}`)
     throw new DeleteReactionError(
       "INTERNAL_ERROR",
       "Internal server error deleting reaction.",

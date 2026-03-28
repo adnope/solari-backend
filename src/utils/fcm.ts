@@ -5,7 +5,7 @@ const auth = new GoogleAuth({
   scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
 });
 
-const FCM_PROJECT_ID = process.env.FCM_PROJECT_ID;
+const FCM_PROJECT_ID = process.env["FCM_PROJECT_ID"];
 
 export async function getGoogleAccessToken(): Promise<string> {
   const client = await auth.getClient();

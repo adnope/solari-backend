@@ -60,7 +60,7 @@ export async function getPublicProfile(username: string): Promise<PublicProfileR
     };
   } catch (error) {
     if (error instanceof GetPublicProfileError) throw error;
-
+    console.error(`[ERROR] Unexpected error in use case: Get public profile\n${error}`)
     throw new GetPublicProfileError(
       "INTERNAL_ERROR",
       "Internal server error fetching profile.",

@@ -199,7 +199,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
     return reactionResult;
   } catch (error) {
     if (error instanceof ReactPostError) throw error;
-
+    console.error(`[ERROR] Unexpected error in use case: React post\n${error}`);
     throw new ReactPostError("INTERNAL_ERROR", "Internal server error sending reaction.", 500);
   }
 }

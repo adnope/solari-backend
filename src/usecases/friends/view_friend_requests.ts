@@ -191,6 +191,7 @@ export async function viewFriendRequests(
       throw error;
     }
 
+    console.error(`[ERROR] Unexpected error in use case: View friend requests\n${error}`);
     throw new ViewFriendRequestsError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

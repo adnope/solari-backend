@@ -66,7 +66,7 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
 
   const payload = (await verifyRes.json()) as GoogleTokenPayload;
 
-  const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+  const GOOGLE_CLIENT_ID = process.env["GOOGLE_CLIENT_ID"];
   if (GOOGLE_CLIENT_ID && payload.aud !== GOOGLE_CLIENT_ID) {
     throw new AuthError("INVALID_CREDENTIALS", "Token was not issued for this application.", 401);
   }
@@ -172,9 +172,8 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
       };
     });
   } catch (error) {
-    console.log(error);
-
     if (error instanceof AuthError) throw error;
+    console.error(`[ERROR] Unexpected error in use case: Sign in with Google\n${error}`)
     throw new AuthError("INTERNAL_ERROR", "Failed to authenticate with Google.", 500);
   }
 }

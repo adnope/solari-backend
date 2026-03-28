@@ -63,7 +63,8 @@ export async function registerDevice(input: RegisterDeviceInput): Promise<void> 
           updatedAt: new Date().toISOString(),
         },
       });
-  } catch {
+  } catch(error) {
+    console.error(`[ERROR] Unexpected error in use case: Register device\n${error}`)
     throw new RegisterDeviceError(
       "INTERNAL_ERROR",
       "Internal server error registering device.",

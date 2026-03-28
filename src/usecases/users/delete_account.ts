@@ -79,7 +79,7 @@ export async function deleteAccount(userId: string): Promise<void> {
     }
   } catch (error) {
     if (error instanceof DeleteAccountError) throw error;
-
+    console.error(`[ERROR] Unexpected error in use case: Delete account\n${error}`);
     throw new DeleteAccountError(
       "INTERNAL_ERROR",
       "Internal server error during account deletion.",

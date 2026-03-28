@@ -15,7 +15,7 @@ export class AuthorizationError extends Error {
 export const requireAuth = new Elysia({ name: "require-auth" })
   .error({ AuthorizationError })
   .resolve({ as: "scoped" }, async ({ headers }) => {
-    const authHeader = headers.authorization;
+    const authHeader = headers["authorization"];
 
     if (!authHeader) {
       throw new AuthorizationError("Missing Authorization header.");

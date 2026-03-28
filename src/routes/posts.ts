@@ -93,16 +93,16 @@ const protectedPostsRouter = new Elysia()
 
       const result = await uploadPost({
         authorId: authUserId,
-        caption,
         audienceType,
-        viewerIds,
         buffer,
         contentType,
         byteSize,
         mediaType: metadata.mediaType,
         width: metadata.width,
         height: metadata.height,
-        durationMs: metadata.durationMs,
+        ...(caption !== undefined && { caption }),
+        ...(viewerIds !== undefined && { viewerIds }),
+        ...(metadata.durationMs !== undefined && { durationMs: metadata.durationMs }),
       });
 
       set.status = 201;
@@ -160,7 +160,7 @@ const protectedPostsRouter = new Elysia()
         userId: authUserId,
         postId: params.postId,
         emoji: body.emoji,
-        note: body.note,
+        ...(body.note !== undefined && { note: body.note }),
       });
 
       set.status = 201;
