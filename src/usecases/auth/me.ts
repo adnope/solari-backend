@@ -42,7 +42,7 @@ export async function me(userId: string): Promise<PublicUser> {
       throw error;
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Me\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Me\n${error}`);
     throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

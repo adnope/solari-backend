@@ -1,13 +1,7 @@
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { getFileUrl } from "../../storage/s3.ts";
 import { withTx } from "../../db/client.ts";
-import {
-  conversations,
-  messageReactions,
-  messages,
-  userDevices,
-  users,
-} from "../../db/schema.ts";
+import { conversations, messageReactions, messages, userDevices, users } from "../../db/schema.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 
 export type ReactMessageInput = {
@@ -212,7 +206,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
   } catch (error) {
     if (error instanceof ReactMessageError) throw error;
 
-    console.error(`[ERROR] Unexpected error in use case: React message\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: React message\n${error}`);
     throw new ReactMessageError("INTERNAL_ERROR", "Error adding reaction.", 500);
   }
 }

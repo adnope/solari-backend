@@ -82,7 +82,9 @@ export async function cancelOrRejectFriendRequest(
       throw error;
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Cancel or reject friend request\n${error}`);
+    console.error(
+      `[ERROR] Unexpected error in use case: Cancel or reject friend request\n${error}`,
+    );
     throw new CancelOrRejectFriendRequestError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

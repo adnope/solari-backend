@@ -10,10 +10,12 @@ export type UpdateProfileInput = {
   displayName?: string;
   removeDisplayName?: boolean;
   removeAvatar?: boolean;
-  avatar?: {
-    buffer: Uint8Array;
-    contentType: string;
-  } | undefined;
+  avatar?:
+    | {
+        buffer: Uint8Array;
+        contentType: string;
+      }
+    | undefined;
 };
 
 export type UpdateProfileResult = {
@@ -205,7 +207,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
       void deleteFile(newAvatarKey).catch(() => {});
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Update profile\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Update profile\n${error}`);
     throw new UpdateProfileError(
       "INTERNAL_ERROR",
       "Internal server error during profile update.",

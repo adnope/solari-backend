@@ -86,7 +86,7 @@ export async function deletePost(authorId: string, postId: string): Promise<void
     }
   } catch (error) {
     if (error instanceof DeletePostError) throw error;
-    console.error(`[ERROR] Unexpected error in use case: Delete post\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Delete post\n${error}`);
     throw new DeletePostError("INTERNAL_ERROR", "Internal server error during post deletion.", 500);
   }
 }

@@ -90,8 +90,8 @@ export async function requestPasswordResetCode(email: string): Promise<void> {
     if (error instanceof RequestPasswordResetCodeError) {
       throw error;
     }
-    
-    console.error(`[ERROR] Unexpected error in use case: Request password reset code\n${error}`)
+
+    console.error(`[ERROR] Unexpected error in use case: Request password reset code\n${error}`);
     throw new RequestPasswordResetCodeError(
       "INTERNAL_ERROR",
       "Internal server error requesting password reset code.",

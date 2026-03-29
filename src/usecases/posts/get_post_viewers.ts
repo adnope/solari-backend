@@ -120,7 +120,7 @@ export async function getPostViewers(
     };
   } catch (error) {
     if (error instanceof GetPostViewersError) throw error;
-    console.error(`[ERROR] Unexpected error in use case: Get post viewers\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Get post viewers\n${error}`);
     throw new GetPostViewersError("INTERNAL_ERROR", "Internal server error fetching viewers.", 500);
   }
 }

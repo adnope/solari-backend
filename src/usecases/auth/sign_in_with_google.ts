@@ -173,7 +173,7 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
     });
   } catch (error) {
     if (error instanceof AuthError) throw error;
-    console.error(`[ERROR] Unexpected error in use case: Sign in with Google\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Sign in with Google\n${error}`);
     throw new AuthError("INTERNAL_ERROR", "Failed to authenticate with Google.", 500);
   }
 }

@@ -1,24 +1,24 @@
 import { Elysia, t } from "elysia";
-import { requireAuth } from "./middleware/require_auth.ts";
-import {
-  sendFriendRequest,
-  SendFriendRequestError,
-} from "../usecases/friends/send_friend_request.ts";
-import {
-  viewFriendRequests,
-  ViewFriendRequestsError,
-} from "../usecases/friends/view_friend_requests.ts";
 import {
   acceptFriendRequest,
   AcceptFriendRequestError,
 } from "../usecases/friends/accept_friend_request.ts";
-import { unfriend, UnfriendError } from "../usecases/friends/unfriend.ts";
-import { viewFriends, ViewFriendsError } from "../usecases/friends/view_friends.ts";
 import {
   cancelOrRejectFriendRequest,
   CancelOrRejectFriendRequestError,
 } from "../usecases/friends/cancel_or_reject_friend_request.ts";
+import {
+  sendFriendRequest,
+  SendFriendRequestError,
+} from "../usecases/friends/send_friend_request.ts";
+import { unfriend, UnfriendError } from "../usecases/friends/unfriend.ts";
+import {
+  viewFriendRequests,
+  ViewFriendRequestsError,
+} from "../usecases/friends/view_friend_requests.ts";
+import { viewFriends, ViewFriendsError } from "../usecases/friends/view_friends.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
+import { requireAuth } from "./middleware/require_auth.ts";
 
 const protectedFriendsRouter = new Elysia()
   .use(requireAuth)
@@ -51,8 +51,10 @@ const protectedFriendsRouter = new Elysia()
   .get(
     "/friend-requests",
     async ({ authUserId, query, set }) => {
-      const limit = query.limit === undefined || query.limit === "" ? 20 : Number(query.limit);
-      const result = await viewFriendRequests(authUserId, query.offset, limit, query.direction);
+      const limit = Number(query.limit) || 20;
+      const direction = query.direction;
+      const sort = (query.sort as "newest" | "oldest" | undefined) || "newest";
+      const result = await viewFriendRequests(authUserId, query.cursor, limit, direction, sort);
 
       set.status = 200;
       return {
@@ -75,20 +77,17 @@ const protectedFriendsRouter = new Elysia()
             avatar_key: item.receiver.avatarKey,
           },
         })),
-        offset: result.offset,
+        next_cursor: result.nextCursor,
         limit: result.limit,
         direction: result.direction,
       };
     },
     {
       query: t.Object({
-        offset: t.Optional(t.Numeric({ default: 0 })),
-        limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
-        direction: t.Optional(
-          t.Union([t.Literal("incoming"), t.Literal("outgoing"), t.Literal("both")], {
-            default: "both",
-          }),
-        ),
+        cursor: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
+        direction: t.Optional(t.String()),
+        sort: t.Optional(t.String()),
       }),
     },
   )
@@ -157,9 +156,11 @@ const protectedFriendsRouter = new Elysia()
   .get(
     "/friends",
     async ({ authUserId, query, set }) => {
-      const offset = Number(query.offset) || 0;
-      const limit = Number(query.limit) || 50;
-      const result = await viewFriends(authUserId, offset, limit);
+      const limit = query.limit ? Number(query.limit) : 20;
+      const sort = (query.sort as "newest" | "oldest" | undefined) || "newest";
+      const cursor = query.cursor;
+
+      const result = await viewFriends(authUserId, cursor, limit, sort);
 
       set.status = 200;
       return {
@@ -168,15 +169,17 @@ const protectedFriendsRouter = new Elysia()
           username: friend.username,
           display_name: friend.displayName,
           avatar_key: friend.avatarKey,
+          created_at: friend.createdAt,
         })),
-        offset: result.offset,
+        next_cursor: result.nextCursor,
         limit: result.limit,
       };
     },
     {
       query: t.Object({
-        offset: t.Optional(t.String()),
+        cursor: t.Optional(t.String()),
         limit: t.Optional(t.String()),
+        sort: t.Optional(t.String()),
       }),
     },
   );

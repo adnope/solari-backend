@@ -146,7 +146,7 @@ export async function markConversationAsRead(
   } catch (error) {
     if (error instanceof MarkConversationAsReadError) throw error;
 
-    console.error(`[ERROR] Unexpected error in use case: Mark conversation as read\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Mark conversation as read\n${error}`);
     throw new MarkConversationAsReadError(
       "INTERNAL_ERROR",
       "Internal server error marking conversation as read.",

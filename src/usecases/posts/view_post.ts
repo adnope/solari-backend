@@ -81,7 +81,7 @@ export async function viewPost(viewerId: string, postId: string): Promise<void> 
       });
   } catch (error) {
     if (error instanceof ViewPostError) throw error;
-    console.error(`[ERROR] Unexpected error in use case: View post\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: View post\n${error}`);
     throw new ViewPostError("INTERNAL_ERROR", "Internal server error recording post view.", 500);
   }
 }

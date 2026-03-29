@@ -1,11 +1,12 @@
-import { desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { friendships, users } from "../../db/schema.ts";
 
 export type ViewFriendsErrorType =
   | "MISSING_USER_ID"
-  | "INVALID_OFFSET"
+  | "INVALID_CURSOR"
   | "INVALID_LIMIT"
+  | "INVALID_SORT"
   | "USER_NOT_FOUND"
   | "INTERNAL_ERROR";
 
@@ -31,7 +32,7 @@ export type Friend = {
 
 export type ViewFriendsResult = {
   items: Friend[];
-  offset: number;
+  nextCursor: string | null;
   limit: number;
 };
 
@@ -41,35 +42,53 @@ function isValidUuid(value: string): boolean {
   return UUID_REGEX.test(value);
 }
 
-function normalizePagination(offset = 0, limit = 20): { offset: number; limit: number } {
-  if (!Number.isInteger(offset) || offset < 0) {
-    throw new ViewFriendsError("INVALID_OFFSET", "Offset must be a non-negative integer.", 400);
-  }
-
+function normalizeLimit(limit = 20): number {
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new ViewFriendsError("INVALID_LIMIT", "Limit must be a positive integer.", 400);
   }
-
-  return { offset, limit: Math.min(limit, 100) };
+  return Math.min(limit, 100);
 }
 
 export async function viewFriends(
   userId: string,
-  offset = 0,
+  cursor?: string,
   limit = 20,
+  sort: "newest" | "oldest" = "newest",
 ): Promise<ViewFriendsResult> {
   const normalizedUserId = userId.trim();
 
   try {
-    if (!normalizedUserId) {
-      throw new ViewFriendsError("MISSING_USER_ID", "User id is missing.", 400);
+    if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
+      throw new ViewFriendsError("MISSING_USER_ID", "User id is missing or invalid.", 400);
     }
 
-    if (!isValidUuid(normalizedUserId)) {
-      throw new ViewFriendsError("MISSING_USER_ID", "User id is invalid.", 400);
+    if (sort !== "newest" && sort !== "oldest") {
+      throw new ViewFriendsError("INVALID_SORT", "Sort must be 'newest' or 'oldest'.", 400);
     }
 
-    const pagination = normalizePagination(offset, limit);
+    if (cursor && Number.isNaN(Date.parse(cursor))) {
+      throw new ViewFriendsError("INVALID_CURSOR", "Cursor must be a valid ISO date string.", 400);
+    }
+
+    const normalizedLimit = normalizeLimit(limit);
+
+    const userCondition = or(
+      eq(friendships.userLow, normalizedUserId),
+      eq(friendships.userHigh, normalizedUserId),
+    );
+
+    let cursorCondition = undefined;
+    if (cursor) {
+      if (sort === "newest") {
+        cursorCondition = lt(friendships.createdAt, cursor);
+      } else {
+        cursorCondition = gt(friendships.createdAt, cursor);
+      }
+    }
+
+    const whereCondition = cursorCondition ? and(userCondition, cursorCondition) : userCondition;
+    const orderCondition =
+      sort === "newest" ? desc(friendships.createdAt) : asc(friendships.createdAt);
 
     const friendshipRows = await db
       .select({
@@ -78,25 +97,21 @@ export async function viewFriends(
         createdAt: friendships.createdAt,
       })
       .from(friendships)
-      .where(
-        or(eq(friendships.userLow, normalizedUserId), eq(friendships.userHigh, normalizedUserId)),
-      )
-      .orderBy(desc(friendships.createdAt))
-      .offset(pagination.offset)
-      .limit(pagination.limit);
+      .where(whereCondition)
+      .orderBy(orderCondition)
+      .limit(normalizedLimit);
 
     if (friendshipRows.length === 0) {
       return {
         items: [],
-        offset: pagination.offset,
-        limit: pagination.limit,
+        nextCursor: null,
+        limit: normalizedLimit,
       };
     }
 
     const friendIds = friendshipRows.map((row) =>
       row.userLow === normalizedUserId ? row.userHigh : row.userLow,
     );
-
     const uniqueFriendIds = [...new Set(friendIds)];
 
     const userRows = await db
@@ -135,10 +150,12 @@ export async function viewFriends(
       };
     });
 
+    const nextCursor = items.length === normalizedLimit ? items[items.length - 1]!.createdAt : null;
+
     return {
       items,
-      offset: pagination.offset,
-      limit: pagination.limit,
+      nextCursor,
+      limit: normalizedLimit,
     };
   } catch (error) {
     if (error instanceof ViewFriendsError) {

@@ -196,7 +196,7 @@ export async function viewConversationMessages(
   } catch (error) {
     if (error instanceof ViewConversationMessagesError) throw error;
 
-    console.error(`[ERROR] Unexpected error in use case: View conversation messages\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: View conversation messages\n${error}`);
     throw new ViewConversationMessagesError(
       "INTERNAL_ERROR",
       "Internal server error fetching messages.",

@@ -77,7 +77,7 @@ export async function refreshSession(input: RefreshSessionInput): Promise<Signin
     });
   } catch (error) {
     if (error instanceof AuthError) throw error;
-    console.error(`[ERROR] Unexpected error in use case: Refresh session\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Refresh session\n${error}`);
     throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

@@ -79,7 +79,7 @@ export async function clearConversation(userId: string, conversationId: string):
   } catch (error) {
     if (error instanceof ClearConversationError) throw error;
 
-    console.error(`[ERROR] Unexpected error in use case: Clear conversation\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Clear conversation\n${error}`);
     throw new ClearConversationError(
       "INTERNAL_ERROR",
       "Internal server error clearing conversation.",

@@ -263,7 +263,7 @@ const protectedPostsRouter = new Elysia()
   .get(
     "/posts/:postId/viewers",
     async ({ authUserId, params, query, set }) => {
-      const limit = query.limit === undefined || query.limit === "" ? 50 : Number(query.limit);
+      const limit = Number(query.limit) || 50;
       const result = await getPostViewers(authUserId, params.postId, limit, query.cursor);
 
       set.status = 200;
@@ -283,7 +283,7 @@ const protectedPostsRouter = new Elysia()
         postId: t.String(),
       }),
       query: t.Object({
-        limit: t.Optional(t.Union([t.Numeric(), t.Literal("")])),
+        limit: t.Optional(t.String()),
         cursor: t.Optional(t.String()),
       }),
     },

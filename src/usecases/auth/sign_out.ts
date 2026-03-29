@@ -46,7 +46,7 @@ export async function signOut(sessionId: string, deviceToken?: string): Promise<
       throw error;
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Sign out\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Sign out\n${error}`);
     throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

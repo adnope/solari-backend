@@ -190,7 +190,7 @@ export async function getFeed(
       throw error;
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Get feed\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Get feed\n${error}`);
     throw new GetFeedError("INTERNAL_ERROR", "Internal server error fetching feed.", 500);
   }
 }

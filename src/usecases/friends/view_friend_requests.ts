@@ -1,4 +1,4 @@
-import { desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { friendRequests, users } from "../../db/schema.ts";
 
@@ -22,16 +22,17 @@ export type FriendRequestListItem = {
 
 export type ViewFriendRequestsResult = {
   items: FriendRequestListItem[];
-  offset: number;
+  nextCursor: string | null;
   limit: number;
   direction: FriendRequestDirection;
 };
 
 export type ViewFriendRequestsErrorType =
   | "MISSING_USER_ID"
-  | "INVALID_OFFSET"
+  | "INVALID_CURSOR"
   | "INVALID_LIMIT"
   | "INVALID_DIRECTION"
+  | "INVALID_SORT"
   | "INTERNAL_ERROR";
 
 export class ViewFriendRequestsError extends Error {
@@ -63,20 +64,11 @@ function normalizeRequesterId(requesterId: string): string {
   return value;
 }
 
-function normalizePagination(offset = 0, limit = 20): { offset: number; limit: number } {
-  if (!Number.isInteger(offset) || offset < 0) {
-    throw new ViewFriendRequestsError(
-      "INVALID_OFFSET",
-      "Offset must be a non-negative integer.",
-      400,
-    );
-  }
-
+function normalizeLimit(limit = 20): number {
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new ViewFriendRequestsError("INVALID_LIMIT", "Limit must be a positive integer.", 400);
   }
-
-  return { offset, limit: Math.min(limit, 100) };
+  return Math.min(limit, 100);
 }
 
 function normalizeDirection(direction: string | undefined): FriendRequestDirection {
@@ -95,14 +87,52 @@ function normalizeDirection(direction: string | undefined): FriendRequestDirecti
 
 export async function viewFriendRequests(
   userId: string,
-  offset = 0,
+  cursor?: string,
   limit = 20,
   direction?: string,
+  sort: "newest" | "oldest" = "newest",
 ): Promise<ViewFriendRequestsResult> {
   try {
     const normalizedUserId = normalizeRequesterId(userId);
-    const pagination = normalizePagination(offset, limit);
+    const normalizedLimit = normalizeLimit(limit);
     const normalizedDirection = normalizeDirection(direction);
+
+    if (sort !== "newest" && sort !== "oldest") {
+      throw new ViewFriendRequestsError("INVALID_SORT", "Sort must be 'newest' or 'oldest'.", 400);
+    }
+
+    if (cursor && Number.isNaN(Date.parse(cursor))) {
+      throw new ViewFriendRequestsError(
+        "INVALID_CURSOR",
+        "Cursor must be a valid ISO date string.",
+        400,
+      );
+    }
+
+    const directionCondition =
+      normalizedDirection === "incoming"
+        ? eq(friendRequests.receiverId, normalizedUserId)
+        : normalizedDirection === "outgoing"
+          ? eq(friendRequests.requesterId, normalizedUserId)
+          : or(
+              eq(friendRequests.receiverId, normalizedUserId),
+              eq(friendRequests.requesterId, normalizedUserId),
+            );
+
+    let cursorCondition = undefined;
+    if (cursor) {
+      if (sort === "newest") {
+        cursorCondition = lt(friendRequests.createdAt, cursor);
+      } else {
+        cursorCondition = gt(friendRequests.createdAt, cursor);
+      }
+    }
+
+    const whereCondition = cursorCondition
+      ? and(directionCondition, cursorCondition)
+      : directionCondition;
+    const orderCondition =
+      sort === "newest" ? desc(friendRequests.createdAt) : asc(friendRequests.createdAt);
 
     const requestRows = await db
       .select({
@@ -112,25 +142,15 @@ export async function viewFriendRequests(
         receiverId: friendRequests.receiverId,
       })
       .from(friendRequests)
-      .where(
-        normalizedDirection === "incoming"
-          ? eq(friendRequests.receiverId, normalizedUserId)
-          : normalizedDirection === "outgoing"
-            ? eq(friendRequests.requesterId, normalizedUserId)
-            : or(
-                eq(friendRequests.receiverId, normalizedUserId),
-                eq(friendRequests.requesterId, normalizedUserId),
-              ),
-      )
-      .orderBy(desc(friendRequests.createdAt))
-      .offset(pagination.offset)
-      .limit(pagination.limit);
+      .where(whereCondition)
+      .orderBy(orderCondition)
+      .limit(normalizedLimit);
 
     if (requestRows.length === 0) {
       return {
         items: [],
-        offset: pagination.offset,
-        limit: pagination.limit,
+        nextCursor: null,
+        limit: normalizedLimit,
         direction: normalizedDirection,
       };
     }
@@ -180,10 +200,12 @@ export async function viewFriendRequests(
       };
     });
 
+    const nextCursor = items.length === normalizedLimit ? (items.at(-1)?.createdAt ?? null) : null;
+
     return {
       items,
-      offset: pagination.offset,
-      limit: pagination.limit,
+      nextCursor,
+      limit: normalizedLimit,
       direction: normalizedDirection,
     };
   } catch (error) {

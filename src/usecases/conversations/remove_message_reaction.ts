@@ -93,7 +93,7 @@ export async function removeMessageReaction(userId: string, messageId: string): 
   } catch (error) {
     if (error instanceof RemoveMessageReactionError) throw error;
 
-    console.error(`[ERROR] Unexpected error in use case: Remove message reaction\n${error}`)
+    console.error(`[ERROR] Unexpected error in use case: Remove message reaction\n${error}`);
     throw new RemoveMessageReactionError(
       "INTERNAL_ERROR",
       "Internal server error removing reaction.",
