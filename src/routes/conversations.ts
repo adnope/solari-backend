@@ -216,6 +216,7 @@ const protectedConversationsRouter = new Elysia()
                 id: conv.lastMessage.id,
                 sender_id: conv.lastMessage.senderId,
                 content: conv.lastMessage.content,
+                is_deleted: conv.lastMessage.isDeleted,
                 created_at: conv.lastMessage.createdAt,
               }
             : null,

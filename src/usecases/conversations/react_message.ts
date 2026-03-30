@@ -22,6 +22,7 @@ export type ReactMessageErrorType =
   | "MISSING_INPUT"
   | "INVALID_EMOJI"
   | "UNAUTHORIZED_OR_NOT_FOUND"
+  | "MESSAGE_DELETED"
   | "INTERNAL_ERROR";
 
 export class ReactMessageError extends Error {
@@ -76,6 +77,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
         .select({
           senderId: messages.senderId,
           conversationId: messages.conversationId,
+          isDeleted: messages.isDeleted,
         })
         .from(messages)
         .innerJoin(conversations, eq(conversations.id, messages.conversationId))
@@ -108,6 +110,10 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
           "Message not found or authorized.",
           404,
         );
+      }
+
+      if (messageRow.isDeleted) {
+        throw new ReactMessageError("MESSAGE_DELETED", "Cannot react to an unsent message.", 400);
       }
 
       const [reactionRow] = await tx

@@ -13,6 +13,7 @@ export type ConversationLastMessage = {
   id: string;
   senderId: string;
   content: string;
+  isDeleted: boolean;
   createdAt: string;
 } | null;
 
@@ -152,6 +153,7 @@ export async function getConversations(
         id: messages.id,
         senderId: messages.senderId,
         content: messages.content,
+        isDeleted: messages.isDeleted,
         createdAt: messages.createdAt,
       })
       .from(messages)
@@ -165,6 +167,7 @@ export async function getConversations(
           id: message.id,
           senderId: message.senderId,
           content: message.content,
+          isDeleted: message.isDeleted,
           createdAt: message.createdAt,
         },
       ]),
