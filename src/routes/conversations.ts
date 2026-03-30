@@ -21,6 +21,7 @@ import {
   RemoveMessageReactionError,
 } from "../usecases/conversations/remove_message_reaction.ts";
 import { sendMessage, SendMessageError } from "../usecases/conversations/send_message.ts";
+import { unsendMessage } from "../usecases/conversations/unsend_message.ts";
 import {
   updateMessageReaction,
   UpdateMessageReactionError,
@@ -59,7 +60,7 @@ const protectedConversationsRouter = new Elysia()
     },
   )
 
-  // Send a message / reply a post
+  // Send a message / reply to a post / reply to a message
   .post(
     "/conversations/:conversationId/messages",
     async ({ authUserId, params, body, set }) => {
@@ -67,7 +68,8 @@ const protectedConversationsRouter = new Elysia()
         senderId: authUserId,
         conversationId: params.conversationId,
         content: body.content,
-        referencedPostId: body.referenced_post_id as string,
+        ...(body.referenced_post_id && { referencedPostId: body.referenced_post_id as string }),
+        ...(body.replied_message_id && { repliedMessageId: body.replied_message_id as string }),
       });
 
       set.status = 201;
@@ -79,6 +81,7 @@ const protectedConversationsRouter = new Elysia()
           sender_id: result.senderId,
           content: result.content,
           referenced_post_id: result.referencedPostId,
+          replied_message_id: result.repliedMessageId,
           created_at: result.createdAt,
         },
       };
@@ -90,6 +93,34 @@ const protectedConversationsRouter = new Elysia()
       body: t.Object({
         content: t.String(),
         referenced_post_id: t.Optional(t.String()),
+        replied_message_id: t.Optional(t.String()),
+      }),
+    },
+  )
+
+  // Unsend a message
+  .delete(
+    "/conversations/:conversationId/messages/:messageId",
+    async ({ authUserId, params, set }) => {
+      const result = await unsendMessage({
+        senderId: authUserId,
+        messageId: params.messageId,
+      });
+
+      set.status = 200;
+      return {
+        message: "Message unsent successfully.",
+        data: {
+          id: result.id,
+          conversation_id: result.conversationId,
+          is_deleted: result.isDeleted,
+        },
+      };
+    },
+    {
+      params: t.Object({
+        conversationId: t.String(),
+        messageId: t.String(),
       }),
     },
   )
@@ -112,7 +143,9 @@ const protectedConversationsRouter = new Elysia()
           id: msg.id,
           sender_id: msg.senderId,
           content: msg.content,
+          is_deleted: msg.isDeleted,
           referenced_post_id: msg.referencedPostId,
+          replied_message_id: msg.repliedMessageId,
           created_at: msg.createdAt,
           reactions: msg.reactions.map((r) => ({
             user_id: r.userId,

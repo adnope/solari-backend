@@ -2,6 +2,7 @@ import {
   pgTable,
   text,
   timestamp,
+  boolean,
   index,
   unique,
   check,
@@ -30,9 +31,7 @@ export const users = pgTable(
   "users",
   {
     id: uuid().primaryKey().notNull(),
-    // TODO: failed to parse database type 'citext'
     username: citext("username").notNull(),
-    // TODO: failed to parse database type 'citext'
     email: citext("email").notNull(),
     displayName: text("display_name"),
     avatarKey: text("avatar_key"),
@@ -320,6 +319,8 @@ export const messages = pgTable(
     senderId: uuid("sender_id").notNull(),
     content: text().notNull(),
     referencedPostId: uuid("referenced_post_id"),
+    repliedMessageId: uuid("replied_message_id"), // NEW: Reference to parent message
+    isDeleted: boolean("is_deleted").default(false).notNull(), // NEW: Soft delete flag
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
@@ -345,7 +346,13 @@ export const messages = pgTable(
       foreignColumns: [posts.id],
       name: "messages_referenced_post_id_fkey",
     }).onDelete("set null"),
-    check("messages_content_check", sql`length(TRIM(BOTH FROM content)) > 0`),
+    foreignKey({
+      columns: [table.repliedMessageId],
+      foreignColumns: [table.id],
+      name: "messages_replied_message_id_fkey",
+    }).onDelete("set null"),
+
+    check("messages_content_check", sql`is_deleted = true OR length(TRIM(BOTH FROM content)) > 0`),
   ],
 );
 

@@ -1,6 +1,3 @@
--- Current sql file was generated after introspecting the database
--- If you want to run this migration please uncomment this code before executing migrations
-/*
 CREATE TABLE "schema_migrations" (
 	"filename" text PRIMARY KEY NOT NULL,
 	"applied_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -221,4 +218,3 @@ CREATE INDEX "idx_friendships_user_high" ON "friendships" USING btree ("user_hig
 CREATE INDEX "idx_friendships_user_low" ON "friendships" USING btree ("user_low" uuid_ops);--> statement-breakpoint
 CREATE INDEX "idx_post_visibility_viewer_id_post_id" ON "post_visibility" USING btree ("viewer_id" uuid_ops,"post_id" uuid_ops);--> statement-breakpoint
 CREATE INDEX "idx_post_views_post_id_viewed_at" ON "post_views" USING btree ("post_id" timestamptz_ops,"viewed_at" timestamptz_ops);
-*/

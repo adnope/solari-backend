@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
-import { getFileUrl } from "../../storage/s3.ts";
 import { withTx } from "../../db/client.ts";
 import { conversations, messages, posts, userDevices, users } from "../../db/schema.ts";
+import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 
 export type SendMessageInput = {
@@ -9,6 +9,7 @@ export type SendMessageInput = {
   conversationId: string;
   content: string;
   referencedPostId?: string;
+  repliedMessageId?: string;
 };
 
 export type SendMessageResult = {
@@ -17,6 +18,7 @@ export type SendMessageResult = {
   senderId: string;
   content: string;
   referencedPostId: string | null;
+  repliedMessageId: string | null;
   createdAt: string;
 };
 
@@ -26,6 +28,9 @@ export type SendMessageErrorType =
   | "CONVERSATION_NOT_FOUND"
   | "POST_NOT_FOUND"
   | "CANNOT_REFERENCE_OWN_POST"
+  | "INVALID_REFERENCE_COMBINATION"
+  | "REPLIED_MESSAGE_UNSENT"
+  | "REPLIED_MESSAGE_NOT_FOUND"
   | "INTERNAL_ERROR";
 
 export class SendMessageError extends Error {
@@ -50,6 +55,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
   const normalizedSenderId = input.senderId.trim();
   const normalizedConversationId = input.conversationId.trim();
   const normalizedReferencedPostId = input.referencedPostId?.trim();
+  const normalizedRepliedMessageId = input.repliedMessageId?.trim();
   const trimmedContent = input.content?.trim();
 
   if (!normalizedSenderId || !normalizedConversationId) {
@@ -59,9 +65,18 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
   if (
     !isValidUuid(normalizedSenderId) ||
     !isValidUuid(normalizedConversationId) ||
-    (normalizedReferencedPostId && !isValidUuid(normalizedReferencedPostId))
+    (normalizedReferencedPostId && !isValidUuid(normalizedReferencedPostId)) ||
+    (normalizedRepliedMessageId && !isValidUuid(normalizedRepliedMessageId))
   ) {
     throw new SendMessageError("MISSING_INPUT", "Invalid format.", 400);
+  }
+
+  if (normalizedReferencedPostId && normalizedRepliedMessageId) {
+    throw new SendMessageError(
+      "INVALID_REFERENCE_COMBINATION",
+      "A message cannot reply to both a post and a message simultaneously.",
+      400,
+    );
   }
 
   if (!trimmedContent) {
@@ -75,9 +90,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     const { messageResult, pushData } = await withTx(async (tx) => {
       if (normalizedReferencedPostId) {
         const [referencedPost] = await tx
-          .select({
-            authorId: posts.authorId,
-          })
+          .select({ authorId: posts.authorId })
           .from(posts)
           .where(eq(posts.id, normalizedReferencedPostId))
           .limit(1);
@@ -90,6 +103,41 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
           throw new SendMessageError(
             "CANNOT_REFERENCE_OWN_POST",
             "Cannot reference own post.",
+            400,
+          );
+        }
+      }
+
+      if (normalizedRepliedMessageId) {
+        const [repliedMessage] = await tx
+          .select({
+            conversationId: messages.conversationId,
+            isDeleted: messages.isDeleted,
+          })
+          .from(messages)
+          .where(eq(messages.id, normalizedRepliedMessageId))
+          .limit(1);
+
+        if (!repliedMessage) {
+          throw new SendMessageError(
+            "REPLIED_MESSAGE_NOT_FOUND",
+            "Replied message not found.",
+            404,
+          );
+        }
+
+        if (repliedMessage.isDeleted) {
+          throw new SendMessageError(
+            "REPLIED_MESSAGE_UNSENT",
+            "Cannot reply to a deleted message.",
+            400,
+          );
+        }
+
+        if (repliedMessage.conversationId !== normalizedConversationId) {
+          throw new SendMessageError(
+            "REPLIED_MESSAGE_NOT_FOUND",
+            "Replied message is not in this conversation.",
             400,
           );
         }
@@ -116,7 +164,6 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
       }
 
       const isSenderLow = conversation.userLow === normalizedSenderId;
-
       const receiverId = isSenderLow ? conversation.userHigh : conversation.userLow;
 
       const [insertedMessage] = await tx
@@ -127,6 +174,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
           senderId: normalizedSenderId,
           content: trimmedContent,
           referencedPostId: normalizedReferencedPostId ?? null,
+          repliedMessageId: normalizedRepliedMessageId ?? null,
           createdAt,
         })
         .returning({
@@ -141,10 +189,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
         .update(conversations)
         .set(
           isSenderLow
-            ? {
-                updatedAt: insertedMessage.createdAt,
-                userLowLastReadAt: insertedMessage.createdAt,
-              }
+            ? { updatedAt: insertedMessage.createdAt, userLowLastReadAt: insertedMessage.createdAt }
             : {
                 updatedAt: insertedMessage.createdAt,
                 userHighLastReadAt: insertedMessage.createdAt,
@@ -163,9 +208,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
         .limit(1);
 
       const tokenRows = await tx
-        .select({
-          deviceToken: userDevices.deviceToken,
-        })
+        .select({ deviceToken: userDevices.deviceToken })
         .from(userDevices)
         .where(eq(userDevices.userId, receiverId));
 
@@ -176,6 +219,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
           senderId: normalizedSenderId,
           content: trimmedContent,
           referencedPostId: normalizedReferencedPostId ?? null,
+          repliedMessageId: normalizedRepliedMessageId ?? null,
           createdAt: insertedMessage.createdAt,
         },
         pushData: {
@@ -188,11 +232,20 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
     if (pushData.tokens.length > 0) {
       const avatarUrl = pushData.senderAvatarKey ? await getFileUrl(pushData.senderAvatarKey) : "";
-      const isReply = !!normalizedReferencedPostId;
-      const title = isReply ? "New Post Reply" : "New Message";
-      const body = isReply
-        ? `${pushData.senderName} replied to your post.`
-        : `${pushData.senderName} sent a message.`;
+
+      const isPostReply = !!normalizedReferencedPostId;
+      const isMessageReply = !!normalizedRepliedMessageId;
+
+      let title = "New Message";
+      let body = `${pushData.senderName} sent a message.`;
+
+      if (isPostReply) {
+        title = "New Post Reply";
+        body = `${pushData.senderName} replied to your post.`;
+      } else if (isMessageReply) {
+        title = "New Reply";
+        body = `${pushData.senderName} replied to a message.`;
+      }
 
       void Promise.allSettled(
         pushData.tokens.map((token) =>

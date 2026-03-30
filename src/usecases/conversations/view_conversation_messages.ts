@@ -12,6 +12,8 @@ export type ConversationMessage = {
   senderId: string;
   content: string;
   referencedPostId: string | null;
+  repliedMessageId: string | null;
+  isDeleted: boolean;
   createdAt: string;
   reactions: MessageReaction[];
 };
@@ -134,6 +136,8 @@ export async function viewConversationMessages(
         senderId: messages.senderId,
         content: messages.content,
         referencedPostId: messages.referencedPostId,
+        repliedMessageId: messages.repliedMessageId,
+        isDeleted: messages.isDeleted,
         createdAt: messages.createdAt,
       })
       .from(messages)
@@ -182,6 +186,8 @@ export async function viewConversationMessages(
       senderId: message.senderId,
       content: message.content,
       referencedPostId: message.referencedPostId,
+      repliedMessageId: message.repliedMessageId,
+      isDeleted: message.isDeleted,
       createdAt: message.createdAt,
       reactions: reactionsMap.get(message.id) ?? [],
     }));
