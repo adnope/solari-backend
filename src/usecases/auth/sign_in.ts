@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { db } from "../../db/client.ts";
 import { sessions, userPasswords, users } from "../../db/schema.ts";
-import { createAccessToken } from "../../lib/jwt.ts";
+import { createAccessToken } from "../../utils/jwt.ts";
 import { AuthError } from "./error_type.ts";
 
 export type SigninInput = {

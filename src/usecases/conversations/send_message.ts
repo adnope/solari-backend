@@ -3,6 +3,7 @@ import { withTx } from "../../db/client.ts";
 import { conversations, messages, posts, userDevices, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type SendMessageInput = {
   senderId: string;
@@ -87,7 +88,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
   const createdAt = new Date().toISOString();
 
   try {
-    const { messageResult, pushData } = await withTx(async (tx) => {
+    const { messageResult, pushData, receiverId } = await withTx(async (tx) => {
       if (normalizedReferencedPostId) {
         const [referencedPost] = await tx
           .select({ authorId: posts.authorId })
@@ -227,7 +228,24 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
           senderName: sender?.displayName || sender?.username || "Someone",
           senderAvatarKey: sender?.avatarKey ?? null,
         },
+        receiverId,
       };
+    });
+
+    wsPublisher.sendToUser(receiverId, {
+      type: "NEW_MESSAGE",
+      payload: {
+        conversationId: normalizedConversationId,
+        message: messageResult,
+      },
+    });
+
+    wsPublisher.sendToUser(normalizedSenderId, {
+      type: "NEW_MESSAGE",
+      payload: {
+        conversationId: normalizedConversationId,
+        message: messageResult,
+      },
     });
 
     if (pushData.tokens.length > 0) {

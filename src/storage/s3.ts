@@ -8,13 +8,13 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const internalEndpoint = process.env.S3_ENDPOINT;
-const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT || internalEndpoint;
-const region = process.env.S3_REGION || "us-east-1";
+const internalEndpoint = process.env["S3_ENDPOINT"];
+const publicEndpoint = process.env["S3_PUBLIC_ENDPOINT"] || internalEndpoint;
+const region = process.env["S3_REGION"] || "us-east-1";
 
-const accessKeyId = process.env.S3_ACCESS_KEY_ID;
-const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
-export const s3BucketName = process.env.S3_BUCKET_NAME || "solari-media";
+const accessKeyId = process.env["S3_ACCESS_KEY_ID"];
+const secretAccessKey = process.env["S3_SECRET_ACCESS_KEY"];
+export const s3BucketName = process.env["S3_BUCKET_NAME"] || "solari-media";
 
 if (!internalEndpoint || !accessKeyId || !secretAccessKey) {
   throw new Error(
@@ -32,7 +32,7 @@ export const s3Client = new S3Client({
 });
 
 const presignClient = new S3Client({
-  endpoint: publicEndpoint,
+  endpoint: publicEndpoint ?? internalEndpoint,
   region,
   credentials,
   forcePathStyle: true,
