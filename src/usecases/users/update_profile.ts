@@ -70,10 +70,11 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
   let newAvatarKey: string | undefined;
 
   try {
-    const updatedProfile = await withTx(async (tx) => {
+    const { finalUser: updatedProfile, hasVisualChanges } = await withTx(async (tx) => {
       const [currentUser] = await tx
         .select({
           avatarKey: users.avatarKey,
+          displayName: users.displayName,
         })
         .from(users)
         .where(eq(users.id, normalizedUserId))
@@ -192,15 +193,14 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
         finalUser = existingUser;
       }
 
-      return finalUser;
+      const visualDataChanged =
+        currentUser.avatarKey !== finalUser.avatar_key ||
+        currentUser.displayName !== finalUser.display_name;
+
+      return { finalUser, hasVisualChanges: visualDataChanged };
     });
 
-    if (
-      input.displayName !== undefined ||
-      input.removeDisplayName ||
-      input.avatar !== undefined ||
-      input.removeAvatar
-    ) {
+    if (hasVisualChanges) {
       void (async () => {
         try {
           const friends = await db
