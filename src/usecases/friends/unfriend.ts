@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { friendships } from "../../db/schema.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type UnfriendErrorType =
   | "MISSING_INPUT"
@@ -58,6 +59,22 @@ export async function unfriend(userId: string, otherUserId: string): Promise<voi
     if (!deleted) {
       throw new UnfriendError("NOT_FRIENDS", "You are not friends with this user.", 404);
     }
+
+    wsPublisher.sendToUser(normalizedUserId, {
+      type: "FRIENDSHIP_STATUS_CHANGED",
+      payload: {
+        partnerId: normalizedOtherUserId,
+        isFriend: false,
+      },
+    });
+
+    wsPublisher.sendToUser(normalizedOtherUserId, {
+      type: "FRIENDSHIP_STATUS_CHANGED",
+      payload: {
+        partnerId: normalizedUserId,
+        isFriend: false,
+      },
+    });
   } catch (error) {
     if (error instanceof UnfriendError) {
       throw error;

@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
-import { withTx } from "../../db/client.ts";
-import { users } from "../../db/schema.ts";
+import { eq, or } from "drizzle-orm";
+import { db, withTx } from "../../db/client.ts";
+import { friendships, users } from "../../db/schema.ts";
 import { deleteFile, uploadFile } from "../../storage/s3.ts";
 import { isPgError } from "../postgres_error.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type UpdateProfileInput = {
   userId: string;
@@ -69,7 +70,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
   let newAvatarKey: string | undefined;
 
   try {
-    return await withTx(async (tx) => {
+    const updatedProfile = await withTx(async (tx) => {
       const [currentUser] = await tx
         .select({
           avatarKey: users.avatarKey,
@@ -193,6 +194,53 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
 
       return finalUser;
     });
+
+    if (
+      input.displayName !== undefined ||
+      input.removeDisplayName ||
+      input.avatar !== undefined ||
+      input.removeAvatar
+    ) {
+      void (async () => {
+        try {
+          const friends = await db
+            .select({ userLow: friendships.userLow, userHigh: friendships.userHigh })
+            .from(friendships)
+            .where(
+              or(
+                eq(friendships.userLow, normalizedUserId),
+                eq(friendships.userHigh, normalizedUserId),
+              ),
+            );
+
+          if (friends.length === 0) return;
+
+          const eventPayload = {
+            type: "FRIEND_PROFILE_UPDATED" as const,
+            payload: {
+              userId: updatedProfile.id,
+              username: updatedProfile.username,
+              displayName: updatedProfile.display_name,
+              avatarKey: updatedProfile.avatar_key,
+            },
+          };
+
+          wsPublisher.sendToUser(normalizedUserId, eventPayload);
+
+          for (const friend of friends) {
+            const targetId = friend.userLow === normalizedUserId ? friend.userHigh : friend.userLow;
+            wsPublisher.sendToUser(targetId, eventPayload);
+          }
+        } catch (err) {
+          console.error(
+            `[ERROR] Failed to broadcast profile update for user ${normalizedUserId}:`,
+            err,
+          );
+        }
+      })();
+    }
+
+    return updatedProfile;
   } catch (error) {
     if (error instanceof UpdateProfileError) throw error;
 

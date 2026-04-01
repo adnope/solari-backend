@@ -3,6 +3,7 @@ import { withTx } from "../../db/client.ts";
 import { friendRequests, friendships, userDevices, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type AcceptFriendRequestResult = {
   id: string;
@@ -143,6 +144,14 @@ export async function acceptFriendRequest(
         },
       };
     });
+
+    const wsPayload = {
+      type: "FRIEND_REQUEST_ACCEPTED" as const,
+      payload: result,
+    };
+
+    wsPublisher.sendToUser(result.requesterId, wsPayload);
+    wsPublisher.sendToUser(result.receiverId, wsPayload);
 
     if (pushData.tokens.length > 0) {
       const title = "Friend Request Accepted";

@@ -1,6 +1,7 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, messages } from "../../db/schema.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type MarkConversationAsReadResult = {
   conversationId: string;
@@ -51,7 +52,7 @@ export async function markConversationAsRead(
   }
 
   try {
-    return await withTx(async (tx) => {
+    const { result, receiverId, hasChanged } = await withTx(async (tx) => {
       const [conversation] = await tx
         .select({
           id: conversations.id,
@@ -85,8 +86,9 @@ export async function markConversationAsRead(
         );
       }
 
-      const clearedAt = isUserLow ? conversation.userLowClearedAt : conversation.userHighClearedAt;
+      const targetReceiverId = isUserLow ? conversation.userHigh : conversation.userLow;
 
+      const clearedAt = isUserLow ? conversation.userLowClearedAt : conversation.userHighClearedAt;
       const currentLastReadAt = isUserLow
         ? conversation.userLowLastReadAt
         : conversation.userHighLastReadAt;
@@ -107,42 +109,62 @@ export async function markConversationAsRead(
 
       if (!latestVisibleMessage) {
         return {
-          conversationId: normalizedConversationId,
-          userId: normalizedUserId,
-          lastReadAt: currentLastReadAt ?? null,
+          result: {
+            conversationId: normalizedConversationId,
+            userId: normalizedUserId,
+            lastReadAt: currentLastReadAt ?? null,
+          },
+          receiverId: targetReceiverId,
+          hasChanged: false,
         };
       }
 
       if (currentLastReadAt && currentLastReadAt >= latestVisibleMessage.createdAt) {
         return {
-          conversationId: normalizedConversationId,
-          userId: normalizedUserId,
-          lastReadAt: currentLastReadAt,
+          result: {
+            conversationId: normalizedConversationId,
+            userId: normalizedUserId,
+            lastReadAt: currentLastReadAt,
+          },
+          receiverId: targetReceiverId,
+          hasChanged: false,
         };
       }
 
       if (isUserLow) {
         await tx
           .update(conversations)
-          .set({
-            userLowLastReadAt: latestVisibleMessage.createdAt,
-          })
+          .set({ userLowLastReadAt: latestVisibleMessage.createdAt })
           .where(eq(conversations.id, normalizedConversationId));
       } else {
         await tx
           .update(conversations)
-          .set({
-            userHighLastReadAt: latestVisibleMessage.createdAt,
-          })
+          .set({ userHighLastReadAt: latestVisibleMessage.createdAt })
           .where(eq(conversations.id, normalizedConversationId));
       }
 
       return {
-        conversationId: normalizedConversationId,
-        userId: normalizedUserId,
-        lastReadAt: latestVisibleMessage.createdAt,
+        result: {
+          conversationId: normalizedConversationId,
+          userId: normalizedUserId,
+          lastReadAt: latestVisibleMessage.createdAt,
+        },
+        receiverId: targetReceiverId,
+        hasChanged: true,
       };
     });
+
+    if (hasChanged) {
+      const eventPayload = {
+        type: "CONVERSATION_READ" as const,
+        payload: result,
+      };
+
+      wsPublisher.sendToUser(receiverId, eventPayload);
+      wsPublisher.sendToUser(normalizedUserId, eventPayload);
+    }
+
+    return result;
   } catch (error) {
     if (error instanceof MarkConversationAsReadError) throw error;
 

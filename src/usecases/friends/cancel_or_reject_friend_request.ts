@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { friendRequests } from "../../db/schema.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type CancelOrRejectFriendRequestErrorType =
   | "MISSING_INPUT"
@@ -45,7 +46,7 @@ export async function cancelOrRejectFriendRequest(
   const normalizedRequestId = normalizeId(requestId, "Request ID");
 
   try {
-    await withTx(async (tx) => {
+    const requestData = await withTx(async (tx) => {
       const [requestRow] = await tx
         .select({
           id: friendRequests.id,
@@ -76,7 +77,21 @@ export async function cancelOrRejectFriendRequest(
       }
 
       await tx.delete(friendRequests).where(eq(friendRequests.id, normalizedRequestId));
+
+      return requestRow;
     });
+
+    const wsPayload = {
+      type: "FRIEND_REQUEST_REMOVED" as const,
+      payload: {
+        requestId: requestData.id,
+        requesterId: requestData.requesterId,
+        receiverId: requestData.receiverId,
+      },
+    };
+
+    wsPublisher.sendToUser(requestData.requesterId, wsPayload);
+    wsPublisher.sendToUser(requestData.receiverId, wsPayload);
   } catch (error) {
     if (error instanceof CancelOrRejectFriendRequestError) {
       throw error;

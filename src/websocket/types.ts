@@ -1,6 +1,9 @@
+import type { MarkConversationAsReadResult } from "../usecases/conversations/mark_conversation_as_read.ts";
 import type { ReactMessageResult } from "../usecases/conversations/react_message.ts";
 import type { SendMessageResult } from "../usecases/conversations/send_message.ts";
 import type { UpdateMessageReactionResult } from "../usecases/conversations/update_message_reaction.ts";
+import type { AcceptFriendRequestResult } from "../usecases/friends/accept_friend_request.ts";
+import type { FriendRequestResult } from "../usecases/friends/send_friend_request.ts";
 
 export type WsClientTypingEvent = {
   action: "SEND_TYPING_STATE";
@@ -64,10 +67,58 @@ export type WsTypingIndicatorEvent = {
   };
 };
 
+export type WsConversationReadEvent = {
+  type: "CONVERSATION_READ";
+  payload: MarkConversationAsReadResult;
+};
+
+export type WsNewFriendRequestEvent = {
+  type: "NEW_FRIEND_REQUEST";
+  payload: FriendRequestResult;
+};
+
+export type WsFriendRequestAcceptedEvent = {
+  type: "FRIEND_REQUEST_ACCEPTED";
+  payload: AcceptFriendRequestResult;
+};
+
+export type WsFriendRequestRemovedEvent = {
+  type: "FRIEND_REQUEST_REMOVED";
+  payload: {
+    requestId: string;
+    requesterId: string;
+    receiverId: string;
+  };
+};
+
+export type WsFriendshipStatusEvent = {
+  type: "FRIENDSHIP_STATUS_CHANGED";
+  payload: {
+    partnerId: string;
+    isFriend: boolean;
+  };
+};
+
+export type WsFriendProfileUpdatedEvent = {
+  type: "FRIEND_PROFILE_UPDATED";
+  payload: {
+    userId: string;
+    username: string;
+    displayName: string | null;
+    avatarKey: string | null;
+  };
+};
+
 export type WsServerEvent =
   | WsNewMessageEvent
   | WsMessageUnsentEvent
   | WsNewReactionEvent
   | WsReactionRemovedEvent
+  | WsReactionUpdatedEvent
   | WsTypingIndicatorEvent
-  | WsReactionUpdatedEvent;
+  | WsConversationReadEvent
+  | WsNewFriendRequestEvent
+  | WsFriendRequestAcceptedEvent
+  | WsFriendRequestRemovedEvent
+  | WsFriendshipStatusEvent
+  | WsFriendProfileUpdatedEvent;

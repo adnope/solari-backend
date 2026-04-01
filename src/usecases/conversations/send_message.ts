@@ -1,6 +1,13 @@
-import { eq } from "drizzle-orm";
-import { withTx } from "../../db/client.ts";
-import { conversations, messages, posts, userDevices, users } from "../../db/schema.ts";
+import { and, eq } from "drizzle-orm";
+import { db, withTx } from "../../db/client.ts";
+import {
+  conversations,
+  friendships,
+  messages,
+  posts,
+  userDevices,
+  users,
+} from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
@@ -32,6 +39,7 @@ export type SendMessageErrorType =
   | "INVALID_REFERENCE_COMBINATION"
   | "REPLIED_MESSAGE_UNSENT"
   | "REPLIED_MESSAGE_NOT_FOUND"
+  | "NOT_FRIENDS"
   | "INTERNAL_ERROR";
 
 export class SendMessageError extends Error {
@@ -88,85 +96,88 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
   const createdAt = new Date().toISOString();
 
   try {
-    const { messageResult, pushData, receiverId } = await withTx(async (tx) => {
-      if (normalizedReferencedPostId) {
-        const [referencedPost] = await tx
-          .select({ authorId: posts.authorId })
-          .from(posts)
-          .where(eq(posts.id, normalizedReferencedPostId))
-          .limit(1);
-
-        if (!referencedPost) {
-          throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
-        }
-
-        if (referencedPost.authorId === normalizedSenderId) {
-          throw new SendMessageError(
-            "CANNOT_REFERENCE_OWN_POST",
-            "Cannot reference own post.",
-            400,
-          );
-        }
-      }
-
-      if (normalizedRepliedMessageId) {
-        const [repliedMessage] = await tx
-          .select({
-            conversationId: messages.conversationId,
-            isDeleted: messages.isDeleted,
-          })
-          .from(messages)
-          .where(eq(messages.id, normalizedRepliedMessageId))
-          .limit(1);
-
-        if (!repliedMessage) {
-          throw new SendMessageError(
-            "REPLIED_MESSAGE_NOT_FOUND",
-            "Replied message not found.",
-            404,
-          );
-        }
-
-        if (repliedMessage.isDeleted) {
-          throw new SendMessageError(
-            "REPLIED_MESSAGE_UNSENT",
-            "Cannot reply to a deleted message.",
-            400,
-          );
-        }
-
-        if (repliedMessage.conversationId !== normalizedConversationId) {
-          throw new SendMessageError(
-            "REPLIED_MESSAGE_NOT_FOUND",
-            "Replied message is not in this conversation.",
-            400,
-          );
-        }
-      }
-
-      const [conversation] = await tx
-        .select({
-          userLow: conversations.userLow,
-          userHigh: conversations.userHigh,
-        })
+    const [conversation, referencedPost, repliedMessage] = await Promise.all([
+      db
+        .select({ userLow: conversations.userLow, userHigh: conversations.userHigh })
         .from(conversations)
         .where(eq(conversations.id, normalizedConversationId))
-        .limit(1);
+        .limit(1)
+        .then((res) => res[0]),
 
-      if (!conversation) {
-        throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
+      normalizedReferencedPostId
+        ? db
+            .select({ authorId: posts.authorId })
+            .from(posts)
+            .where(eq(posts.id, normalizedReferencedPostId))
+            .limit(1)
+            .then((res) => res[0])
+        : Promise.resolve(null),
+
+      normalizedRepliedMessageId
+        ? db
+            .select({ conversationId: messages.conversationId, isDeleted: messages.isDeleted })
+            .from(messages)
+            .where(eq(messages.id, normalizedRepliedMessageId))
+            .limit(1)
+            .then((res) => res[0])
+        : Promise.resolve(null),
+    ]);
+
+    if (normalizedReferencedPostId) {
+      if (!referencedPost) throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
+      if (referencedPost.authorId === normalizedSenderId) {
+        throw new SendMessageError("CANNOT_REFERENCE_OWN_POST", "Cannot reference own post.", 400);
       }
+    }
 
-      if (
-        conversation.userLow !== normalizedSenderId &&
-        conversation.userHigh !== normalizedSenderId
-      ) {
-        throw new SendMessageError("CONVERSATION_NOT_FOUND", "Unauthorized.", 404);
+    if (normalizedRepliedMessageId) {
+      if (!repliedMessage)
+        throw new SendMessageError("REPLIED_MESSAGE_NOT_FOUND", "Replied message not found.", 404);
+      if (repliedMessage.isDeleted)
+        throw new SendMessageError(
+          "REPLIED_MESSAGE_UNSENT",
+          "Cannot reply to a deleted message.",
+          400,
+        );
+      if (repliedMessage.conversationId !== normalizedConversationId) {
+        throw new SendMessageError(
+          "REPLIED_MESSAGE_NOT_FOUND",
+          "Replied message is not in this conversation.",
+          400,
+        );
       }
+    }
 
-      const isSenderLow = conversation.userLow === normalizedSenderId;
-      const receiverId = isSenderLow ? conversation.userHigh : conversation.userLow;
+    if (!conversation) {
+      throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
+    }
 
+    if (
+      conversation.userLow !== normalizedSenderId &&
+      conversation.userHigh !== normalizedSenderId
+    ) {
+      throw new SendMessageError("CONVERSATION_NOT_FOUND", "Unauthorized.", 404);
+    }
+
+    const isSenderLow = conversation.userLow === normalizedSenderId;
+    const receiverId = isSenderLow ? conversation.userHigh : conversation.userLow;
+
+    const [friendship] = await db
+      .select({ userLow: friendships.userLow })
+      .from(friendships)
+      .where(
+        and(
+          eq(friendships.userLow, conversation.userLow),
+          eq(friendships.userHigh, conversation.userHigh),
+        ),
+      )
+      .limit(1);
+
+    if (!friendship) {
+      throw new SendMessageError("NOT_FRIENDS", "You can only message friends.", 403);
+    }
+
+    const messageResult = await withTx(async (tx) => {
       const [insertedMessage] = await tx
         .insert(messages)
         .values({
@@ -198,83 +209,79 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
         )
         .where(eq(conversations.id, normalizedConversationId));
 
-      const [sender] = await tx
-        .select({
-          username: users.username,
-          displayName: users.displayName,
-          avatarKey: users.avatarKey,
-        })
-        .from(users)
-        .where(eq(users.id, normalizedSenderId))
-        .limit(1);
-
-      const tokenRows = await tx
-        .select({ deviceToken: userDevices.deviceToken })
-        .from(userDevices)
-        .where(eq(userDevices.userId, receiverId));
-
       return {
-        messageResult: {
-          id: messageId,
-          conversationId: normalizedConversationId,
-          senderId: normalizedSenderId,
-          content: trimmedContent,
-          referencedPostId: normalizedReferencedPostId ?? null,
-          repliedMessageId: normalizedRepliedMessageId ?? null,
-          createdAt: insertedMessage.createdAt,
-        },
-        pushData: {
-          tokens: tokenRows.map((row) => row.deviceToken),
-          senderName: sender?.displayName || sender?.username || "Someone",
-          senderAvatarKey: sender?.avatarKey ?? null,
-        },
-        receiverId,
+        id: messageId,
+        conversationId: normalizedConversationId,
+        senderId: normalizedSenderId,
+        content: trimmedContent,
+        referencedPostId: normalizedReferencedPostId ?? null,
+        repliedMessageId: normalizedRepliedMessageId ?? null,
+        createdAt: insertedMessage.createdAt,
       };
     });
 
-    wsPublisher.sendToUser(receiverId, {
-      type: "NEW_MESSAGE",
+    const wsPayload = {
+      type: "NEW_MESSAGE" as const,
       payload: {
         conversationId: normalizedConversationId,
         message: messageResult,
       },
-    });
+    };
 
-    wsPublisher.sendToUser(normalizedSenderId, {
-      type: "NEW_MESSAGE",
-      payload: {
-        conversationId: normalizedConversationId,
-        message: messageResult,
-      },
-    });
+    wsPublisher.sendToUser(receiverId, wsPayload);
+    wsPublisher.sendToUser(normalizedSenderId, wsPayload);
 
-    if (pushData.tokens.length > 0) {
-      const avatarUrl = pushData.senderAvatarKey ? await getFileUrl(pushData.senderAvatarKey) : "";
+    void (async () => {
+      try {
+        const [sender, tokenRows] = await Promise.all([
+          db
+            .select({
+              username: users.username,
+              displayName: users.displayName,
+              avatarKey: users.avatarKey,
+            })
+            .from(users)
+            .where(eq(users.id, normalizedSenderId))
+            .limit(1)
+            .then((res) => res[0]),
 
-      const isPostReply = !!normalizedReferencedPostId;
-      const isMessageReply = !!normalizedRepliedMessageId;
+          db
+            .select({ deviceToken: userDevices.deviceToken })
+            .from(userDevices)
+            .where(eq(userDevices.userId, receiverId)),
+        ]);
 
-      let title = "New Message";
-      let body = `${pushData.senderName} sent a message.`;
+        if (tokenRows.length > 0) {
+          const avatarUrl = sender?.avatarKey ? await getFileUrl(sender.avatarKey) : "";
+          const isPostReply = !!normalizedReferencedPostId;
+          const isMessageReply = !!normalizedRepliedMessageId;
+          const senderName = sender?.displayName || sender?.username || "Someone";
 
-      if (isPostReply) {
-        title = "New Post Reply";
-        body = `${pushData.senderName} replied to your post.`;
-      } else if (isMessageReply) {
-        title = "New Reply";
-        body = `${pushData.senderName} replied to a message.`;
+          let title = "New Message";
+          let body = `${senderName} sent a message.`;
+
+          if (isPostReply) {
+            title = "New Post Reply";
+            body = `${senderName} replied to your post.`;
+          } else if (isMessageReply) {
+            title = "New Reply";
+            body = `${senderName} replied to a message.`;
+          }
+
+          await Promise.allSettled(
+            tokenRows.map((row) =>
+              sendPushNotification(row.deviceToken, title, body, "NEW_MESSAGE", {
+                conversationId: normalizedConversationId,
+                messageId: messageResult.id,
+                avatarUrl,
+              }),
+            ),
+          );
+        }
+      } catch (err) {
+        console.error(`[ERROR] Failed to send background push notification: ${err}`);
       }
-
-      void Promise.allSettled(
-        pushData.tokens.map((token) =>
-          sendPushNotification(token, title, body, "NEW_MESSAGE", {
-            conversationId: normalizedConversationId,
-            messageId: messageResult.id,
-            avatarUrl,
-          }),
-        ),
-      ).catch(console.error);
-    }
+    })();
 
     return messageResult;
   } catch (error) {

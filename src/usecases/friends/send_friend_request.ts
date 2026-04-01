@@ -4,6 +4,7 @@ import { friendRequests, friendships, userDevices, users } from "../../db/schema
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 import { isPgError } from "../postgres_error.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type FriendRequestResult = {
   id: string;
@@ -207,6 +208,11 @@ export async function sendFriendRequest(
           requesterId: normalizedRequesterId,
         },
       };
+    });
+
+    wsPublisher.sendToUser(requestResult.receiverId, {
+      type: "NEW_FRIEND_REQUEST" as const,
+      payload: requestResult,
     });
 
     if (pushData.tokens.length > 0) {
