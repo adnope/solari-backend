@@ -111,7 +111,7 @@ const protectedConversationsRouter = new Elysia()
       return {
         message: "Message unsent successfully.",
         data: {
-          id: result.id,
+          id: result.messageId,
           conversation_id: result.conversationId,
           is_deleted: result.isDeleted,
         },

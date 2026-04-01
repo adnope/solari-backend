@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
-import { db } from "../../db/client.ts";
-import { messageReactions } from "../../db/schema.ts";
+import { withTx } from "../../db/client.ts";
+import { conversations, messageReactions, messages } from "../../db/schema.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 import { isSingleEmoji } from "./react_message.ts";
 
 export type UpdateMessageReactionInput = {
@@ -69,37 +70,74 @@ export async function updateMessageReaction(
   }
 
   try {
-    const [updated] = await db
-      .update(messageReactions)
-      .set({
-        emoji: trimmedEmoji,
-      })
-      .where(
-        and(
-          eq(messageReactions.messageId, normalizedMessageId),
-          eq(messageReactions.userId, normalizedUserId),
-        ),
-      )
-      .returning({
-        id: messageReactions.id,
-        createdAt: messageReactions.createdAt,
-      });
+    const { updatedReaction, receiverId, conversationId } = await withTx(async (tx) => {
+      const [messageRow] = await tx
+        .select({
+          conversationId: messages.conversationId,
+          userLow: conversations.userLow,
+          userHigh: conversations.userHigh,
+        })
+        .from(messages)
+        .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+        .where(eq(messages.id, normalizedMessageId))
+        .limit(1);
 
-    if (!updated) {
-      throw new UpdateMessageReactionError(
-        "REACTION_NOT_FOUND",
-        "Reaction not found. You must react to the message first.",
-        404,
-      );
-    }
+      if (!messageRow) {
+        throw new UpdateMessageReactionError("REACTION_NOT_FOUND", "Message not found.", 404);
+      }
 
-    return {
-      id: updated.id,
-      messageId: normalizedMessageId,
-      userId: normalizedUserId,
-      emoji: trimmedEmoji,
-      createdAt: updated.createdAt,
+      const targetReceiverId =
+        messageRow.userLow === normalizedUserId ? messageRow.userHigh : messageRow.userLow;
+
+      const [updated] = await tx
+        .update(messageReactions)
+        .set({
+          emoji: trimmedEmoji,
+        })
+        .where(
+          and(
+            eq(messageReactions.messageId, normalizedMessageId),
+            eq(messageReactions.userId, normalizedUserId),
+          ),
+        )
+        .returning({
+          id: messageReactions.id,
+          createdAt: messageReactions.createdAt,
+        });
+
+      if (!updated) {
+        throw new UpdateMessageReactionError(
+          "REACTION_NOT_FOUND",
+          "Reaction not found. You must react to the message first.",
+          404,
+        );
+      }
+
+      return {
+        updatedReaction: {
+          id: updated.id,
+          messageId: normalizedMessageId,
+          userId: normalizedUserId,
+          emoji: trimmedEmoji,
+          createdAt: updated.createdAt,
+        },
+        receiverId: targetReceiverId,
+        conversationId: messageRow.conversationId,
+      };
+    });
+
+    const eventPayload = {
+      type: "REACTION_UPDATED" as const,
+      payload: {
+        conversationId,
+        reaction: updatedReaction,
+      },
     };
+
+    wsPublisher.sendToUser(receiverId, eventPayload);
+    wsPublisher.sendToUser(normalizedUserId, eventPayload);
+
+    return updatedReaction;
   } catch (error) {
     if (error instanceof UpdateMessageReactionError) throw error;
 

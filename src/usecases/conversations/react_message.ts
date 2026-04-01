@@ -1,8 +1,9 @@
 import { and, eq, gte, isNull, or } from "drizzle-orm";
-import { getFileUrl } from "../../storage/s3.ts";
 import { withTx } from "../../db/client.ts";
 import { conversations, messageReactions, messages, userDevices, users } from "../../db/schema.ts";
+import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type ReactMessageInput = {
   userId: string;
@@ -72,12 +73,14 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
   const reactionId = Bun.randomUUIDv7();
 
   try {
-    const { reactionResult, pushData } = await withTx(async (tx) => {
+    const { reactionResult, pushData, receiverId, conversationId } = await withTx(async (tx) => {
       const [messageRow] = await tx
         .select({
           senderId: messages.senderId,
           conversationId: messages.conversationId,
           isDeleted: messages.isDeleted,
+          userLow: conversations.userLow,
+          userHigh: conversations.userHigh,
         })
         .from(messages)
         .innerJoin(conversations, eq(conversations.id, messages.conversationId))
@@ -115,6 +118,9 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
       if (messageRow.isDeleted) {
         throw new ReactMessageError("MESSAGE_DELETED", "Cannot react to an unsent message.", 400);
       }
+
+      const targetReceiverId =
+        messageRow.userLow === normalizedUserId ? messageRow.userHigh : messageRow.userLow;
 
       const [reactionRow] = await tx
         .insert(messageReactions)
@@ -181,8 +187,21 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
           createdAt: reactionRow.createdAt,
         },
         pushData,
+        receiverId: targetReceiverId,
+        conversationId: messageRow.conversationId,
       };
     });
+
+    const eventPayload = {
+      type: "NEW_REACTION" as const,
+      payload: {
+        conversationId,
+        reaction: reactionResult,
+      },
+    };
+
+    wsPublisher.sendToUser(receiverId, eventPayload);
+    wsPublisher.sendToUser(normalizedUserId, eventPayload);
 
     if (pushData && pushData.tokens.length > 0) {
       const avatarUrl = pushData.reactorAvatarKey

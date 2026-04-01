@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { messages } from "../../db/schema.ts";
+import { conversations, messages } from "../../db/schema.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type UnsendMessageInput = {
   senderId: string;
@@ -8,7 +9,7 @@ export type UnsendMessageInput = {
 };
 
 export type UnsendMessageResult = {
-  id: string;
+  messageId: string;
   conversationId: string;
   isDeleted: boolean;
 };
@@ -50,7 +51,7 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
   }
 
   try {
-    const result = await withTx(async (tx) => {
+    const { resultPayload, receiverId } = await withTx(async (tx) => {
       const [message] = await tx
         .select({
           senderId: messages.senderId,
@@ -69,11 +70,30 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
         throw new UnsendMessageError("UNAUTHORIZED", "You can only unsend your own messages.", 403);
       }
 
+      const [conversation] = await tx
+        .select({
+          userLow: conversations.userLow,
+          userHigh: conversations.userHigh,
+        })
+        .from(conversations)
+        .where(eq(conversations.id, message.conversationId))
+        .limit(1);
+
+      if (!conversation) {
+        throw new UnsendMessageError("INTERNAL_ERROR", "Conversation data missing.", 500);
+      }
+
+      const targetReceiverId =
+        conversation.userLow === normalizedSenderId ? conversation.userHigh : conversation.userLow;
+
       if (message.isDeleted) {
         return {
-          id: normalizedMessageId,
-          conversationId: message.conversationId,
-          isDeleted: true,
+          resultPayload: {
+            conversationId: message.conversationId,
+            messageId: normalizedMessageId,
+            isDeleted: true,
+          },
+          receiverId: targetReceiverId,
         };
       }
 
@@ -94,13 +114,24 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
       }
 
       return {
-        id: updatedMessage.id,
-        conversationId: updatedMessage.conversationId,
-        isDeleted: true,
+        resultPayload: {
+          messageId: updatedMessage.id,
+          conversationId: updatedMessage.conversationId,
+          isDeleted: true,
+        },
+        receiverId: targetReceiverId,
       };
     });
 
-    return result;
+    const eventPayload = {
+      type: "MESSAGE_UNSENT" as const,
+      payload: resultPayload,
+    };
+
+    wsPublisher.sendToUser(receiverId, eventPayload);
+    wsPublisher.sendToUser(normalizedSenderId, eventPayload);
+
+    return resultPayload;
   } catch (error) {
     if (error instanceof UnsendMessageError) throw error;
 

@@ -1,6 +1,7 @@
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { conversations, messageReactions, messages } from "../../db/schema.ts";
+import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type RemoveMessageReactionErrorType =
   | "MISSING_INPUT"
@@ -43,7 +44,12 @@ export async function removeMessageReaction(userId: string, messageId: string): 
 
   try {
     const [authorizedMessage] = await db
-      .select({ id: messages.id })
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        userLow: conversations.userLow,
+        userHigh: conversations.userHigh,
+      })
       .from(messages)
       .innerJoin(conversations, eq(conversations.id, messages.conversationId))
       .where(
@@ -90,6 +96,23 @@ export async function removeMessageReaction(userId: string, messageId: string): 
     if (!deletedReaction) {
       throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Reaction not found.", 404);
     }
+
+    const receiverId =
+      authorizedMessage.userLow === normalizedUserId
+        ? authorizedMessage.userHigh
+        : authorizedMessage.userLow;
+
+    const eventPayload = {
+      type: "REACTION_REMOVED" as const,
+      payload: {
+        conversationId: authorizedMessage.conversationId,
+        messageId: normalizedMessageId,
+        userId: normalizedUserId,
+      },
+    };
+
+    wsPublisher.sendToUser(receiverId, eventPayload);
+    wsPublisher.sendToUser(normalizedUserId, eventPayload);
   } catch (error) {
     if (error instanceof RemoveMessageReactionError) throw error;
 
