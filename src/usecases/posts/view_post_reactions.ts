@@ -1,6 +1,6 @@
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { postReactions, posts, users } from "../../db/schema.ts";
+import { blockedUsers, postReactions, posts, users } from "../../db/schema.ts";
 
 export type ReactionUser = {
   id: string;
@@ -110,6 +110,23 @@ export async function viewPostReactions(
       .where(
         and(
           eq(postReactions.postId, normalizedPostId),
+          notExists(
+            db
+              .select({ blockerId: blockedUsers.blockerId })
+              .from(blockedUsers)
+              .where(
+                or(
+                  and(
+                    eq(blockedUsers.blockerId, postReactions.userId),
+                    eq(blockedUsers.blockedId, normalizedViewerId),
+                  ),
+                  and(
+                    eq(blockedUsers.blockerId, normalizedViewerId),
+                    eq(blockedUsers.blockedId, postReactions.userId),
+                  ),
+                ),
+              ),
+          ),
           parsedCursor ? lt(postReactions.createdAt, parsedCursor) : undefined,
         ),
       )

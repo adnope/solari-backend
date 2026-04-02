@@ -3,6 +3,7 @@ import { withTx } from "../../db/client.ts";
 import { postReactions, postVisibility, posts, userDevices, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type ReactPostInput = {
   userId: string;
@@ -95,6 +96,11 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
           "You are not authorized to react to this post, or it is your own post.",
           403,
         );
+      }
+
+      const isBlocked = await hasBlockingRelationship(normalizedUserId, postInfo.authorId, tx);
+      if (isBlocked) {
+        throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
       }
 
       const [visible] = await tx

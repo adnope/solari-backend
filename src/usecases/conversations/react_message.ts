@@ -4,6 +4,7 @@ import { conversations, messageReactions, messages, userDevices, users } from ".
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type ReactMessageInput = {
   userId: string;
@@ -121,6 +122,15 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
 
       const targetReceiverId =
         messageRow.userLow === normalizedUserId ? messageRow.userHigh : messageRow.userLow;
+
+      const isBlocked = await hasBlockingRelationship(normalizedUserId, targetReceiverId, tx);
+      if (isBlocked) {
+        throw new ReactMessageError(
+          "UNAUTHORIZED_OR_NOT_FOUND",
+          "Message not found or authorized.",
+          404,
+        );
+      }
 
       const [reactionRow] = await tx
         .insert(messageReactions)

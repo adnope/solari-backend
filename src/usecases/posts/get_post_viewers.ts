@@ -1,6 +1,6 @@
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { postViews, posts, users } from "../../db/schema.ts";
+import { blockedUsers, postViews, posts, users } from "../../db/schema.ts";
 
 export type PostViewerUser = {
   id: string;
@@ -100,6 +100,23 @@ export async function getPostViewers(
       .where(
         and(
           eq(postViews.postId, normalizedPostId),
+          notExists(
+            db
+              .select({ blockerId: blockedUsers.blockerId })
+              .from(blockedUsers)
+              .where(
+                or(
+                  and(
+                    eq(blockedUsers.blockerId, postViews.userId),
+                    eq(blockedUsers.blockedId, normalizedAuthorId),
+                  ),
+                  and(
+                    eq(blockedUsers.blockerId, normalizedAuthorId),
+                    eq(blockedUsers.blockedId, postViews.userId),
+                  ),
+                ),
+              ),
+          ),
           parsedCursor ? lt(postViews.viewedAt, parsedCursor) : undefined,
         ),
       )

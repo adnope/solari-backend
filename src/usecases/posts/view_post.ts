@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { postVisibility, postViews, posts } from "../../db/schema.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type ViewPostErrorType =
   | "MISSING_INPUT"
@@ -53,6 +54,11 @@ export async function viewPost(viewerId: string, postId: string): Promise<void> 
 
     if (post.authorId === normalizedViewerId) {
       return;
+    }
+
+    const isBlocked = await hasBlockingRelationship(normalizedViewerId, post.authorId);
+    if (isBlocked) {
+      throw new ViewPostError("POST_NOT_FOUND", "Post not found.", 404);
     }
 
     const [visible] = await db

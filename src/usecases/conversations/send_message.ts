@@ -11,6 +11,7 @@ import {
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type SendMessageInput = {
   senderId: string;
@@ -161,6 +162,11 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
     const isSenderLow = conversation.userLow === normalizedSenderId;
     const receiverId = isSenderLow ? conversation.userHigh : conversation.userLow;
+
+    const isBlocked = await hasBlockingRelationship(normalizedSenderId, receiverId);
+    if (isBlocked) {
+      throw new SendMessageError("NOT_FRIENDS", "You can only message friends.", 403);
+    }
 
     const [friendship] = await db
       .select({ userLow: friendships.userLow })

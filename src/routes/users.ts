@@ -6,6 +6,7 @@ import { registerDevice, RegisterDeviceError } from "../usecases/users/register_
 import { updateProfile, UpdateProfileError } from "../usecases/users/update_profile.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { updatePassword, UpdatePasswordError } from "../usecases/auth/update_password.ts";
+import { blockUser } from "../usecases/users/block_user.ts";
 
 const protectedUsersRouter = new Elysia()
   .use(requireAuth)
@@ -99,8 +100,8 @@ const protectedUsersRouter = new Elysia()
   // Get user's public profile
   .get(
     "/users/public/:username",
-    async ({ params, set }) => {
-      const profile = await getPublicProfile(params.username);
+    async ({ authUserId, params, set }) => {
+      const profile = await getPublicProfile(authUserId, params.username);
 
       set.status = 200;
       return {
@@ -134,6 +135,24 @@ const protectedUsersRouter = new Elysia()
       body: t.Object({
         old_password: t.String(),
         new_password: t.String(),
+      }),
+    },
+  )
+
+  // Block a user
+  .post(
+    "/users/:targetId/block",
+    async ({ authUserId, params, set }) => {
+      await blockUser(authUserId, params.targetId);
+
+      set.status = 200;
+      return {
+        message: "User blocked successfully.",
+      };
+    },
+    {
+      params: t.Object({
+        targetId: t.String(),
       }),
     },
   );

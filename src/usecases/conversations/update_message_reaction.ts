@@ -1,8 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { conversations, messageReactions, messages } from "../../db/schema.ts";
+import { conversations, friendships, messageReactions, messages } from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
 import { isSingleEmoji } from "./react_message.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type UpdateMessageReactionInput = {
   userId: string;
@@ -22,6 +23,7 @@ export type UpdateMessageReactionErrorType =
   | "MISSING_INPUT"
   | "INVALID_EMOJI"
   | "REACTION_NOT_FOUND"
+  | "ARCHIVED"
   | "INTERNAL_ERROR";
 
 export class UpdateMessageReactionError extends Error {
@@ -88,6 +90,34 @@ export async function updateMessageReaction(
 
       const targetReceiverId =
         messageRow.userLow === normalizedUserId ? messageRow.userHigh : messageRow.userLow;
+
+      const isBlocked = await hasBlockingRelationship(normalizedUserId, targetReceiverId, tx);
+      if (isBlocked) {
+        throw new UpdateMessageReactionError(
+          "ARCHIVED",
+          "This conversation is archived. You cannot modify it.",
+          403,
+        );
+      }
+
+      const [friendship] = await tx
+        .select({ userLow: friendships.userLow })
+        .from(friendships)
+        .where(
+          and(
+            eq(friendships.userLow, messageRow.userLow),
+            eq(friendships.userHigh, messageRow.userHigh),
+          ),
+        )
+        .limit(1);
+
+      if (!friendship) {
+        throw new UpdateMessageReactionError(
+          "ARCHIVED",
+          "This conversation is archived. You cannot modify it.",
+          403,
+        );
+      }
 
       const [updated] = await tx
         .update(messageReactions)

@@ -5,6 +5,7 @@ import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 import { isPgError } from "../postgres_error.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type FriendRequestResult = {
   id: string;
@@ -104,6 +105,11 @@ export async function sendFriendRequest(
         .limit(1);
 
       if (!receiver) {
+        throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
+      }
+
+      const isBlocked = await hasBlockingRelationship(normalizedRequesterId, receiver.id, tx);
+      if (isBlocked) {
         throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
       }
 

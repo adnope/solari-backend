@@ -1,6 +1,6 @@
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { postMedia, postVisibility, posts, users } from "../../db/schema.ts";
+import { blockedUsers, postMedia, postVisibility, posts, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 
 export type FeedAuthor = {
@@ -145,6 +145,25 @@ export async function getFeed(
                 and pv.viewer_id = ${normalizedViewerId}
             )`,
           ),
+
+          notExists(
+            db
+              .select({ blockerId: blockedUsers.blockerId })
+              .from(blockedUsers)
+              .where(
+                or(
+                  and(
+                    eq(blockedUsers.blockerId, posts.authorId),
+                    eq(blockedUsers.blockedId, normalizedViewerId),
+                  ),
+                  and(
+                    eq(blockedUsers.blockerId, normalizedViewerId),
+                    eq(blockedUsers.blockedId, posts.authorId),
+                  ),
+                ),
+              ),
+          ),
+
           normalizedAuthorIds ? inArray(posts.authorId, normalizedAuthorIds) : undefined,
           normalizedCursor ? lt(posts.createdAt, normalizedCursor) : undefined,
         ),

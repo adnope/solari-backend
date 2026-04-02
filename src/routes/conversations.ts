@@ -222,6 +222,7 @@ const protectedConversationsRouter = new Elysia()
             : null,
           current_user_last_read_at: conv.currentUserLastReadAt,
           partner_last_read_at: conv.partnerLastReadAt,
+          is_readonly: conv.isReadOnly,
         })),
         next_cursor: result.nextCursor,
       };

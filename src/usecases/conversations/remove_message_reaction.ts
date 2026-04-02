@@ -1,11 +1,13 @@
 import { and, eq, gte, isNull, or } from "drizzle-orm";
-import { db } from "../../db/client.ts";
-import { conversations, messageReactions, messages } from "../../db/schema.ts";
+import { withTx } from "../../db/client.ts";
+import { conversations, friendships, messageReactions, messages } from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type RemoveMessageReactionErrorType =
   | "MISSING_INPUT"
   | "REACTION_NOT_FOUND"
+  | "ARCHIVED"
   | "INTERNAL_ERROR";
 
 export class RemoveMessageReactionError extends Error {
@@ -43,69 +45,104 @@ export async function removeMessageReaction(userId: string, messageId: string): 
   }
 
   try {
-    const [authorizedMessage] = await db
-      .select({
-        id: messages.id,
-        conversationId: messages.conversationId,
-        userLow: conversations.userLow,
-        userHigh: conversations.userHigh,
-      })
-      .from(messages)
-      .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-      .where(
-        and(
-          eq(messages.id, normalizedMessageId),
-          or(
-            and(
-              eq(conversations.userLow, normalizedUserId),
-              or(
-                isNull(conversations.userLowClearedAt),
-                gte(messages.createdAt, conversations.userLowClearedAt),
+    const { receiverId, conversationId } = await withTx(async (tx) => {
+      const [authorizedMessage] = await tx
+        .select({
+          id: messages.id,
+          conversationId: messages.conversationId,
+          userLow: conversations.userLow,
+          userHigh: conversations.userHigh,
+        })
+        .from(messages)
+        .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+        .where(
+          and(
+            eq(messages.id, normalizedMessageId),
+            or(
+              and(
+                eq(conversations.userLow, normalizedUserId),
+                or(
+                  isNull(conversations.userLowClearedAt),
+                  gte(messages.createdAt, conversations.userLowClearedAt),
+                ),
               ),
-            ),
-            and(
-              eq(conversations.userHigh, normalizedUserId),
-              or(
-                isNull(conversations.userHighClearedAt),
-                gte(messages.createdAt, conversations.userHighClearedAt),
+              and(
+                eq(conversations.userHigh, normalizedUserId),
+                or(
+                  isNull(conversations.userHighClearedAt),
+                  gte(messages.createdAt, conversations.userHighClearedAt),
+                ),
               ),
             ),
           ),
-        ),
-      )
-      .limit(1);
+        )
+        .limit(1);
 
-    if (!authorizedMessage) {
-      throw new RemoveMessageReactionError(
-        "REACTION_NOT_FOUND",
-        "Message not found, deleted, or you are not authorized.",
-        404,
-      );
-    }
+      if (!authorizedMessage) {
+        throw new RemoveMessageReactionError(
+          "REACTION_NOT_FOUND",
+          "Message not found, deleted, or you are not authorized.",
+          404,
+        );
+      }
 
-    const [deletedReaction] = await db
-      .delete(messageReactions)
-      .where(
-        and(
-          eq(messageReactions.messageId, normalizedMessageId),
-          eq(messageReactions.userId, normalizedUserId),
-        ),
-      )
-      .returning({ id: messageReactions.id });
+      const targetReceiverId =
+        authorizedMessage.userLow === normalizedUserId
+          ? authorizedMessage.userHigh
+          : authorizedMessage.userLow;
 
-    if (!deletedReaction) {
-      throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Reaction not found.", 404);
-    }
+      const isBlocked = await hasBlockingRelationship(normalizedUserId, targetReceiverId, tx);
+      if (isBlocked) {
+        throw new RemoveMessageReactionError(
+          "ARCHIVED",
+          "This conversation is archived. You cannot modify it.",
+          403,
+        );
+      }
 
-    const receiverId =
-      authorizedMessage.userLow === normalizedUserId
-        ? authorizedMessage.userHigh
-        : authorizedMessage.userLow;
+      const [friendship] = await tx
+        .select({ userLow: friendships.userLow })
+        .from(friendships)
+        .where(
+          and(
+            eq(friendships.userLow, authorizedMessage.userLow),
+            eq(friendships.userHigh, authorizedMessage.userHigh),
+          ),
+        )
+        .limit(1);
+
+      if (!friendship) {
+        throw new RemoveMessageReactionError(
+          "ARCHIVED",
+          "This conversation is archived. You cannot modify it.",
+          403,
+        );
+      }
+
+      const [deletedReaction] = await tx
+        .delete(messageReactions)
+        .where(
+          and(
+            eq(messageReactions.messageId, normalizedMessageId),
+            eq(messageReactions.userId, normalizedUserId),
+          ),
+        )
+        .returning({ id: messageReactions.id });
+
+      if (!deletedReaction) {
+        throw new RemoveMessageReactionError("REACTION_NOT_FOUND", "Reaction not found.", 404);
+      }
+
+      return {
+        receiverId: targetReceiverId,
+        conversationId: authorizedMessage.conversationId,
+      };
+    });
 
     const eventPayload = {
       type: "REACTION_REMOVED" as const,
       payload: {
-        conversationId: authorizedMessage.conversationId,
+        conversationId,
         messageId: normalizedMessageId,
         userId: normalizedUserId,
       },

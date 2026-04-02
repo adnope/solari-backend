@@ -4,6 +4,7 @@ import { friendRequests, friendships, userDevices, users } from "../../db/schema
 import { getFileUrl } from "../../storage/s3.ts";
 import { sendPushNotification } from "../../utils/fcm.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type AcceptFriendRequestResult = {
   id: string;
@@ -75,6 +76,19 @@ export async function acceptFriendRequest(
         .limit(1);
 
       if (!requestRow) {
+        throw new AcceptFriendRequestError(
+          "REQUEST_NOT_FOUND",
+          "Friend request not found or not for this user.",
+          404,
+        );
+      }
+
+      const isBlocked = await hasBlockingRelationship(
+        requestRow.requesterId,
+        requestRow.receiverId,
+        tx,
+      );
+      if (isBlocked) {
         throw new AcceptFriendRequestError(
           "REQUEST_NOT_FOUND",
           "Friend request not found or not for this user.",

@@ -535,3 +535,40 @@ export const postViews = pgTable(
     primaryKey({ columns: [table.postId, table.userId], name: "post_views_pkey" }),
   ],
 );
+
+export const blockedUsers = pgTable(
+  "blocked_users",
+  {
+    blockerId: uuid("blocker_id").notNull(),
+    blockedId: uuid("blocked_id").notNull(),
+
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_blocked_users_blocker_id").using(
+      "btree",
+      table.blockerId.asc().nullsLast().op("uuid_ops"),
+    ),
+    index("idx_blocked_users_blocked_id").using(
+      "btree",
+      table.blockedId.asc().nullsLast().op("uuid_ops"),
+    ),
+
+    foreignKey({
+      columns: [table.blockerId],
+      foreignColumns: [users.id],
+      name: "blocked_users_blocker_id_fkey",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.blockedId],
+      foreignColumns: [users.id],
+      name: "blocked_users_blocked_id_fkey",
+    }).onDelete("cascade"),
+
+    primaryKey({ columns: [table.blockerId, table.blockedId], name: "blocked_users_pkey" }),
+
+    check("blocked_users_no_self", sql`blocker_id <> blocked_id`),
+  ],
+);

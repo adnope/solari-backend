@@ -30,7 +30,6 @@ export const wsRoutes = new Elysia()
       }
 
       ws.subscribe(ws.data.userId);
-      console.log(`[WS] User ${ws.data.userId} connected.`);
     },
 
     message(ws, incomingData) {
@@ -53,12 +52,6 @@ export const wsRoutes = new Elysia()
         }
       } catch (error) {
         console.error("[WS] Failed to process incoming message", error);
-      }
-    },
-
-    close(ws) {
-      if (ws.data.userId) {
-        console.log(`[WS] User ${ws.data.userId} disconnected.`);
       }
     },
   });

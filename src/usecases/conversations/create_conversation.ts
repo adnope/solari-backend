@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { conversations, users } from "../../db/schema.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type CreateConversationResult = {
   id: string;
@@ -69,6 +70,11 @@ export async function createConversation(
       .where(inArray(users.id, [userLow, userHigh]));
 
     if (existingUsers.length !== 2) {
+      throw new CreateConversationError("USER_NOT_FOUND", "Target user does not exist.", 404);
+    }
+
+    const isBlocked = await hasBlockingRelationship(normalizedUserId, normalizedTargetUserId);
+    if (isBlocked) {
       throw new CreateConversationError("USER_NOT_FOUND", "Target user does not exist.", 404);
     }
 

@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { friendRequests, users } from "../../db/schema.ts";
+import { blockedUsers, friendRequests, users } from "../../db/schema.ts";
 
 export type FriendRequestUser = {
   id: string;
@@ -128,9 +128,28 @@ export async function viewFriendRequests(
       }
     }
 
+    const noBlockCondition = notExists(
+      db
+        .select({ blockerId: blockedUsers.blockerId })
+        .from(blockedUsers)
+        .where(
+          or(
+            and(
+              eq(blockedUsers.blockerId, friendRequests.requesterId),
+              eq(blockedUsers.blockedId, friendRequests.receiverId),
+            ),
+            and(
+              eq(blockedUsers.blockerId, friendRequests.receiverId),
+              eq(blockedUsers.blockedId, friendRequests.requesterId),
+            ),
+          ),
+        ),
+    );
+
     const whereCondition = cursorCondition
-      ? and(directionCondition, cursorCondition)
-      : directionCondition;
+      ? and(directionCondition, cursorCondition, noBlockCondition)
+      : and(directionCondition, noBlockCondition);
+
     const orderCondition =
       sort === "newest" ? desc(friendRequests.createdAt) : asc(friendRequests.createdAt);
 

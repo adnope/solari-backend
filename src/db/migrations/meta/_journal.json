@@ -15,6 +15,13 @@
       "when": 1774834461188,
       "tag": "0001_long_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775052455969,
+      "tag": "0002_numerous_wonder_man",
+      "breakpoints": true
     }
   ]
 }

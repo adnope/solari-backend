@@ -1,7 +1,8 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { conversations, messages } from "../../db/schema.ts";
+import { conversations, friendships, messages } from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type UnsendMessageInput = {
   senderId: string;
@@ -18,6 +19,7 @@ export type UnsendMessageErrorType =
   | "MISSING_INPUT"
   | "MESSAGE_NOT_FOUND"
   | "UNAUTHORIZED"
+  | "ARCHIVED"
   | "INTERNAL_ERROR";
 
 export class UnsendMessageError extends Error {
@@ -85,6 +87,34 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
 
       const targetReceiverId =
         conversation.userLow === normalizedSenderId ? conversation.userHigh : conversation.userLow;
+
+      const isBlocked = await hasBlockingRelationship(normalizedSenderId, targetReceiverId, tx);
+      if (isBlocked) {
+        throw new UnsendMessageError(
+          "ARCHIVED",
+          "This conversation is archived. You cannot modify it.",
+          403,
+        );
+      }
+
+      const [friendship] = await tx
+        .select({ userLow: friendships.userLow })
+        .from(friendships)
+        .where(
+          and(
+            eq(friendships.userLow, conversation.userLow),
+            eq(friendships.userHigh, conversation.userHigh),
+          ),
+        )
+        .limit(1);
+
+      if (!friendship) {
+        throw new UnsendMessageError(
+          "ARCHIVED",
+          "This conversation is archived. You cannot modify it.",
+          403,
+        );
+      }
 
       if (message.isDeleted) {
         return {

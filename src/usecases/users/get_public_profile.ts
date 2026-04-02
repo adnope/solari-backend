@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
+import { isBlockedBy } from "../common_queries.ts";
 
 export type PublicProfileResult = {
   id: string;
@@ -24,11 +25,19 @@ export class GetPublicProfileError extends Error {
   }
 }
 
-export async function getPublicProfile(username: string): Promise<PublicProfileResult> {
+export async function getPublicProfile(
+  requesterId: string,
+  username: string,
+): Promise<PublicProfileResult> {
   const normalizedUsername = username.trim().toLowerCase();
+  const normalizedRequesterId = requesterId.trim();
 
-  if (!normalizedUsername) {
-    throw new GetPublicProfileError("INVALID_INPUT", "Username is required.", 400);
+  if (!normalizedUsername || !normalizedRequesterId) {
+    throw new GetPublicProfileError(
+      "INVALID_INPUT",
+      "Requester ID and Username are required.",
+      400,
+    );
   }
 
   try {
@@ -44,6 +53,11 @@ export async function getPublicProfile(username: string): Promise<PublicProfileR
       .limit(1);
 
     if (!user) {
+      throw new GetPublicProfileError("USER_NOT_FOUND", "User not found.", 404);
+    }
+
+    const isBlocked = await isBlockedBy(user.id, normalizedRequesterId);
+    if (isBlocked) {
       throw new GetPublicProfileError("USER_NOT_FOUND", "User not found.", 404);
     }
 

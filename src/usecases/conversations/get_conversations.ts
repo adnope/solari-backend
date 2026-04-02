@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { conversations, messages, users } from "../../db/schema.ts";
+import { blockedUsers, conversations, friendships, messages, users } from "../../db/schema.ts";
 
 export type ConversationPartner = {
   id: string;
@@ -27,6 +27,7 @@ export type ConversationItem = {
   lastMessage: ConversationLastMessage;
   currentUserLastReadAt: string | null;
   partnerLastReadAt: string | null;
+  isReadOnly: boolean;
 };
 
 export type GetConversationsResult = {
@@ -125,15 +126,43 @@ export async function getConversations(
       ),
     ];
 
-    const partnerRows = await db
-      .select({
-        id: users.id,
-        username: users.username,
-        displayName: users.displayName,
-        avatarKey: users.avatarKey,
-      })
-      .from(users)
-      .where(inArray(users.id, partnerIds));
+    const [partnerRows, friendshipRows, blockedByRows] = await Promise.all([
+      db
+        .select({
+          id: users.id,
+          username: users.username,
+          displayName: users.displayName,
+          avatarKey: users.avatarKey,
+        })
+        .from(users)
+        .where(inArray(users.id, partnerIds)),
+
+      db
+        .select({ userLow: friendships.userLow, userHigh: friendships.userHigh })
+        .from(friendships)
+        .where(
+          or(
+            and(
+              eq(friendships.userLow, normalizedUserId),
+              inArray(friendships.userHigh, partnerIds),
+            ),
+            and(
+              eq(friendships.userHigh, normalizedUserId),
+              inArray(friendships.userLow, partnerIds),
+            ),
+          ),
+        ),
+
+      db
+        .select({ blockerId: blockedUsers.blockerId })
+        .from(blockedUsers)
+        .where(
+          and(
+            eq(blockedUsers.blockedId, normalizedUserId),
+            inArray(blockedUsers.blockerId, partnerIds),
+          ),
+        ),
+    ]);
 
     const partnerMap = new Map(
       partnerRows.map((partner) => [
@@ -146,6 +175,11 @@ export async function getConversations(
         },
       ]),
     );
+
+    const activeFriendsSet = new Set(
+      friendshipRows.map((f) => (f.userLow === normalizedUserId ? f.userHigh : f.userLow)),
+    );
+    const blockedByPartnerSet = new Set(blockedByRows.map((b) => b.blockerId));
 
     const lastMessageRows = await db
       .selectDistinctOn([messages.conversationId], {
@@ -187,16 +221,29 @@ export async function getConversations(
 
       const isViewerLow = row.userLow === normalizedUserId;
 
+      const isFriend = activeFriendsSet.has(partnerId);
+      const isBlockedByPartner = blockedByPartnerSet.has(partnerId);
+
+      const finalPartner: ConversationPartner = isBlockedByPartner
+        ? {
+            id: partner.id,
+            username: "Someone",
+            displayName: null,
+            avatarKey: null,
+          }
+        : partner;
+
       return {
         id: row.id,
         userLow: row.userLow,
         userHigh: row.userHigh,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
-        partner,
+        partner: finalPartner,
         lastMessage: lastMessageMap.get(row.id) ?? null,
         currentUserLastReadAt: isViewerLow ? row.userLowLastReadAt : row.userHighLastReadAt,
         partnerLastReadAt: isViewerLow ? row.userHighLastReadAt : row.userLowLastReadAt,
+        isReadOnly: !isFriend,
       };
     });
 

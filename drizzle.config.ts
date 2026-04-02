@@ -3,7 +3,8 @@ import { defineConfig } from "drizzle-kit";
 const user = process.env["POSTGRES_USER"];
 const password = process.env["POSTGRES_PASSWORD"];
 
-const host = process.env["POSTGRES_HOST"];
+// const host = process.env["POSTGRES_HOST"];
+const host = "localhost";
 const port = process.env["POSTGRES_PORT"] || "5432";
 const dbName = process.env["POSTGRES_DB"];
 
