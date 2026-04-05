@@ -1,17 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
-import {
-  conversations,
-  friendships,
-  messages,
-  posts,
-  userDevices,
-  users,
-} from "../../db/schema.ts";
-import { getFileUrl } from "../../storage/s3.ts";
-import { sendPushNotification } from "../../utils/fcm.ts";
+import { conversations, friendships, messages, posts, users } from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
+import { enqueueJob } from "../../jobs/queue.ts";
 
 export type SendMessageInput = {
   senderId: string;
@@ -239,29 +231,21 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
     void (async () => {
       try {
-        const [sender, tokenRows] = await Promise.all([
-          db
-            .select({
-              username: users.username,
-              displayName: users.displayName,
-              avatarKey: users.avatarKey,
-            })
-            .from(users)
-            .where(eq(users.id, normalizedSenderId))
-            .limit(1)
-            .then((res) => res[0]),
+        const sender = await db
+          .select({
+            username: users.username,
+            displayName: users.displayName,
+            avatarKey: users.avatarKey,
+          })
+          .from(users)
+          .where(eq(users.id, normalizedSenderId))
+          .limit(1)
+          .then((res) => res[0]);
 
-          db
-            .select({ deviceToken: userDevices.deviceToken })
-            .from(userDevices)
-            .where(eq(userDevices.userId, receiverId)),
-        ]);
-
-        if (tokenRows.length > 0) {
-          const avatarUrl = sender?.avatarKey ? await getFileUrl(sender.avatarKey) : "";
+        if (sender) {
           const isPostReply = !!normalizedReferencedPostId;
           const isMessageReply = !!normalizedRepliedMessageId;
-          const senderName = sender?.displayName || sender?.username || "Someone";
+          const senderName = sender.displayName || sender.username || "Someone";
 
           let title = "New Message";
           let body = `${senderName} sent a message.`;
@@ -274,18 +258,22 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
             body = `${senderName} replied to a message.`;
           }
 
-          await Promise.allSettled(
-            tokenRows.map((row) =>
-              sendPushNotification(row.deviceToken, title, body, "NEW_MESSAGE", {
-                conversationId: normalizedConversationId,
-                messageId: messageResult.id,
-                avatarUrl,
-              }),
-            ),
-          );
+          const extraData = {
+            conversationId: normalizedConversationId,
+            messageId: messageResult.id,
+            avatarKey: sender.avatarKey || "",
+          };
+
+          await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+            recipientUserId: receiverId,
+            title,
+            body,
+            notificationType: "NEW_MESSAGE",
+            extraData,
+          });
         }
       } catch (err) {
-        console.error(`[ERROR] Failed to send background push notification: ${err}`);
+        console.error(`[ERROR] Failed to enqueue background push notification: ${err}`);
       }
     })();
 

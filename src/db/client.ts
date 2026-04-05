@@ -18,7 +18,7 @@ export const queryClient = postgres(DATABASE_URL, { max: poolSize });
 
 export const db = drizzle(queryClient);
 
-console.log("=====================================================")
+console.log("=====================================================");
 try {
   await queryClient`SELECT 1`;
   console.log(`[INFO] Connected to PostgreSQL at ${host}:${port}/${dbName}`);

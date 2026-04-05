@@ -1,10 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendRequests, friendships, userDevices, users } from "../../db/schema.ts";
-import { getFileUrl } from "../../storage/s3.ts";
-import { sendPushNotification } from "../../utils/fcm.ts";
+import { friendRequests, friendships, users } from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
+import { enqueueJob } from "../../jobs/queue.ts";
 
 export type AcceptFriendRequestResult = {
   id: string;
@@ -136,13 +135,6 @@ export async function acceptFriendRequest(
         throw new AcceptFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
       }
 
-      const tokenRows = await tx
-        .select({
-          deviceToken: userDevices.deviceToken,
-        })
-        .from(userDevices)
-        .where(eq(userDevices.userId, requestRow.requesterId));
-
       return {
         result: {
           id: requestRow.id,
@@ -151,7 +143,6 @@ export async function acceptFriendRequest(
           createdAt: requestRow.createdAt,
         },
         pushData: {
-          tokens: tokenRows.map((row) => row.deviceToken),
           acceptorName: acceptor.displayName || acceptor.username || "Someone",
           acceptorAvatarKey: acceptor.avatarKey,
           acceptorId: normalizedReceiverId,
@@ -167,25 +158,23 @@ export async function acceptFriendRequest(
     wsPublisher.sendToUser(result.requesterId, wsPayload);
     wsPublisher.sendToUser(result.receiverId, wsPayload);
 
-    if (pushData.tokens.length > 0) {
-      const title = "Friend Request Accepted";
-      const body = `${pushData.acceptorName} accepted your friend request.`;
-
-      let avatarUrl = "";
-      if (pushData.acceptorAvatarKey) {
-        avatarUrl = await getFileUrl(pushData.acceptorAvatarKey);
-      }
-
+    if (pushData) {
       const extraData = {
         acceptorId: pushData.acceptorId,
-        avatarUrl,
+        avatarKey: pushData.acceptorAvatarKey || "",
       };
 
-      void Promise.allSettled(
-        pushData.tokens.map((token) =>
-          sendPushNotification(token, title, body, "FRIEND_REQUEST_ACCEPTED", extraData),
-        ),
-      ).catch(console.error);
+      try {
+        await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+          recipientUserId: result.requesterId,
+          title: "Friend Request Accepted",
+          body: `${pushData.acceptorName} accepted your friend request.`,
+          notificationType: "FRIEND_REQUEST_ACCEPTED",
+          extraData: extraData,
+        });
+      } catch (err) {
+        console.error(`[ERROR] Failed to enqueue background push notification: ${err}`);
+      }
     }
 
     return result;

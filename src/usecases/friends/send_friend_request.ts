@@ -1,11 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendRequests, friendships, userDevices, users } from "../../db/schema.ts";
-import { getFileUrl } from "../../storage/s3.ts";
-import { sendPushNotification } from "../../utils/fcm.ts";
+import { friendRequests, friendships, users } from "../../db/schema.ts";
 import { isPgError } from "../postgres_error.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
+import { enqueueJob } from "../../jobs/queue.ts";
 
 export type FriendRequestResult = {
   id: string;
@@ -198,17 +197,9 @@ export async function sendFriendRequest(
         throw new SendFriendRequestError("INTERNAL_ERROR", "Failed to create friend request.", 500);
       }
 
-      const tokenRows = await tx
-        .select({
-          deviceToken: userDevices.deviceToken,
-        })
-        .from(userDevices)
-        .where(eq(userDevices.userId, receiver.id));
-
       return {
         requestResult: inserted,
         pushData: {
-          tokens: tokenRows.map((row) => row.deviceToken),
           requesterName: requester.displayName || requester.username || "Someone",
           requesterAvatarKey: requester.avatarKey,
           requesterId: normalizedRequesterId,
@@ -221,25 +212,23 @@ export async function sendFriendRequest(
       payload: requestResult,
     });
 
-    if (pushData.tokens.length > 0) {
-      const title = "New Friend Request";
-      const body = `${pushData.requesterName} sent you a friend request.`;
-
-      let avatarUrl = "";
-      if (pushData.requesterAvatarKey) {
-        avatarUrl = await getFileUrl(pushData.requesterAvatarKey);
-      }
-
+    if (pushData) {
       const extraData = {
         requesterId: pushData.requesterId,
-        avatarUrl,
+        avatarKey: pushData.requesterAvatarKey || "",
       };
 
-      void Promise.allSettled(
-        pushData.tokens.map((token) =>
-          sendPushNotification(token, title, body, "NEW_FRIEND_REQUEST", extraData),
-        ),
-      ).catch(console.error);
+      try {
+        await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+          recipientUserId: requestResult.receiverId,
+          title: "New Friend Request",
+          body: `${pushData.requesterName} sent you a friend request.`,
+          notificationType: "NEW_FRIEND_REQUEST",
+          extraData: extraData,
+        });
+      } catch (err) {
+        console.error(`[ERROR] Failed to enqueue background push notification: ${err}`);
+      }
     }
 
     return requestResult;

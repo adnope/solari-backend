@@ -12,6 +12,7 @@ import {
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { UploadPostError } from "../usecases/posts/upload_post.ts";
 import { finalizePostUpload, initiatePostUpload } from "../usecases/posts/upload_post.ts";
+import { getPostUploadStatuses } from "../usecases/posts/get_post_upload_status.ts";
 
 class PostsRequestError extends Error {
   constructor(
@@ -112,6 +113,39 @@ const protectedPostsRouter = new Elysia()
       body: t.Object({
         post_id: t.String(),
         object_key: t.String(),
+      }),
+    },
+  )
+
+  // Check the status of pending uploads
+  .get(
+    "/posts/statuses",
+    async ({ authUserId, query, set }) => {
+      const idsString = query.ids;
+
+      if (!idsString?.trim()) {
+        return { statuses: {} };
+      }
+
+      const idsArray = idsString
+        .split(",")
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0);
+
+      const statuses = await getPostUploadStatuses(authUserId, idsArray);
+
+      set.status = 200;
+      return {
+        statuses: statuses,
+      };
+    },
+    {
+      query: t.Object({
+        ids: t.Optional(
+          t.String({
+            description: "Comma-separated list of post UUIDs (e.g., id1,id2,id3)",
+          }),
+        ),
       }),
     },
   )

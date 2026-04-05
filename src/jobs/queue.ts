@@ -35,7 +35,13 @@ export async function initRedis() {
   }
 }
 
-export async function enqueueJob<T>(queueName: string, jobId: string, payload: T): Promise<string> {
+export type QueueName = "post-upload-processing" | "push-notification-processing";
+
+export async function enqueueJob<T>(
+  queueName: QueueName,
+  jobId: string,
+  payload: T,
+): Promise<string> {
   const jobString = JSON.stringify({
     id: jobId,
     data: payload,

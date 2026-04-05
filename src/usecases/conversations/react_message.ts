@@ -1,10 +1,9 @@
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { conversations, messageReactions, messages, userDevices, users } from "../../db/schema.ts";
-import { getFileUrl } from "../../storage/s3.ts";
-import { sendPushNotification } from "../../utils/fcm.ts";
+import { conversations, messageReactions, messages, users } from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
+import { enqueueJob } from "../../jobs/queue.ts";
 
 export type ReactMessageInput = {
   userId: string;
@@ -156,10 +155,10 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
       }
 
       let pushData: {
-        tokens: string[];
         reactorName: string;
         reactorAvatarKey: string | null;
         conversationId: string;
+        receiverId: string;
       } | null = null;
 
       if (messageRow.senderId !== normalizedUserId) {
@@ -173,18 +172,11 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
           .where(eq(users.id, normalizedUserId))
           .limit(1);
 
-        const tokensRows = await tx
-          .select({
-            deviceToken: userDevices.deviceToken,
-          })
-          .from(userDevices)
-          .where(eq(userDevices.userId, messageRow.senderId));
-
         pushData = {
-          tokens: tokensRows.map((row) => row.deviceToken),
           reactorName: reactor?.displayName || reactor?.username || "Someone",
           reactorAvatarKey: reactor?.avatarKey ?? null,
           conversationId: messageRow.conversationId,
+          receiverId: messageRow.senderId,
         };
       }
 
@@ -213,28 +205,24 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
     wsPublisher.sendToUser(receiverId, eventPayload);
     wsPublisher.sendToUser(normalizedUserId, eventPayload);
 
-    if (pushData && pushData.tokens.length > 0) {
-      const avatarUrl = pushData.reactorAvatarKey
-        ? await getFileUrl(pushData.reactorAvatarKey)
-        : "";
-
+    if (pushData) {
       const extraData = {
         conversationId: pushData.conversationId,
         messageId: reactionResult.messageId,
-        avatarUrl,
+        avatarKey: pushData.reactorAvatarKey || "",
       };
 
-      void Promise.allSettled(
-        pushData.tokens.map((token) =>
-          sendPushNotification(
-            token,
-            "New Reaction",
-            `${pushData.reactorName} reacted ${trimmedEmoji}`,
-            "NEW_MESSAGE_REACTION",
-            extraData,
-          ),
-        ),
-      ).catch(console.error);
+      try {
+        await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+          recipientUserId: pushData.receiverId,
+          title: "New Reaction",
+          body: `${pushData.reactorName} reacted ${trimmedEmoji}`,
+          notificationType: "NEW_MESSAGE_REACTION",
+          extraData: extraData,
+        });
+      } catch (err) {
+        console.error(`[ERROR] Failed to enqueue background push notification: ${err}`);
+      }
     }
 
     return reactionResult;

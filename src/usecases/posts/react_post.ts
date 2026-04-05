@@ -1,8 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { postReactions, postVisibility, posts, userDevices, users } from "../../db/schema.ts";
-import { getFileUrl } from "../../storage/s3.ts";
-import { sendPushNotification } from "../../utils/fcm.ts";
+import { postReactions, postVisibility, posts, users } from "../../db/schema.ts";
+import { enqueueJob } from "../../jobs/queue.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type ReactPostInput = {
@@ -149,13 +148,6 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
         .where(eq(users.id, normalizedUserId))
         .limit(1);
 
-      const deviceRows = await tx
-        .select({
-          deviceToken: userDevices.deviceToken,
-        })
-        .from(userDevices)
-        .where(eq(userDevices.userId, postInfo.authorId));
-
       return {
         reactionResult: {
           id: reactionId,
@@ -166,35 +158,33 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
           createdAt: inserted.createdAt,
         },
         pushData: {
-          tokens: deviceRows.map((row) => row.deviceToken),
+          postOwnerId: postInfo.authorId,
           reactorName: reactor?.displayName || reactor?.username || "Someone",
-          reactorAvatarKey: reactor?.avatarKey ?? null,
+          reactorAvatarKey: reactor?.avatarKey || "",
         },
       };
     });
 
-    if (pushData.tokens.length > 0) {
-      const title = "New Reaction";
-      const body = `${pushData.reactorName} reacted ${trimmedEmoji} to your post.`;
+    void (async () => {
+      try {
+        const extraData = {
+          reactionId: reactionResult.id,
+          postId: reactionResult.postId,
+          emoji: reactionResult.emoji,
+          avatarKey: pushData.reactorAvatarKey,
+        };
 
-      let avatarUrl = "";
-      if (pushData.reactorAvatarKey) {
-        avatarUrl = await getFileUrl(pushData.reactorAvatarKey);
+        await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+          recipientUserId: pushData.postOwnerId,
+          title: "New Reaction",
+          body: `${pushData.reactorName} reacted ${trimmedEmoji} to your post.`,
+          notificationType: "NEW_POST_REACTION",
+          extraData: extraData,
+        });
+      } catch (err) {
+        console.error(`[ERROR] Failed to enqueue background push notification: ${err}`);
       }
-
-      const extraData = {
-        reactionId: reactionResult.id,
-        postId: reactionResult.postId,
-        emoji: reactionResult.emoji,
-        avatarUrl,
-      };
-
-      void Promise.allSettled(
-        pushData.tokens.map((token) =>
-          sendPushNotification(token, title, body, "NEW_POST_REACTION", extraData),
-        ),
-      ).catch(console.error);
-    }
+    })();
 
     return reactionResult;
   } catch (error) {
