@@ -109,6 +109,22 @@ export type WsFriendProfileUpdatedEvent = {
   };
 };
 
+export type WsPostUploadSuccessfulEvent = {
+  type: "POST_PROCESSED";
+  payload: {
+    postId: string;
+    status: string;
+  };
+};
+
+export type WsPostUploadFailedEvent = {
+  type: "POST_FAILED";
+  payload: {
+    postId: string;
+    error: string;
+  };
+};
+
 export type WsServerEvent =
   | WsNewMessageEvent
   | WsMessageUnsentEvent
@@ -121,4 +137,6 @@ export type WsServerEvent =
   | WsFriendRequestAcceptedEvent
   | WsFriendRequestRemovedEvent
   | WsFriendshipStatusEvent
-  | WsFriendProfileUpdatedEvent;
+  | WsFriendProfileUpdatedEvent
+  | WsPostUploadSuccessfulEvent
+  | WsPostUploadFailedEvent;

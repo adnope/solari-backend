@@ -1,6 +1,9 @@
 import app from "./routes/server.ts";
 import { wsPublisher } from "./websocket/publisher.ts";
 import { wsRoutes } from "./routes/ws.ts";
+import { initRedis } from "./jobs/queue.ts";
+
+await initRedis();
 
 app.use(wsRoutes);
 

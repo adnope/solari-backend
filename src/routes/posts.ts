@@ -4,14 +4,14 @@ import { deletePost, DeletePostError } from "../usecases/posts/delete_post.ts";
 import { deleteReaction, DeleteReactionError } from "../usecases/posts/delete_reaction.ts";
 import { getPostViewers, GetPostViewersError } from "../usecases/posts/get_post_viewers.ts";
 import { reactPost, ReactPostError } from "../usecases/posts/react_post.ts";
-import { uploadPost, UploadPostError } from "../usecases/posts/upload_post.ts";
 import { viewPost, ViewPostError } from "../usecases/posts/view_post.ts";
 import {
   viewPostReactions,
   ViewPostReactionsError,
 } from "../usecases/posts/view_post_reactions.ts";
-import { extractMediaMetadata } from "../utils/media_parser.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
+import { UploadPostError } from "../usecases/posts/upload_post.ts";
+import { finalizePostUpload, initiatePostUpload } from "../usecases/posts/upload_post.ts";
 
 class PostsRequestError extends Error {
   constructor(
@@ -23,33 +23,14 @@ class PostsRequestError extends Error {
   }
 }
 
-const isInvalidMediaParseError = (error: unknown) =>
-  error instanceof Error &&
-  (error.message.includes("Could not parse") || error.message.includes("ffprobe"));
-
 const protectedPostsRouter = new Elysia()
   .use(requireAuth)
 
-  // Upload a post
+  // Initiate a post upload
   .post(
-    "/posts",
+    "/posts/initiate",
     async ({ authUserId, body, set }) => {
-      const mediaFile = body.media;
-
-      const contentType = mediaFile.type;
-      const byteSize = mediaFile.size;
-
-      if (!contentType.startsWith("image/") && !contentType.startsWith("video/")) {
-        throw new PostsRequestError(
-          "INVALID_MEDIA",
-          "Only image and video files are allowed.",
-          400,
-        );
-      }
-
-      const caption = body.caption?.trim() ? body.caption : undefined;
       const audienceType = body.audience_type;
-
       let viewerIds: string[] | undefined;
 
       if (body.viewer_ids?.trim()) {
@@ -60,7 +41,7 @@ const protectedPostsRouter = new Elysia()
       }
 
       if (audienceType === "selected" && (!viewerIds || viewerIds.length === 0)) {
-        throw new PostsRequestError(
+        throw new UploadPostError(
           "INVALID_AUDIENCE",
           "At least 1 viewer id must be specified if audience type is 'selected'",
           400,
@@ -68,68 +49,69 @@ const protectedPostsRouter = new Elysia()
       }
 
       if (audienceType === "all" && viewerIds && viewerIds.length > 0) {
-        throw new PostsRequestError(
+        throw new UploadPostError(
           "INVALID_AUDIENCE",
           "No viewer ids should be specified when audience type is 'all'",
           400,
         );
       }
 
-      const buffer = new Uint8Array(await mediaFile.arrayBuffer());
+      const caption = body.caption?.trim() ? body.caption : undefined;
 
-      let metadata;
-      try {
-        metadata = await extractMediaMetadata(buffer, contentType);
-      } catch (error) {
-        if (isInvalidMediaParseError(error)) {
-          throw new PostsRequestError(
-            "INVALID_MEDIA",
-            "The uploaded media file is invalid or corrupt.",
-            400,
-          );
-        }
-        throw error;
-      }
-
-      const result = await uploadPost({
+      const result = await initiatePostUpload({
         authorId: authUserId,
-        audienceType,
-        buffer,
-        contentType,
-        byteSize,
-        mediaType: metadata.mediaType,
-        width: metadata.width,
-        height: metadata.height,
-        ...(caption !== undefined && { caption }),
-        ...(viewerIds !== undefined && { viewerIds }),
-        ...(metadata.durationMs !== undefined && { durationMs: metadata.durationMs }),
+        contentType: body.content_type,
+        caption: caption,
+        audienceType: audienceType,
+        viewerIds: viewerIds,
+        width: body.width,
+        height: body.height,
+        byteSize: body.byte_size,
+        durationMs: body.duration_ms,
       });
 
-      set.status = 201;
+      set.status = 200;
       return {
-        message: "Post uploaded successfully.",
-        post: {
-          id: result.id,
-          author_id: result.authorId,
-          caption: result.caption,
-          audience_type: result.audienceType,
-          created_at: result.createdAt,
-          media: {
-            object_key: result.media.objectKey,
-            media_type: result.media.mediaType,
-            width: result.media.width,
-            height: result.media.height,
-          },
-        },
+        post_id: result.postId,
+        object_key: result.objectKey,
+        upload_url: result.uploadUrl,
       };
     },
     {
-      parse: "formdata",
       body: t.Object({
-        media: t.File(),
+        content_type: t.String(),
         caption: t.Optional(t.String()),
         audience_type: t.Union([t.Literal("all"), t.Literal("selected")]),
         viewer_ids: t.Optional(t.String()),
+        width: t.Number(),
+        height: t.Number(),
+        byte_size: t.Number(),
+        duration_ms: t.Optional(t.Number()),
+      }),
+    },
+  )
+
+  // Finalize post upload
+  .post(
+    "/posts/finalize",
+    async ({ authUserId, body, set }) => {
+      const result = await finalizePostUpload({
+        authorId: authUserId,
+        postId: body.post_id,
+        objectKey: body.object_key,
+      });
+
+      set.status = 202;
+      return {
+        message: result.message,
+        post_id: result.postId,
+        status: result.status,
+      };
+    },
+    {
+      body: t.Object({
+        post_id: t.String(),
+        object_key: t.String(),
       }),
     },
   )

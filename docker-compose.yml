@@ -13,8 +13,31 @@ services:
         condition: service_healthy
       s3:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${SERVER_PORT:-5050}:5050"
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+  worker:
+    container_name: solari-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${SERVER_ENV:-dev}
+    command: bun run worker
+    depends_on:
+      db:
+        condition: service_healthy
+      s3:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
       - /app/node_modules
@@ -60,6 +83,23 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:8.6-alpine
+    container_name: solari-redis
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   pgdata:
   s3data:
+  redisdata:

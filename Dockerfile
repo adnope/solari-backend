@@ -1,5 +1,7 @@
 FROM oven/bun:alpine AS base
 
+RUN apk add --no-cache ffmpeg
+
 WORKDIR /app
 
 COPY package.json bun.lock /app/

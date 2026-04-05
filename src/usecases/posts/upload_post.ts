@@ -1,46 +1,19 @@
 import { eq, or } from "drizzle-orm";
-import { withTx } from "../../db/client.ts";
-import { friendships, postMedia, posts, postVisibility } from "../../db/schema.ts";
-import { uploadFile } from "../../storage/s3.ts";
-import { generateThumbnail } from "../../utils/thumbnail.ts";
-
-export type UploadPostInput = {
-  authorId: string;
-  caption?: string;
-  audienceType: "all" | "selected";
-  viewerIds?: string[];
-  mediaType: "image" | "video";
-  buffer: Uint8Array;
-  contentType: string;
-  byteSize: number;
-  width: number;
-  height: number;
-  durationMs?: number;
-};
-
-export type UploadPostResult = {
-  id: string;
-  authorId: string;
-  caption: string | null;
-  audienceType: string;
-  createdAt: string;
-  media: {
-    objectKey: string;
-    thumbnailKey: string;
-    mediaType: string;
-    width: number;
-    height: number;
-  };
-};
+import { db } from "../../db/client.ts";
+import { friendships } from "../../db/schema.ts";
+import { getUploadPresignedUrl } from "../../storage/s3.ts";
+import { redisClient, enqueueJob } from "../../jobs/queue.ts";
+import type { UploadPostJobPayload } from "../../jobs/handlers/process_post_upload.ts";
 
 export type UploadPostErrorType =
   | "MISSING_INPUT"
+  | "INVALID_MEDIA"
   | "INVALID_DIMENSIONS"
   | "INVALID_DURATION"
   | "INVALID_AUDIENCE"
-  | "INVALID_MEDIA"
-  | "STORAGE_ERROR"
   | "CAPTION_TOO_LONG"
+  | "TICKET_EXPIRED"
+  | "UNAUTHORIZED"
   | "INTERNAL_ERROR";
 
 export class UploadPostError extends Error {
@@ -61,9 +34,29 @@ function isValidUuid(value: string): boolean {
   return UUID_REGEX.test(value);
 }
 
-function validatePostInput(input: UploadPostInput) {
-  if (!input.contentType.startsWith("image/") && !input.contentType.startsWith("video/")) {
-    throw new UploadPostError("INVALID_MEDIA", "Only images and videos are allowed.", 400);
+export type InitiatePostUploadInput = {
+  authorId: string;
+  contentType: string;
+  caption?: string | undefined;
+  audienceType: "all" | "selected";
+  viewerIds?: string[] | undefined;
+  width: number;
+  height: number;
+  byteSize: number;
+  durationMs?: number | undefined;
+};
+
+export type InitiatePostUploadResult = {
+  postId: string;
+  objectKey: string;
+  uploadUrl: string;
+};
+
+function validateInitiateInput(input: InitiatePostUploadInput) {
+  const normalizedContentType = input.contentType.trim().toLowerCase();
+
+  if (!normalizedContentType.startsWith("image/") && !normalizedContentType.startsWith("video/")) {
+    throw new UploadPostError("INVALID_MEDIA", "Only image and video files are allowed.", 400);
   }
 
   if (input.caption && input.caption.length >= 48) {
@@ -74,25 +67,21 @@ function validatePostInput(input: UploadPostInput) {
     );
   }
 
-  if (!input.authorId || !input.buffer || !input.contentType) {
-    throw new UploadPostError("MISSING_INPUT", "Missing required fields or media buffer.", 400);
-  }
-
-  if (!isValidUuid(input.authorId.trim())) {
+  if (!input.authorId || !isValidUuid(input.authorId.trim())) {
     throw new UploadPostError("MISSING_INPUT", "Invalid author ID.", 400);
   }
 
   if (input.width <= 0 || input.height <= 0 || input.width !== input.height) {
     throw new UploadPostError(
       "INVALID_DIMENSIONS",
-      "Media must have positive, square dimensions (width = height).",
+      "Media must have positive, square dimensions.",
       400,
     );
   }
 
-  if (input.mediaType === "video") {
+  if (normalizedContentType.startsWith("video/")) {
     if (!input.durationMs || input.durationMs <= 0 || input.durationMs > 4000) {
-      throw new UploadPostError("INVALID_DURATION", "Video must be no longer than 3 seconds.", 400);
+      throw new UploadPostError("INVALID_DURATION", "Video must be no longer than 4 seconds.", 400);
     }
   } else if (input.durationMs != null) {
     throw new UploadPostError("INVALID_DURATION", "Images cannot have a duration.", 400);
@@ -107,157 +96,148 @@ function validatePostInput(input: UploadPostInput) {
   }
 
   if (input.viewerIds && !input.viewerIds.every((id) => isValidUuid(id.trim()))) {
-    throw new UploadPostError("INVALID_AUDIENCE", "Invalid UUID format.", 400);
+    throw new UploadPostError("INVALID_AUDIENCE", "Invalid viewer UUID format.", 400);
   }
 }
 
-export async function uploadPost(input: UploadPostInput): Promise<UploadPostResult> {
-  validatePostInput(input);
+export async function initiatePostUpload(
+  input: InitiatePostUploadInput,
+): Promise<InitiatePostUploadResult> {
+  validateInitiateInput(input);
 
   const normalizedAuthorId = input.authorId.trim();
+  let uniqueViewerIds: string[] | undefined;
+
+  if (input.audienceType === "selected" && input.viewerIds) {
+    uniqueViewerIds = [...new Set(input.viewerIds.map((id) => id.trim()))];
+
+    const friendshipRows = await db
+      .select({
+        userLow: friendships.userLow,
+        userHigh: friendships.userHigh,
+      })
+      .from(friendships)
+      .where(
+        or(
+          eq(friendships.userLow, normalizedAuthorId),
+          eq(friendships.userHigh, normalizedAuthorId),
+        ),
+      );
+
+    const friendIds = new Set(
+      friendshipRows.map((row) =>
+        row.userLow === normalizedAuthorId ? row.userHigh : row.userLow,
+      ),
+    );
+
+    const allValid = uniqueViewerIds.every((viewerId) => friendIds.has(viewerId));
+    if (!allValid) {
+      throw new UploadPostError(
+        "INVALID_AUDIENCE",
+        "One or more viewer IDs are invalid or not on your friends list.",
+        403,
+      );
+    }
+  }
+
+  const normalizedContentType = input.contentType.trim().toLowerCase();
   const postId = Bun.randomUUIDv7();
-  const fileExtension = input.contentType.split("/")[1] || "bin";
 
+  // Safely extract extension, ignoring codec metadata like "video/mp4; codecs=avc1"
+  const fileExtension = normalizedContentType.split("/")[1]?.split(";")[0]?.trim() || "bin";
   const objectKey = `posts/${postId}.${fileExtension}`;
-  const thumbnailKey = `posts/${postId}_thumb.webp`;
 
-  let thumbBuffer: Uint8Array;
+  const UPLOAD_TTL = 600;
   try {
-    thumbBuffer = await generateThumbnail(input.buffer, input.mediaType);
-  } catch {
-    throw new UploadPostError("INVALID_MEDIA", "Failed to process media file.", 400);
+    const uploadUrl = await getUploadPresignedUrl(objectKey, normalizedContentType, UPLOAD_TTL);
+
+    const ticketData = {
+      authorId: normalizedAuthorId,
+      contentType: normalizedContentType,
+      caption: input.caption,
+      audienceType: input.audienceType,
+      viewerIds: uniqueViewerIds,
+    };
+
+    await redisClient.set(`upload_ticket:${postId}`, JSON.stringify(ticketData), "EX", UPLOAD_TTL);
+
+    return {
+      postId,
+      objectKey,
+      uploadUrl,
+    };
+  } catch (error) {
+    console.error(`[ERROR] Unexpected error in use case: Initiate post upload\n${error}`);
+    throw new UploadPostError(
+      "INTERNAL_ERROR",
+      "Failed to initiate file upload with the storage server.",
+      500,
+    );
+  }
+}
+
+export type FinalizePostInput = {
+  authorId: string;
+  postId: string;
+  objectKey: string;
+};
+
+export async function finalizePostUpload(input: FinalizePostInput) {
+  if (!input.authorId || !input.postId || !input.objectKey) {
+    throw new UploadPostError("MISSING_INPUT", "Missing required fields.", 400);
   }
 
-  try {
-    await Promise.all([
-      uploadFile(objectKey, input.buffer, input.contentType),
-      uploadFile(thumbnailKey, thumbBuffer, "image/webp"),
-    ]);
-  } catch {
-    throw new UploadPostError("STORAGE_ERROR", "Failed to upload media to storage.", 502);
+  if (!isValidUuid(input.authorId.trim()) || !isValidUuid(input.postId.trim())) {
+    throw new UploadPostError("MISSING_INPUT", "Invalid UUID format.", 400);
   }
 
+  const normalizedAuthorId = input.authorId.trim();
+  const normalizedPostId = input.postId.trim();
+  const ticketKey = `upload_ticket:${normalizedPostId}`;
+
   try {
-    return await withTx(async (tx) => {
-      let uniqueViewerIds: string[] | undefined;
+    const ticketString = await redisClient.get(ticketKey);
 
-      if (input.audienceType === "selected" && input.viewerIds) {
-        uniqueViewerIds = [...new Set(input.viewerIds.map((id) => id.trim()))];
+    if (!ticketString) {
+      throw new UploadPostError(
+        "TICKET_EXPIRED",
+        "Upload session expired or invalid. Please try uploading again.",
+        410,
+      );
+    }
 
-        const friendshipRows = await tx
-          .select({
-            userLow: friendships.userLow,
-            userHigh: friendships.userHigh,
-          })
-          .from(friendships)
-          .where(
-            or(
-              eq(friendships.userLow, normalizedAuthorId),
-              eq(friendships.userHigh, normalizedAuthorId),
-            ),
-          );
+    const ticketData = JSON.parse(ticketString);
 
-        const friendIds = new Set(
-          friendshipRows.map((row) =>
-            row.userLow === normalizedAuthorId ? row.userHigh : row.userLow,
-          ),
-        );
+    if (ticketData.authorId !== normalizedAuthorId) {
+      throw new UploadPostError(
+        "UNAUTHORIZED",
+        "You are not authorized to finalize this post.",
+        403,
+      );
+    }
 
-        const allValid = uniqueViewerIds.every((viewerId) => friendIds.has(viewerId));
-        if (!allValid) {
-          throw new UploadPostError(
-            "INVALID_AUDIENCE",
-            "One or more viewer IDs are invalid or not on your friends list.",
-            403,
-          );
-        }
-      }
+    const jobPayload: UploadPostJobPayload = {
+      postId: normalizedPostId,
+      authorId: normalizedAuthorId,
+      objectKey: input.objectKey,
+      contentType: ticketData.contentType,
+      caption: ticketData.caption,
+      audienceType: ticketData.audienceType,
+      viewerIds: ticketData.viewerIds,
+    };
 
-      const [insertedPost] = await tx
-        .insert(posts)
-        .values({
-          id: postId,
-          authorId: normalizedAuthorId,
-          caption: input.caption || null,
-          audienceType: input.audienceType,
-        })
-        .returning({
-          createdAt: posts.createdAt,
-        });
+    await enqueueJob<UploadPostJobPayload>("post-processing", normalizedPostId, jobPayload);
 
-      if (!insertedPost) {
-        throw new UploadPostError(
-          "INTERNAL_ERROR",
-          "Internal server error during post creation.",
-          500,
-        );
-      }
+    await redisClient.del(ticketKey);
 
-      await tx.insert(postMedia).values({
-        postId,
-        mediaType: input.mediaType,
-        objectKey,
-        thumbnailKey,
-        contentType: input.contentType,
-        byteSize: input.byteSize,
-        durationMs: input.durationMs ?? null,
-        width: input.width,
-        height: input.height,
-      });
-
-      if (input.audienceType === "all") {
-        const friendshipRows = await tx
-          .select({
-            userLow: friendships.userLow,
-            userHigh: friendships.userHigh,
-          })
-          .from(friendships)
-          .where(
-            or(
-              eq(friendships.userLow, normalizedAuthorId),
-              eq(friendships.userHigh, normalizedAuthorId),
-            ),
-          );
-
-        const viewerIds = friendshipRows.map((row) =>
-          row.userLow === normalizedAuthorId ? row.userHigh : row.userLow,
-        );
-
-        if (viewerIds.length > 0) {
-          await tx.insert(postVisibility).values(
-            viewerIds.map((viewerId) => ({
-              postId,
-              viewerId,
-            })),
-          );
-        }
-      } else if (uniqueViewerIds && uniqueViewerIds.length > 0) {
-        await tx.insert(postVisibility).values(
-          uniqueViewerIds.map((viewerId) => ({
-            postId,
-            viewerId,
-          })),
-        );
-      }
-
-      return {
-        id: postId,
-        authorId: normalizedAuthorId,
-        caption: input.caption || null,
-        audienceType: input.audienceType,
-        createdAt: insertedPost.createdAt,
-        media: {
-          objectKey,
-          thumbnailKey,
-          mediaType: input.mediaType,
-          width: input.width,
-          height: input.height,
-        },
-      };
-    });
+    return {
+      message: "Post upload queued for processing.",
+      postId: normalizedPostId,
+      status: "processing",
+    };
   } catch (error) {
     if (error instanceof UploadPostError) throw error;
-    console.error(`[ERROR] Unexpected error in use case: Upload post\n${error}`);
-    throw new UploadPostError("INTERNAL_ERROR", "Internal server error during post creation.", 500);
+    console.error(`[ERROR] Failed to queue post ${normalizedPostId}:\n`, error);
+    throw new UploadPostError("INTERNAL_ERROR", "Failed to queue post processing.", 500);
   }
 }

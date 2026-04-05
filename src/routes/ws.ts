@@ -12,7 +12,7 @@ export const wsRoutes = new Elysia()
         userId: payload.sub as string,
       };
     } catch (error) {
-      console.error("[WS Auth Error]:", error);
+      // console.error("[WS Auth Error]:", error);
       return { userId: null };
     }
   })

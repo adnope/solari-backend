@@ -81,3 +81,32 @@ export async function deleteFile(objectKey: string): Promise<void> {
   });
   await s3Client.send(command);
 }
+
+export async function getUploadPresignedUrl(
+  objectKey: string,
+  contentType: string,
+  expiresInSeconds = 180,
+): Promise<string> {
+  const command = new PutObjectCommand({
+    Bucket: s3BucketName,
+    Key: objectKey,
+    ContentType: contentType,
+  });
+
+  return await getSignedUrl(presignClient, command, { expiresIn: expiresInSeconds });
+}
+
+export async function getFileBuffer(objectKey: string): Promise<Uint8Array> {
+  const command = new GetObjectCommand({
+    Bucket: process.env["S3_BUCKET_NAME"] || "solari-media",
+    Key: objectKey,
+  });
+
+  const response = await s3Client.send(command);
+
+  if (!response.Body) {
+    throw new Error("Empty file body received from S3.");
+  }
+
+  return new Uint8Array(await response.Body.transformToByteArray());
+}
