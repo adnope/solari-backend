@@ -27,6 +27,13 @@ Create a `.env` file in the root directory of the project and define the followi
 | `POSTGRES_PASSWORD` | PostgreSQL password.                                                                                                    | -       |
 | `PG_POOL_SIZE`      | Maximum number of database connections in the pool.                                                                     | `10`    |
 
+### Redis Cache & Queue
+
+| Variable     | Description                                                                                                       | Default |
+| :----------- | :---------------------------------------------------------------------------------------------------------------- | :------ |
+| `REDIS_HOST` | Hostname of the Redis server. When using Docker Compose, this should be the service name of the Redis container.  | `redis` |
+| `REDIS_PORT` | Port for the Redis connection.                                                                                    | `6379`  |
+
 ### S3 Object Storage
 
 The backend stores uploaded media using an S3-compatible storage service.
@@ -88,8 +95,7 @@ Create a `firebase-service-account.json` file in the root directory. This file c
 
 ## 2. Start Docker Containers
 
-Start the PostgreSQL database, S3 storage service and the API Server with docker compose. Default database is local Postgresql, and default s3 storage is minio.
+Start the PostgreSQL database, Redis, S3 storage service, and the API Server with docker compose. Default database is local Postgresql, and default s3 storage is MinIO.
 
 ```bash
 docker compose up -d
-```
