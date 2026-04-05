@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { passwordResetCodes, users } from "../../db/schema.ts";
-import { sendPasswordResetCodeEmail } from "../../utils/send_password_reset_email.ts";
+import { enqueueJob } from "../../jobs/queue.ts";
 
 export type RequestPasswordResetCodeErrorType =
   | "MISSING_EMAIL"
@@ -81,7 +81,8 @@ export async function requestPasswordResetCode(email: string): Promise<void> {
       });
     });
 
-    await sendPasswordResetCodeEmail({
+    await enqueueJob("send-email", Bun.randomUUIDv7(), {
+      emailType: "PASSWORD_RESET",
       to: user.email,
       username: user.displayName || user.username,
       code: rawCode,

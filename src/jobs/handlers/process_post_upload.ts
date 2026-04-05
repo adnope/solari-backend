@@ -5,16 +5,7 @@ import { uploadFile, deleteFile, getFileBuffer } from "../../storage/s3.ts";
 import { generateThumbnail } from "../../utils/thumbnail.ts";
 import { extractMediaMetadata } from "../../utils/media_parser.ts";
 import { redisClient } from "../queue.ts";
-
-export type UploadPostJobPayload = {
-  postId: string;
-  authorId: string;
-  objectKey: string;
-  contentType: string;
-  caption?: string;
-  audienceType: "all" | "selected";
-  viewerIds?: string[];
-};
+import type { UploadPostJobPayload } from "../types.ts";
 
 export async function handlePostProcessing(
   jobId: string,

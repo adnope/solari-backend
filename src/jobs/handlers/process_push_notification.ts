@@ -1,15 +1,8 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { userDevices } from "../../db/schema.ts";
-import { sendPushNotification, type NotificationType } from "../../utils/fcm.ts";
-
-export type PushNotificationPayload = {
-  recipientUserId: string;
-  title: string;
-  body: string;
-  notificationType: NotificationType;
-  extraData?: Record<string, string>;
-};
+import { sendPushNotification } from "../../utils/fcm.ts";
+import type { PushNotificationPayload } from "../types.ts";
 
 export async function handlePushNotification(
   jobId: string,

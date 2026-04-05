@@ -1,12 +1,15 @@
-import { redisClient, type QueueName } from "./queue.ts";
+import { redisClient } from "./queue.ts";
 import { handlePostProcessing } from "./handlers/process_post_upload.ts";
 import { handlePushNotification } from "./handlers/process_push_notification.ts";
+import type { QueueName } from "./types.ts";
+import { handleSendEmail } from "./handlers/send_email.ts";
 
 type JobHandler = (jobId: string, payload: any) => Promise<void>;
 
 const jobRegistry: Record<QueueName, JobHandler> = {
   "post-upload-processing": handlePostProcessing,
   "push-notification-processing": handlePushNotification,
+  "send-email": handleSendEmail,
 };
 
 const registeredQueues = Object.keys(jobRegistry);

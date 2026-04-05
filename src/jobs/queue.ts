@@ -1,5 +1,6 @@
 import { RedisClient } from "bun";
 import { wsPublisher } from "../websocket/publisher";
+import type { QueueName } from "./types";
 
 const redisHost = process.env["REDIS_HOST"] || "localhost";
 const redisPort = process.env["REDIS_PORT"] || "6379";
@@ -34,8 +35,6 @@ export async function initRedis() {
     );
   }
 }
-
-export type QueueName = "post-upload-processing" | "push-notification-processing";
 
 export async function enqueueJob<T>(
   queueName: QueueName,
