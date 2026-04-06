@@ -69,6 +69,7 @@ const protectedPostsRouter = new Elysia()
         height: body.height,
         byteSize: body.byte_size,
         durationMs: body.duration_ms,
+        timezone: body.timezone,
       });
 
       set.status = 200;
@@ -88,6 +89,7 @@ const protectedPostsRouter = new Elysia()
         height: t.Number(),
         byte_size: t.Number(),
         duration_ms: t.Optional(t.Number()),
+        timezone: t.String(),
       }),
     },
   )

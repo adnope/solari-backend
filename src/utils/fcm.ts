@@ -23,7 +23,8 @@ export type NotificationType =
   | "FRIEND_REQUEST_ACCEPTED"
   | "NEW_POST_REACTION"
   | "NEW_MESSAGE"
-  | "NEW_MESSAGE_REACTION";
+  | "NEW_MESSAGE_REACTION"
+  | "STREAK_MILESTONE";
 
 export async function sendPushNotification(
   deviceToken: string,

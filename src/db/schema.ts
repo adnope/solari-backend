@@ -572,3 +572,25 @@ export const blockedUsers = pgTable(
     check("blocked_users_no_self", sql`blocker_id <> blocked_id`),
   ],
 );
+
+export const userStreaks = pgTable(
+  "user_streaks",
+  {
+    id: uuid("id").primaryKey().notNull(),
+    userId: uuid("user_id").notNull(),
+    currentStreak: integer("current_streak").default(0).notNull(),
+    longestStreak: integer("longest_streak").default(0).notNull(),
+    lastPostDate: timestamp("last_post_date", { withTimezone: true, mode: "string" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: "user_streaks_user_id_fkey",
+    }).onDelete("cascade"),
+    unique("user_streaks_user_id_key").on(table.userId),
+  ],
+);

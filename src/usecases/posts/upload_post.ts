@@ -1,9 +1,10 @@
 import { eq, or } from "drizzle-orm";
-import { db } from "../../db/client.ts";
-import { friendships } from "../../db/schema.ts";
+import { db, withTx } from "../../db/client.ts";
+import { friendships, userStreaks } from "../../db/schema.ts";
 import { getUploadPresignedUrl } from "../../storage/s3.ts";
 import { redisClient, enqueueJob } from "../../jobs/queue.ts";
-import type { UploadPostJobPayload } from "../../jobs/handlers/process_post_upload.ts";
+import type { UploadPostJobPayload } from "../../jobs/types.ts";
+import { calculateNewStreak } from "../../utils/streak.ts";
 
 export type UploadPostErrorType =
   | "MISSING_INPUT"
@@ -44,6 +45,7 @@ export type InitiatePostUploadInput = {
   height: number;
   byteSize: number;
   durationMs?: number | undefined;
+  timezone: string; // (e.g., "Asia/Ho_Chi_Minh")
 };
 
 export type InitiatePostUploadResult = {
@@ -69,6 +71,16 @@ function validateInitiateInput(input: InitiatePostUploadInput) {
 
   if (!input.authorId || !isValidUuid(input.authorId.trim())) {
     throw new UploadPostError("MISSING_INPUT", "Invalid author ID.", 400);
+  }
+
+  if (!input.timezone || input.timezone.trim().length === 0) {
+    throw new UploadPostError("MISSING_INPUT", "A valid IANA timezone is required.", 400);
+  }
+
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: input.timezone.trim() });
+  } catch (err) {
+    throw new UploadPostError("MISSING_INPUT", "Invalid timezone format.", 400);
   }
 
   if (input.width <= 0 || input.height <= 0 || input.width !== input.height) {
@@ -143,7 +155,6 @@ export async function initiatePostUpload(
   const normalizedContentType = input.contentType.trim().toLowerCase();
   const postId = Bun.randomUUIDv7();
 
-  // Safely extract extension, ignoring codec metadata like "video/mp4; codecs=avc1"
   const fileExtension = normalizedContentType.split("/")[1]?.split(";")[0]?.trim() || "bin";
   const objectKey = `posts/${postId}.${fileExtension}`;
 
@@ -157,6 +168,7 @@ export async function initiatePostUpload(
       caption: input.caption,
       audienceType: input.audienceType,
       viewerIds: uniqueViewerIds,
+      timezone: input.timezone.trim(),
     };
 
     await redisClient.set(`upload_ticket:${postId}`, JSON.stringify(ticketData), "EX", UPLOAD_TTL);
@@ -216,6 +228,60 @@ export async function finalizePostUpload(input: FinalizePostInput) {
       );
     }
 
+    await withTx(async (tx) => {
+      const [streakRow] = await tx
+        .select()
+        .from(userStreaks)
+        .where(eq(userStreaks.userId, normalizedAuthorId))
+        .limit(1);
+
+      const currentStreak = streakRow?.currentStreak || 0;
+      const longestStreak = streakRow?.longestStreak || 0;
+
+      const lastPostDateUtc = streakRow?.lastPostDate ? new Date(streakRow.lastPostDate) : null;
+
+      const streakMath = calculateNewStreak(
+        currentStreak,
+        longestStreak,
+        lastPostDateUtc,
+        ticketData.timezone,
+      );
+
+      if (streakMath.isValidIncrement) {
+        const now = new Date().toISOString();
+
+        await tx
+          .insert(userStreaks)
+          .values({
+            id: Bun.randomUUIDv7(),
+            userId: normalizedAuthorId,
+            currentStreak: streakMath.newStreak,
+            longestStreak: streakMath.isNewRecord ? streakMath.newStreak : longestStreak,
+            lastPostDate: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: userStreaks.userId,
+            set: {
+              currentStreak: streakMath.newStreak,
+              longestStreak: streakMath.isNewRecord ? streakMath.newStreak : longestStreak,
+              lastPostDate: now,
+              updatedAt: now,
+            },
+          });
+
+        const milestones = [3, 7, 10, 30, 50, 100];
+        if (milestones.includes(streakMath.newStreak)) {
+          void enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+            recipientUserId: normalizedAuthorId,
+            title: `🔥 ${streakMath.newStreak} Day Streak!`,
+            body: "You're on fire! Keep the momentum going tomorrow.",
+            notificationType: "STREAK_MILESTONE",
+          }).catch(console.error);
+        }
+      }
+    });
+
     const jobPayload: UploadPostJobPayload = {
       postId: normalizedPostId,
       authorId: normalizedAuthorId,
@@ -226,8 +292,7 @@ export async function finalizePostUpload(input: FinalizePostInput) {
       viewerIds: ticketData.viewerIds,
     };
 
-    await enqueueJob<UploadPostJobPayload>("post-processing", normalizedPostId, jobPayload);
-
+    await enqueueJob<UploadPostJobPayload>("post-upload-processing", normalizedPostId, jobPayload);
     await redisClient.del(ticketKey);
 
     return {

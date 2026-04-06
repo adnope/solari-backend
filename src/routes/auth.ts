@@ -47,8 +47,8 @@ const protectedAuthRouter = new Elysia()
   )
 
   // Sign out
-  .delete(
-    "/sessions/current",
+  .post(
+    "/signout",
     async ({ body, authSessionId, set }) => {
       const deleted = await signOut(authSessionId, body?.device_token);
 
@@ -97,7 +97,7 @@ const authRouter = withApiErrorHandler(
 )
   // Sign up a new account
   .post(
-    "/users",
+    "/signup",
     async ({ body, set }) => {
       const user = await signUp({
         username: body.username,
@@ -129,7 +129,7 @@ const authRouter = withApiErrorHandler(
 
   // Sign in
   .post(
-    "/sessions",
+    "/signin",
     async ({ body, set }) => {
       const result = await signIn({
         identifier: body.identifier,
@@ -155,7 +155,7 @@ const authRouter = withApiErrorHandler(
 
   // Sign in with google
   .post(
-    "/sessions/google",
+    "/signin/google",
     async ({ body, set }) => {
       const result = await signInWithGoogle(body.id_token);
 

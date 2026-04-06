@@ -7,6 +7,7 @@ import { updateProfile, UpdateProfileError } from "../usecases/users/update_prof
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { updatePassword, UpdatePasswordError } from "../usecases/auth/update_password.ts";
 import { blockUser } from "../usecases/users/block_user.ts";
+import { getUserStreak } from "../usecases/users/get_user_streak.ts";
 
 const protectedUsersRouter = new Elysia()
   .use(requireAuth)
@@ -153,6 +154,25 @@ const protectedUsersRouter = new Elysia()
     {
       params: t.Object({
         targetId: t.String(),
+      }),
+    },
+  )
+
+  // Get current user's streak
+  .get(
+    "/users/me/streak",
+    async ({ authUserId, query, set }) => {
+      const result = await getUserStreak({
+        userId: authUserId,
+        timezone: query.timezone,
+      });
+
+      set.status = 200;
+      return result;
+    },
+    {
+      query: t.Object({
+        timezone: t.String({ error: "Timezone query parameter is required" }),
       }),
     },
   );
