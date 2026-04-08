@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, conversations, friendships, messages, users } from "../../db/schema.ts";
+import { getNicknameMap } from "../common_queries.ts";
 
 export type ConversationPartner = {
   id: string;
@@ -126,7 +127,7 @@ export async function getConversations(
       ),
     ];
 
-    const [partnerRows, friendshipRows, blockedByRows] = await Promise.all([
+    const [partnerRows, friendshipRows, blockedByRows, nicknamesMap] = await Promise.all([
       db
         .select({
           id: users.id,
@@ -162,20 +163,11 @@ export async function getConversations(
             inArray(blockedUsers.blockerId, partnerIds),
           ),
         ),
+
+      getNicknameMap(normalizedUserId, partnerIds),
     ]);
 
-    const partnerMap = new Map(
-      partnerRows.map((partner) => [
-        partner.id,
-        {
-          id: partner.id,
-          username: partner.username,
-          displayName: partner.displayName,
-          avatarKey: partner.avatarKey,
-        },
-      ]),
-    );
-
+    const partnerMap = new Map(partnerRows.map((p) => [p.id, p]));
     const activeFriendsSet = new Set(
       friendshipRows.map((f) => (f.userLow === normalizedUserId ? f.userHigh : f.userLow)),
     );
@@ -194,35 +186,21 @@ export async function getConversations(
       .where(inArray(messages.conversationId, conversationIds))
       .orderBy(messages.conversationId, desc(messages.createdAt));
 
-    const lastMessageMap = new Map(
-      lastMessageRows.map((message) => [
-        message.conversationId,
-        {
-          id: message.id,
-          senderId: message.senderId,
-          content: message.content,
-          isDeleted: message.isDeleted,
-          createdAt: message.createdAt,
-        },
-      ]),
-    );
+    const lastMessageMap = new Map(lastMessageRows.map((m) => [m.conversationId, m]));
 
     const items: ConversationItem[] = conversationRows.map((row) => {
       const partnerId = row.userLow === normalizedUserId ? row.userHigh : row.userLow;
       const partner = partnerMap.get(partnerId);
 
       if (!partner) {
-        throw new GetConversationsError(
-          "INTERNAL_ERROR",
-          "Internal server error fetching conversations.",
-          500,
-        );
+        throw new GetConversationsError("INTERNAL_ERROR", "Partner not found.", 500);
       }
 
       const isViewerLow = row.userLow === normalizedUserId;
-
       const isFriend = activeFriendsSet.has(partnerId);
       const isBlockedByPartner = blockedByPartnerSet.has(partnerId);
+
+      const nickname = nicknamesMap.get(partnerId);
 
       const finalPartner: ConversationPartner = isBlockedByPartner
         ? {
@@ -231,7 +209,10 @@ export async function getConversations(
             displayName: null,
             avatarKey: null,
           }
-        : partner;
+        : {
+            ...partner,
+            displayName: nickname ?? partner.displayName,
+          };
 
       return {
         id: row.id,
@@ -247,11 +228,9 @@ export async function getConversations(
       };
     });
 
-    const nextCursor = items.length > 0 ? items[items.length - 1]!.updatedAt : null;
-
     return {
       items,
-      nextCursor,
+      nextCursor: items.length > 0 ? items[items.length - 1]!.updatedAt : null,
     };
   } catch (error) {
     if (error instanceof GetConversationsError) throw error;

@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, postMedia, postVisibility, posts, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
+import { getNicknameMap } from "../common_queries.ts";
 
 export type FeedAuthor = {
   id: string;
@@ -171,6 +172,12 @@ export async function getFeed(
       .orderBy(desc(posts.createdAt))
       .limit(normalizedLimit);
 
+    // 1. Extract unique author IDs from the result set
+    const authorIdsFromResult = rows.map((row) => row.authorId);
+
+    // 2. Fetch the nicknames for all these authors in a single batch
+    const nicknames = await getNicknameMap(normalizedViewerId, authorIdsFromResult);
+
     const items: FeedPost[] = await Promise.all(
       rows.map(async (row) => {
         const [url, thumbnailUrl] = await Promise.all([
@@ -185,7 +192,7 @@ export async function getFeed(
           author: {
             id: row.authorId,
             username: row.authorUsername,
-            displayName: row.authorDisplayName,
+            displayName: nicknames.get(row.authorId) ?? row.authorDisplayName,
             avatarKey: row.authorAvatarKey,
           },
           media: {

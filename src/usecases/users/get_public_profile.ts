@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
-import { isBlockedBy } from "../common_queries.ts";
+import { isBlockedBy, getNickname } from "../common_queries.ts";
 
 export type PublicProfileResult = {
   id: string;
@@ -56,25 +56,26 @@ export async function getPublicProfile(
       throw new GetPublicProfileError("USER_NOT_FOUND", "User not found.", 404);
     }
 
-    const isBlocked = await isBlockedBy(user.id, normalizedRequesterId);
+    const [isBlocked, nickname, avatarUrl] = await Promise.all([
+      isBlockedBy(user.id, normalizedRequesterId),
+      getNickname(normalizedRequesterId, user.id),
+      user.avatarKey ? getFileUrl(user.avatarKey) : Promise.resolve(null),
+    ]);
+
     if (isBlocked) {
       throw new GetPublicProfileError("USER_NOT_FOUND", "User not found.", 404);
-    }
-
-    let avatarUrl: string | null = null;
-    if (user.avatarKey) {
-      avatarUrl = await getFileUrl(user.avatarKey);
     }
 
     return {
       id: user.id,
       username: user.username,
-      displayName: user.displayName,
+      displayName: nickname ?? user.displayName,
       avatarUrl,
     };
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof GetPublicProfileError) throw error;
-    console.error(`[ERROR] Unexpected error in use case: Get public profile\n${error}`);
+
+    console.error(`[ERROR] Unexpected error in use case: Get public profile\n`, error);
     throw new GetPublicProfileError(
       "INTERNAL_ERROR",
       "Internal server error fetching profile.",

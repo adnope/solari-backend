@@ -598,11 +598,33 @@ export const userStreaks = pgTable(
 export const mutedConversations = pgTable(
   "muted_conversations",
   {
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-    conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
     mutedAt: timestamp("muted_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
   },
-  (table) => [
-    primaryKey({ columns: [table.userId, table.conversationId] }),
-  ]
+  (table) => [primaryKey({ columns: [table.userId, table.conversationId] })],
+);
+
+export const friendNicknames = pgTable(
+  "friend_nicknames",
+  {
+    setterId: uuid("setter_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    nickname: text("nickname").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.setterId, table.targetId] })],
 );

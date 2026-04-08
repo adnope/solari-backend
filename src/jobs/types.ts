@@ -1,7 +1,5 @@
 import type { NotificationType } from "../utils/fcm";
 
-export type QueueName = "post-upload-processing" | "push-notification-processing" | "send-email";
-
 export type UploadPostJobPayload = {
   postId: string;
   authorId: string;
@@ -26,3 +24,10 @@ export type SendEmailPayload = {
   username: string;
   code: string;
 };
+
+export type JobRegistryMap = {
+  "post-upload-processing": UploadPostJobPayload;
+  "push-notification-processing": PushNotificationPayload;
+  "send-email": SendEmailPayload;
+};
+export type QueueName = keyof JobRegistryMap;

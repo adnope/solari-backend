@@ -5,11 +5,11 @@ export type StreakResult = {
 };
 
 function getLocalDateString(date: Date, timeZone: string): string {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   });
   return formatter.format(date);
 }
@@ -18,9 +18,8 @@ export function calculateNewStreak(
   currentStreak: number,
   longestStreak: number,
   lastPostDateUtc: Date | null,
-  userTimezone: string
+  userTimezone: string,
 ): StreakResult {
-  
   if (!lastPostDateUtc) {
     return { newStreak: 1, isNewRecord: longestStreak < 1, isValidIncrement: true };
   }

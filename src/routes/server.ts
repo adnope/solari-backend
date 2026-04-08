@@ -10,6 +10,7 @@ import friendsRouter from "./friends.ts";
 import postsRouter from "./posts.ts";
 import usersRouter from "./users.ts";
 import { webRouter } from "./web.ts";
+import nicknamesRouter from "./nicknames.ts";
 
 const healthRouter = new Elysia().get("/health", async ({ set }) => {
   const health = {
@@ -65,6 +66,7 @@ const app = new Elysia()
   .use(feedRouter)
   .use(usersRouter)
   .use(conversationsRouter)
+  .use(nicknamesRouter)
   .use(webRouter);
 
 export default app;

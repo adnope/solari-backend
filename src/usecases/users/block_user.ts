@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { blockedUsers, friendships, users } from "../../db/schema.ts";
-import { isPgError } from "../postgres_error.ts";
+import { blockedUsers, friendships, users, friendNicknames } from "../../db/schema.ts";
+import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type BlockUserErrorType =
@@ -72,6 +72,21 @@ export async function blockUser(blockerId: string, targetUserId: string): Promis
         .where(and(eq(friendships.userLow, userLow), eq(friendships.userHigh, userHigh)))
         .returning({ userLow: friendships.userLow });
 
+      await tx
+        .delete(friendNicknames)
+        .where(
+          or(
+            and(
+              eq(friendNicknames.setterId, normalizedBlockerId),
+              eq(friendNicknames.targetId, normalizedTargetId),
+            ),
+            and(
+              eq(friendNicknames.setterId, normalizedTargetId),
+              eq(friendNicknames.targetId, normalizedBlockerId),
+            ),
+          ),
+        );
+
       return !!deletedFriendship;
     });
 
@@ -91,16 +106,20 @@ export async function blockUser(blockerId: string, targetUserId: string): Promis
         payload: { partnerId: normalizedBlockerId, isFriend: false },
       });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof BlockUserError) {
       throw error;
     }
 
-    if (isPgError(error) && error.code === "23505") {
+    if (isPgErrorCode(error, PgErrorCode.UNIQUE_VIOLATION)) {
       throw new BlockUserError("ALREADY_BLOCKED", "You have already blocked this user.", 409);
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Block user\n${error}`);
+    if (isPgErrorCode(error, PgErrorCode.FOREIGN_KEY_VIOLATION)) {
+      throw new BlockUserError("USER_NOT_FOUND", "User not found.", 404);
+    }
+
+    console.error(`[ERROR] Unexpected error in use case: Block user\n`, error);
     throw new BlockUserError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

@@ -1,6 +1,7 @@
 import { and, desc, eq, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, postReactions, posts, users } from "../../db/schema.ts";
+import { getNicknameMap } from "../common_queries.ts";
 
 export type ReactionUser = {
   id: string;
@@ -133,6 +134,9 @@ export async function viewPostReactions(
       .orderBy(desc(postReactions.createdAt))
       .limit(normalizedLimit);
 
+    const reactorIds = rows.map((r) => r.userId);
+    const nicknames = await getNicknameMap(normalizedViewerId, reactorIds);
+
     const items: PostReaction[] = rows.map((row) => ({
       id: row.id,
       emoji: row.emoji,
@@ -141,7 +145,7 @@ export async function viewPostReactions(
       user: {
         id: row.userId,
         username: row.username,
-        displayName: row.displayName,
+        displayName: nicknames.get(row.userId) ?? row.displayName,
         avatarKey: row.avatarKey,
       },
     }));

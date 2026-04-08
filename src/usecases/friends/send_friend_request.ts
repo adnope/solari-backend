@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { friendRequests, friendships, users } from "../../db/schema.ts";
-import { isPgError } from "../postgres_error.ts";
+import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 import { enqueueJob } from "../../jobs/queue.ts";
@@ -232,16 +232,33 @@ export async function sendFriendRequest(
     }
 
     return requestResult;
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof SendFriendRequestError) {
       throw error;
     }
 
-    if (isPgError(error) && error.code === "23505") {
-      throw new SendFriendRequestError("REQUEST_ALREADY_SENT", "Friend request already sent.", 409);
+    if (isPgErrorCode(error, PgErrorCode.UNIQUE_VIOLATION)) {
+      const constraint = getPgConstraintName(error);
+      if (constraint === "friend_requests_unique_pair") {
+        throw new SendFriendRequestError(
+          "REQUEST_ALREADY_SENT",
+          "Friend request already sent.",
+          409,
+        );
+      }
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Send friend request\n${error}`);
+    if (isPgErrorCode(error, PgErrorCode.CHECK_VIOLATION)) {
+      if (getPgConstraintName(error) === "friend_requests_no_self") {
+        throw new SendFriendRequestError(
+          "SELF_REQUEST",
+          "You cannot send a friend request to yourself.",
+          400,
+        );
+      }
+    }
+
+    console.error(`[ERROR] Unexpected error in use case: Send friend request\n`, error);
     throw new SendFriendRequestError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

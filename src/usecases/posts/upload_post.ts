@@ -292,7 +292,7 @@ export async function finalizePostUpload(input: FinalizePostInput) {
       viewerIds: ticketData.viewerIds,
     };
 
-    await enqueueJob<UploadPostJobPayload>("post-upload-processing", normalizedPostId, jobPayload);
+    await enqueueJob("post-upload-processing", normalizedPostId, jobPayload);
     await redisClient.del(ticketKey);
 
     return {

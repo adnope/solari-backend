@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { friendships, users } from "../../db/schema.ts";
+import { getNicknameMap } from "../common_queries.ts";
 
 export type ViewFriendsErrorType =
   | "MISSING_USER_ID"
@@ -114,15 +115,19 @@ export async function viewFriends(
     );
     const uniqueFriendIds = [...new Set(friendIds)];
 
-    const userRows = await db
-      .select({
-        id: users.id,
-        username: users.username,
-        displayName: users.displayName,
-        avatarKey: users.avatarKey,
-      })
-      .from(users)
-      .where(inArray(users.id, uniqueFriendIds));
+    const [userRows, nicknames] = await Promise.all([
+      db
+        .select({
+          id: users.id,
+          username: users.username,
+          displayName: users.displayName,
+          avatarKey: users.avatarKey,
+        })
+        .from(users)
+        .where(inArray(users.id, uniqueFriendIds)),
+
+      getNicknameMap(normalizedUserId, uniqueFriendIds),
+    ]);
 
     const userMap = new Map(
       userRows.map((user) => [
@@ -146,6 +151,7 @@ export async function viewFriends(
 
       return {
         ...friend,
+        displayName: nicknames.get(friendId) ?? friend.displayName,
         createdAt: row.createdAt,
       };
     });
@@ -157,12 +163,12 @@ export async function viewFriends(
       nextCursor,
       limit: normalizedLimit,
     };
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof ViewFriendsError) {
       throw error;
     }
 
-    console.error(`[ERROR] Unexpected error in use case: View friends\n${error}`);
+    console.error(`[ERROR] Unexpected error in use case: View friends\n`, error);
     throw new ViewFriendsError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

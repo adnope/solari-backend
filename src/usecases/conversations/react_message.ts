@@ -2,8 +2,9 @@ import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, messageReactions, messages, users } from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
-import { hasBlockingRelationship } from "../common_queries.ts";
+import { getNickname, hasBlockingRelationship } from "../common_queries.ts";
 import { enqueueJob } from "../../jobs/queue.ts";
+import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
 export type ReactMessageInput = {
   userId: string;
@@ -141,9 +142,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
         })
         .onConflictDoUpdate({
           target: [messageReactions.messageId, messageReactions.userId],
-          set: {
-            emoji: trimmedEmoji,
-          },
+          set: { emoji: trimmedEmoji },
         })
         .returning({
           id: messageReactions.id,
@@ -154,7 +153,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
         throw new ReactMessageError("INTERNAL_ERROR", "Error adding reaction.", 500);
       }
 
-      let pushData: {
+      let pushPayload: {
         reactorName: string;
         reactorAvatarKey: string | null;
         conversationId: string;
@@ -162,21 +161,28 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
       } | null = null;
 
       if (messageRow.senderId !== normalizedUserId) {
-        const [reactor] = await tx
-          .select({
-            username: users.username,
-            displayName: users.displayName,
-            avatarKey: users.avatarKey,
-          })
-          .from(users)
-          .where(eq(users.id, normalizedUserId))
-          .limit(1);
+        const recipientId = messageRow.senderId;
 
-        pushData = {
-          reactorName: reactor?.displayName || reactor?.username || "Someone",
+        const [reactor, nickname] = await Promise.all([
+          tx
+            .select({
+              username: users.username,
+              displayName: users.displayName,
+              avatarKey: users.avatarKey,
+            })
+            .from(users)
+            .where(eq(users.id, normalizedUserId))
+            .limit(1)
+            .then((rows) => rows[0]),
+
+          getNickname(recipientId, normalizedUserId, tx),
+        ]);
+
+        pushPayload = {
+          reactorName: nickname ?? reactor?.displayName ?? reactor?.username ?? "Someone",
           reactorAvatarKey: reactor?.avatarKey ?? null,
           conversationId: messageRow.conversationId,
-          receiverId: messageRow.senderId,
+          receiverId: recipientId,
         };
       }
 
@@ -188,7 +194,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
           emoji: trimmedEmoji,
           createdAt: reactionRow.createdAt,
         },
-        pushData,
+        pushData: pushPayload,
         receiverId: targetReceiverId,
         conversationId: messageRow.conversationId,
       };
@@ -206,30 +212,32 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
     wsPublisher.sendToUser(normalizedUserId, eventPayload);
 
     if (pushData) {
-      const extraData = {
-        conversationId: pushData.conversationId,
-        messageId: reactionResult.messageId,
-        avatarKey: pushData.reactorAvatarKey || "",
-      };
-
       try {
         await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
           recipientUserId: pushData.receiverId,
           title: "New Reaction",
           body: `${pushData.reactorName} reacted ${trimmedEmoji}`,
           notificationType: "NEW_MESSAGE_REACTION",
-          extraData: extraData,
+          extraData: {
+            conversationId: pushData.conversationId,
+            messageId: reactionResult.messageId,
+            avatarKey: pushData.reactorAvatarKey || "",
+          },
         });
       } catch (err) {
-        console.error(`[ERROR] Failed to enqueue background push notification: ${err}`);
+        console.error(`[ERROR] Failed to enqueue background push notification:`, err);
       }
     }
 
     return reactionResult;
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof ReactMessageError) throw error;
 
-    console.error(`[ERROR] Unexpected error in use case: React message\n${error}`);
+    if (isPgErrorCode(error, PgErrorCode.INVALID_TEXT_REPRESENTATION)) {
+      throw new ReactMessageError("UNAUTHORIZED_OR_NOT_FOUND", "Invalid ID.", 404);
+    }
+
+    console.error(`[ERROR] Unexpected error in use case: React message\n`, error);
     throw new ReactMessageError("INTERNAL_ERROR", "Error adding reaction.", 500);
   }
 }

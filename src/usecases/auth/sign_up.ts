@@ -1,7 +1,7 @@
 import { withTx } from "../../db/client.ts";
 import { userPasswords, users } from "../../db/schema.ts";
-import { isPgError, unwrapDbError } from "../postgres_error.ts";
 import { AuthError } from "./error_type.ts";
+import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
 
 export type PublicUser = {
   id: string;
@@ -115,18 +115,13 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
         createdAt: user.createdAt,
       };
     });
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof AuthError) {
       throw error;
     }
 
-    const pgError = unwrapDbError(error);
-    if (isPgError(error) && pgError?.code === "23505") {
-      const constraint =
-        pgError.constraint ??
-        pgError.constraint_name ??
-        pgError.fields?.constraint ??
-        pgError.fields?.constraint_name;
+    if (isPgErrorCode(error, PgErrorCode.UNIQUE_VIOLATION)) {
+      const constraint = getPgConstraintName(error);
 
       if (constraint === "users_username_key") {
         throw new AuthError("USERNAME_TAKEN", "Username is already taken.", 409);
@@ -138,7 +133,7 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
       throw new AuthError("IDENTIFIER_ALREADY_IN_USE", "Username or email is already in use.", 409);
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Sign up\n${error}`);
+    console.error(`[ERROR] Unexpected error in use case: Sign up\n`, error);
     throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

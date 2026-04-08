@@ -2,7 +2,8 @@ import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { postReactions, postVisibility, posts, users } from "../../db/schema.ts";
 import { enqueueJob } from "../../jobs/queue.ts";
-import { hasBlockingRelationship } from "../common_queries.ts";
+import { hasBlockingRelationship, getNickname } from "../common_queries.ts";
+import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
 export type ReactPostInput = {
   userId: string;
@@ -78,9 +79,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
   try {
     const { reactionResult, pushData } = await withTx(async (tx) => {
       const [postInfo] = await tx
-        .select({
-          authorId: posts.authorId,
-        })
+        .select({ authorId: posts.authorId })
         .from(posts)
         .where(eq(posts.id, normalizedPostId))
         .limit(1);
@@ -90,11 +89,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
       }
 
       if (postInfo.authorId === normalizedUserId) {
-        throw new ReactPostError(
-          "UNAUTHORIZED",
-          "You are not authorized to react to this post, or it is your own post.",
-          403,
-        );
+        throw new ReactPostError("UNAUTHORIZED", "You cannot react to your own post.", 403);
       }
 
       const isBlocked = await hasBlockingRelationship(normalizedUserId, postInfo.authorId, tx);
@@ -116,7 +111,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
       if (!visible) {
         throw new ReactPostError(
           "UNAUTHORIZED",
-          "You are not authorized to react to this post, or it is your own post.",
+          "You are not authorized to react to this post.",
           403,
         );
       }
@@ -135,18 +130,23 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
         });
 
       if (!inserted) {
-        throw new ReactPostError("INTERNAL_ERROR", "Internal server error sending reaction.", 500);
+        throw new ReactPostError("INTERNAL_ERROR", "Internal server error saving reaction.", 500);
       }
 
-      const [reactor] = await tx
-        .select({
-          username: users.username,
-          displayName: users.displayName,
-          avatarKey: users.avatarKey,
-        })
-        .from(users)
-        .where(eq(users.id, normalizedUserId))
-        .limit(1);
+      const [reactor, nickname] = await Promise.all([
+        tx
+          .select({
+            username: users.username,
+            displayName: users.displayName,
+            avatarKey: users.avatarKey,
+          })
+          .from(users)
+          .where(eq(users.id, normalizedUserId))
+          .limit(1)
+          .then((res) => res[0]),
+
+        getNickname(postInfo.authorId, normalizedUserId, tx),
+      ]);
 
       return {
         reactionResult: {
@@ -159,7 +159,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
         },
         pushData: {
           postOwnerId: postInfo.authorId,
-          reactorName: reactor?.displayName || reactor?.username || "Someone",
+          reactorName: nickname ?? reactor?.displayName ?? reactor?.username ?? "Someone",
           reactorAvatarKey: reactor?.avatarKey || "",
         },
       };
@@ -167,29 +167,32 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
 
     void (async () => {
       try {
-        const extraData = {
-          reactionId: reactionResult.id,
-          postId: reactionResult.postId,
-          emoji: reactionResult.emoji,
-          avatarKey: pushData.reactorAvatarKey,
-        };
-
         await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
           recipientUserId: pushData.postOwnerId,
           title: "New Reaction",
           body: `${pushData.reactorName} reacted ${trimmedEmoji} to your post.`,
           notificationType: "NEW_POST_REACTION",
-          extraData: extraData,
+          extraData: {
+            reactionId: reactionResult.id,
+            postId: reactionResult.postId,
+            emoji: reactionResult.emoji,
+            avatarKey: pushData.reactorAvatarKey,
+          },
         });
       } catch (err) {
-        console.error(`[ERROR] Failed to enqueue background push notification: ${err}`);
+        console.error(`[ERROR] Background notification failure:`, err);
       }
     })();
 
     return reactionResult;
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof ReactPostError) throw error;
-    console.error(`[ERROR] Unexpected error in use case: React post\n${error}`);
+
+    if (isPgErrorCode(error, PgErrorCode.INVALID_TEXT_REPRESENTATION)) {
+      throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
+    }
+
+    console.error(`[ERROR] Unexpected error in use case: React post\n`, error);
     throw new ReactPostError("INTERNAL_ERROR", "Internal server error sending reaction.", 500);
   }
 }

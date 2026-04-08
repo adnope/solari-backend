@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
-import { db } from "../../db/client.ts";
-import { friendships } from "../../db/schema.ts";
+import { and, eq, or } from "drizzle-orm";
+import { withTx } from "../../db/client.ts";
+import { friendships, friendNicknames } from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
+import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
 export type UnfriendErrorType =
   | "MISSING_INPUT"
@@ -49,38 +50,56 @@ export async function unfriend(userId: string, otherUserId: string): Promise<voi
       : [normalizedOtherUserId, normalizedUserId];
 
   try {
-    const [deleted] = await db
-      .delete(friendships)
-      .where(and(eq(friendships.userLow, userLow), eq(friendships.userHigh, userHigh)))
-      .returning({
-        userLow: friendships.userLow,
-      });
+    await withTx(async (tx) => {
+      const [deleted] = await tx
+        .delete(friendships)
+        .where(and(eq(friendships.userLow, userLow), eq(friendships.userHigh, userHigh)))
+        .returning({ userLow: friendships.userLow });
 
-    if (!deleted) {
-      throw new UnfriendError("NOT_FRIENDS", "You are not friends with this user.", 404);
-    }
+      if (!deleted) {
+        throw new UnfriendError("NOT_FRIENDS", "You are not friends with this user.", 404);
+      }
+
+      await tx
+        .delete(friendNicknames)
+        .where(
+          or(
+            and(
+              eq(friendNicknames.setterId, normalizedUserId),
+              eq(friendNicknames.targetId, normalizedOtherUserId),
+            ),
+            and(
+              eq(friendNicknames.setterId, normalizedOtherUserId),
+              eq(friendNicknames.targetId, normalizedUserId),
+            ),
+          ),
+        );
+    });
+
+    const unfriendPayload = {
+      type: "FRIENDSHIP_STATUS_CHANGED" as const,
+      payload: { partnerId: "", isFriend: false },
+    };
 
     wsPublisher.sendToUser(normalizedUserId, {
-      type: "FRIENDSHIP_STATUS_CHANGED",
-      payload: {
-        partnerId: normalizedOtherUserId,
-        isFriend: false,
-      },
+      ...unfriendPayload,
+      payload: { partnerId: normalizedOtherUserId, isFriend: false },
     });
 
     wsPublisher.sendToUser(normalizedOtherUserId, {
-      type: "FRIENDSHIP_STATUS_CHANGED",
-      payload: {
-        partnerId: normalizedUserId,
-        isFriend: false,
-      },
+      ...unfriendPayload,
+      payload: { partnerId: normalizedUserId, isFriend: false },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof UnfriendError) {
       throw error;
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Unfriend\n${error}`);
+    if (isPgErrorCode(error, PgErrorCode.INVALID_TEXT_REPRESENTATION)) {
+      throw new UnfriendError("MISSING_INPUT", "Invalid ID format.", 400);
+    }
+
+    console.error(`[ERROR] Unexpected error in use case: Unfriend\n`, error);
     throw new UnfriendError("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

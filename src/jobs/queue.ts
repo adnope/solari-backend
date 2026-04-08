@@ -1,6 +1,6 @@
 import { RedisClient } from "bun";
 import { wsPublisher } from "../websocket/publisher";
-import type { QueueName } from "./types";
+import type { JobRegistryMap, QueueName } from "./types";
 
 const redisHost = process.env["REDIS_HOST"] || "localhost";
 const redisPort = process.env["REDIS_PORT"] || "6379";
@@ -36,10 +36,10 @@ export async function initRedis() {
   }
 }
 
-export async function enqueueJob<T>(
-  queueName: QueueName,
+export async function enqueueJob<K extends QueueName>(
+  queueName: K,
   jobId: string,
-  payload: T,
+  payload: JobRegistryMap[K],
 ): Promise<string> {
   const jobString = JSON.stringify({
     id: jobId,

@@ -2,7 +2,7 @@ import { eq, or } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { friendships, users } from "../../db/schema.ts";
 import { deleteFile, uploadFile } from "../../storage/s3.ts";
-import { isPgError } from "../postgres_error.ts";
+import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type UpdateProfileInput = {
@@ -241,21 +241,18 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
     }
 
     return updatedProfile;
-  } catch (error) {
-    if (error instanceof UpdateProfileError) throw error;
-
-    if (isPgError(error) && error.code === "23505") {
-      if (newAvatarKey) {
-        void deleteFile(newAvatarKey).catch(() => {});
-      }
-      throw new UpdateProfileError("EMAIL_TAKEN", "Email address is already in use.", 409);
-    }
-
+  } catch (error: unknown) {
     if (newAvatarKey) {
       void deleteFile(newAvatarKey).catch(() => {});
     }
 
-    console.error(`[ERROR] Unexpected error in use case: Update profile\n${error}`);
+    if (error instanceof UpdateProfileError) throw error;
+
+    if (isPgErrorCode(error, PgErrorCode.UNIQUE_VIOLATION)) {
+      throw new UpdateProfileError("EMAIL_TAKEN", "Email address is already in use.", 409);
+    }
+
+    console.error(`[ERROR] Unexpected error in use case: Update profile\n`, error);
     throw new UpdateProfileError(
       "INTERNAL_ERROR",
       "Internal server error during profile update.",

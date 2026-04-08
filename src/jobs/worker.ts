@@ -1,18 +1,18 @@
-import { redisClient } from "./queue.ts";
 import { handlePostProcessing } from "./handlers/process_post_upload.ts";
 import { handlePushNotification } from "./handlers/process_push_notification.ts";
-import type { QueueName } from "./types.ts";
 import { handleSendEmail } from "./handlers/send_email.ts";
+import { redisClient } from "./queue.ts";
+import type { JobRegistryMap, QueueName } from "./types.ts";
 
-type JobHandler = (jobId: string, payload: any) => Promise<void>;
+type JobHandler<K extends QueueName> = (jobId: string, payload: JobRegistryMap[K]) => Promise<void>;
 
-const jobRegistry: Record<QueueName, JobHandler> = {
+const jobRegistry: { [K in QueueName]: JobHandler<K> } = {
   "post-upload-processing": handlePostProcessing,
   "push-notification-processing": handlePushNotification,
   "send-email": handleSendEmail,
 };
 
-const registeredQueues = Object.keys(jobRegistry);
+const registeredQueues = Object.keys(jobRegistry) as QueueName[];
 
 export async function startWorker() {
   console.log(`[WORKER] Listening on queues: ${registeredQueues.join(", ")}`);
@@ -23,7 +23,7 @@ export async function startWorker() {
 
       if (!result) continue;
 
-      const [queueName, jobString] = result;
+      const [queueName, jobString] = result as [QueueName, string];
       const job = JSON.parse(jobString);
 
       const jobId = job.id;
@@ -32,11 +32,7 @@ export async function startWorker() {
       console.log(`[WORKER] Picked up '${queueName}' job (ID: ${jobId})`);
       await redisClient.set(`job:${jobId}:status`, "processing", "EX", 3600);
 
-      const handler = jobRegistry[queueName as QueueName];
-
-      if (!handler) {
-        throw new Error(`No handler registered for queue: ${queueName}`);
-      }
+      const handler = jobRegistry[queueName];
 
       try {
         await handler(jobId, payload);

@@ -1,10 +1,9 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, inArray } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { blockedUsers } from "../db/schema.ts";
+import { blockedUsers, friendNicknames } from "../db/schema.ts";
 
 type DbExecutor = typeof db | any;
 
-// Check if user1 block user2 or the reverse
 export async function hasBlockingRelationship(
   userId1: string,
   userId2: string,
@@ -24,7 +23,6 @@ export async function hasBlockingRelationship(
   return !!blockRecord;
 }
 
-// Check if a user is blocked by another user
 export async function isBlockedBy(
   blockerId: string,
   targetId: string,
@@ -37,4 +35,50 @@ export async function isBlockedBy(
     .limit(1);
 
   return !!blockRecord;
+}
+
+export async function getNicknameMap(
+  setterId: string,
+  targetIds: string[],
+  executor: DbExecutor = db,
+): Promise<Map<string, string>> {
+  const uniqueTargetIds = Array.from(new Set(targetIds.filter(Boolean)));
+
+  if (uniqueTargetIds.length === 0) {
+    return new Map();
+  }
+
+  const results = await executor
+    .select({
+      targetId: friendNicknames.targetId,
+      nickname: friendNicknames.nickname,
+    })
+    .from(friendNicknames)
+    .where(
+      and(
+        eq(friendNicknames.setterId, setterId),
+        inArray(friendNicknames.targetId, uniqueTargetIds),
+      ),
+    );
+
+  const nicknameMap = new Map<string, string>();
+  for (const row of results) {
+    nicknameMap.set(row.targetId, row.nickname);
+  }
+
+  return nicknameMap;
+}
+
+export async function getNickname(
+  setterId: string,
+  targetId: string,
+  executor: DbExecutor = db,
+): Promise<string | null> {
+  const [record] = await executor
+    .select({ nickname: friendNicknames.nickname })
+    .from(friendNicknames)
+    .where(and(eq(friendNicknames.setterId, setterId), eq(friendNicknames.targetId, targetId)))
+    .limit(1);
+
+  return record?.nickname ?? null;
 }

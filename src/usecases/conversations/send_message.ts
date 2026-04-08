@@ -9,7 +9,8 @@ import {
   users,
 } from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
-import { hasBlockingRelationship } from "../common_queries.ts";
+import { hasBlockingRelationship, getNickname } from "../common_queries.ts";
+import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { enqueueJob } from "../../jobs/queue.ts";
 
 export type SendMessageInput = {
@@ -77,7 +78,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     (normalizedReferencedPostId && !isValidUuid(normalizedReferencedPostId)) ||
     (normalizedRepliedMessageId && !isValidUuid(normalizedRepliedMessageId))
   ) {
-    throw new SendMessageError("MISSING_INPUT", "Invalid format.", 400);
+    throw new SendMessageError("MISSING_INPUT", "Invalid ID format.", 400);
   }
 
   if (normalizedReferencedPostId && normalizedRepliedMessageId) {
@@ -123,6 +124,21 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
         : Promise.resolve(null),
     ]);
 
+    if (!conversation) {
+      throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
+    }
+
+    if (
+      conversation.userLow !== normalizedSenderId &&
+      conversation.userHigh !== normalizedSenderId
+    ) {
+      throw new SendMessageError(
+        "CONVERSATION_NOT_FOUND",
+        "Unauthorized access to conversation.",
+        404,
+      );
+    }
+
     if (normalizedReferencedPostId) {
       if (!referencedPost) throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
       if (referencedPost.authorId === normalizedSenderId) {
@@ -148,37 +164,25 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
       }
     }
 
-    if (!conversation) {
-      throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
-    }
+    const receiverId =
+      conversation.userLow === normalizedSenderId ? conversation.userHigh : conversation.userLow;
 
-    if (
-      conversation.userLow !== normalizedSenderId &&
-      conversation.userHigh !== normalizedSenderId
-    ) {
-      throw new SendMessageError("CONVERSATION_NOT_FOUND", "Unauthorized.", 404);
-    }
+    const [isBlocked, friendship] = await Promise.all([
+      hasBlockingRelationship(normalizedSenderId, receiverId),
+      db
+        .select({ userLow: friendships.userLow })
+        .from(friendships)
+        .where(
+          and(
+            eq(friendships.userLow, conversation.userLow),
+            eq(friendships.userHigh, conversation.userHigh),
+          ),
+        )
+        .limit(1)
+        .then((res) => res[0]),
+    ]);
 
-    const isSenderLow = conversation.userLow === normalizedSenderId;
-    const receiverId = isSenderLow ? conversation.userHigh : conversation.userLow;
-
-    const isBlocked = await hasBlockingRelationship(normalizedSenderId, receiverId);
-    if (isBlocked) {
-      throw new SendMessageError("NOT_FRIENDS", "You can only message friends.", 403);
-    }
-
-    const [friendship] = await db
-      .select({ userLow: friendships.userLow })
-      .from(friendships)
-      .where(
-        and(
-          eq(friendships.userLow, conversation.userLow),
-          eq(friendships.userHigh, conversation.userHigh),
-        ),
-      )
-      .limit(1);
-
-    if (!friendship) {
+    if (isBlocked || !friendship) {
       throw new SendMessageError("NOT_FRIENDS", "You can only message friends.", 403);
     }
 
@@ -199,13 +203,13 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
         });
 
       if (!insertedMessage) {
-        throw new SendMessageError("INTERNAL_ERROR", "Error sending message.", 500);
+        throw new SendMessageError("INTERNAL_ERROR", "Error writing message to database.", 500);
       }
 
       await tx
         .update(conversations)
         .set(
-          isSenderLow
+          conversation.userLow === normalizedSenderId
             ? { updatedAt: insertedMessage.createdAt, userLowLastReadAt: insertedMessage.createdAt }
             : {
                 updatedAt: insertedMessage.createdAt,
@@ -227,12 +231,8 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
     const wsPayload = {
       type: "NEW_MESSAGE" as const,
-      payload: {
-        conversationId: normalizedConversationId,
-        message: messageResult,
-      },
+      payload: { conversationId: normalizedConversationId, message: messageResult },
     };
-
     wsPublisher.sendToUser(receiverId, wsPayload);
     wsPublisher.sendToUser(normalizedSenderId, wsPayload);
 
@@ -251,57 +251,59 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
         if (isMuted) return;
 
-        const sender = await db
-          .select({
-            username: users.username,
-            displayName: users.displayName,
-            avatarKey: users.avatarKey,
-          })
-          .from(users)
-          .where(eq(users.id, normalizedSenderId))
-          .limit(1)
-          .then((res) => res[0]);
+        const [sender, nickname] = await Promise.all([
+          db
+            .select({
+              username: users.username,
+              displayName: users.displayName,
+              avatarKey: users.avatarKey,
+            })
+            .from(users)
+            .where(eq(users.id, normalizedSenderId))
+            .limit(1)
+            .then((res) => res[0]),
+          getNickname(receiverId, normalizedSenderId),
+        ]);
 
         if (sender) {
-          const isPostReply = !!normalizedReferencedPostId;
-          const isMessageReply = !!normalizedRepliedMessageId;
-          const senderName = sender.displayName || sender.username || "Someone";
-
+          const senderName = nickname ?? sender.displayName ?? sender.username ?? "Someone";
           let title = "New Message";
           let body = `${senderName} sent a message.`;
 
-          if (isPostReply) {
+          if (normalizedReferencedPostId) {
             title = "New Post Reply";
             body = `${senderName} replied to your post.`;
-          } else if (isMessageReply) {
+          } else if (normalizedRepliedMessageId) {
             title = "New Reply";
             body = `${senderName} replied to a message.`;
           }
-
-          const extraData = {
-            conversationId: normalizedConversationId,
-            messageId: messageResult.id,
-            avatarKey: sender.avatarKey || "",
-          };
 
           await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
             recipientUserId: receiverId,
             title,
             body,
             notificationType: "NEW_MESSAGE",
-            extraData,
+            extraData: {
+              conversationId: normalizedConversationId,
+              messageId: messageResult.id,
+              avatarKey: sender.avatarKey || "",
+            },
           });
         }
       } catch (err) {
-        console.error(`[ERROR] Failed to enqueue background push notification: ${err}`);
+        console.error(`[ERROR] Background notification failure:`, err);
       }
     })();
 
     return messageResult;
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof SendMessageError) throw error;
 
-    console.error(`[ERROR] Unexpected error in use case: Send message\n${error}`);
-    throw new SendMessageError("INTERNAL_ERROR", "Error sending message.", 500);
+    if (isPgErrorCode(error, PgErrorCode.INVALID_TEXT_REPRESENTATION)) {
+      throw new SendMessageError("MISSING_INPUT", "Invalid format.", 400);
+    }
+
+    console.error(`[ERROR] Unexpected error in use case: Send message\n`, error);
+    throw new SendMessageError("INTERNAL_ERROR", "Internal server error sending message.", 500);
   }
 }
