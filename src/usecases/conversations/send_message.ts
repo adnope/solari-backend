@@ -1,6 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
-import { conversations, friendships, messages, posts, users } from "../../db/schema.ts";
+import {
+  conversations,
+  friendships,
+  messages,
+  mutedConversations,
+  posts,
+  users,
+} from "../../db/schema.ts";
 import { wsPublisher } from "../../websocket/publisher.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 import { enqueueJob } from "../../jobs/queue.ts";
@@ -231,6 +238,19 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
     void (async () => {
       try {
+        const [isMuted] = await db
+          .select({ mutedAt: mutedConversations.mutedAt })
+          .from(mutedConversations)
+          .where(
+            and(
+              eq(mutedConversations.userId, receiverId),
+              eq(mutedConversations.conversationId, normalizedConversationId),
+            ),
+          )
+          .limit(1);
+
+        if (isMuted) return;
+
         const sender = await db
           .select({
             username: users.username,

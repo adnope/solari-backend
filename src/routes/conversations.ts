@@ -32,6 +32,7 @@ import {
 } from "../usecases/conversations/view_conversation_messages.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
+import { toggleConversationMute } from "../usecases/conversations/mute_conversation.ts";
 
 const protectedConversationsRouter = new Elysia()
   .use(requireAuth)
@@ -331,6 +332,26 @@ const protectedConversationsRouter = new Elysia()
       }),
       body: t.Object({
         emoji: t.String(),
+      }),
+    },
+  )
+
+  // Toggle conversation mute status
+  .post(
+    "/conversations/mute",
+    async ({ authUserId, body, set }) => {
+      const result = await toggleConversationMute(authUserId, body.conversation_id);
+
+      set.status = 200;
+      return {
+        message: result.isMuted ? "Conversation muted." : "Conversation unmuted.",
+        conversation_id: body.conversation_id,
+        is_muted: result.isMuted,
+      };
+    },
+    {
+      body: t.Object({
+        conversation_id: t.String({ error: "Conversation ID is required" }),
       }),
     },
   );

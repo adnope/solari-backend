@@ -594,3 +594,15 @@ export const userStreaks = pgTable(
     unique("user_streaks_user_id_key").on(table.userId),
   ],
 );
+
+export const mutedConversations = pgTable(
+  "muted_conversations",
+  {
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+    mutedAt: timestamp("muted_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.conversationId] }),
+  ]
+);

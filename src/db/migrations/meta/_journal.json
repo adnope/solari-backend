@@ -29,6 +29,13 @@
       "when": 1775435940446,
       "tag": "0003_strong_caretaker",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775440539446,
+      "tag": "0004_red_skrulls",
+      "breakpoints": true
     }
   ]
 }
