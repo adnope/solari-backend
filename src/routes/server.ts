@@ -11,6 +11,7 @@ import postsRouter from "./posts.ts";
 import usersRouter from "./users.ts";
 import { webRouter } from "./web.ts";
 import nicknamesRouter from "./nicknames.ts";
+import openapi from "@elysiajs/openapi";
 
 const healthRouter = new Elysia().get("/health", async ({ set }) => {
   const health = {
@@ -59,6 +60,46 @@ const healthRouter = new Elysia().get("/health", async ({ set }) => {
 });
 
 const app = new Elysia()
+  .use(
+    openapi({
+      path: "/docs",
+      specPath: "/docs/json",
+      provider: "scalar",
+      documentation: {
+        info: {
+          title: "Social Backend API",
+          version: "1.0.0",
+          description: "API documentation for the android frontend of Solari.",
+        },
+        tags: [
+          {
+            name: "Auth",
+            description: "Authentication operations: Sign up, sign in, sign out,...",
+          },
+          {
+            name: "Conversations",
+            description:
+              "Messaging operations: Create conversation, send message, react message,...",
+          },
+          { name: "Feed", description: "Get the user's feed" },
+          {
+            name: "Friends",
+            description: "Social operations: Send friend request, view friends, unfriend,...",
+          },
+          { name: "Nicknames", description: "Nickname operations: Set/Update/Remove nicknames" },
+          {
+            name: "Posts",
+            description: "Post-related operations: Upload post, react post, view post,...",
+          },
+          {
+            name: "Users",
+            description:
+              "User-related operations: Update profile, get public profile, block user,...",
+          },
+        ],
+      },
+    }),
+  )
   .use(healthRouter)
   .use(authRouter)
   .use(friendsRouter)

@@ -97,6 +97,7 @@ const protectedNicknamesRouter = new Elysia()
     },
   )
 
+  // Get nicknames for all friends
   .get("/nicknames", async ({ authUserId }) => {
     const result = await getAllNicknames(authUserId);
 

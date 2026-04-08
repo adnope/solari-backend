@@ -1,22 +1,22 @@
 import { Elysia, t } from "elysia";
 import { AuthError } from "../usecases/auth/error_type.ts";
-import { signOut } from "../usecases/auth/sign_out.ts";
 import { me } from "../usecases/auth/me.ts";
-import { signIn } from "../usecases/auth/sign_in.ts";
-import { signUp } from "../usecases/auth/sign_up.ts";
+import { refreshSession } from "../usecases/auth/refresh_session.ts";
 import {
   requestPasswordResetCode,
   RequestPasswordResetCodeError,
 } from "../usecases/auth/request_password_reset_code.ts";
 import { resetPassword, ResetPasswordError } from "../usecases/auth/reset_password.ts";
+import { signIn } from "../usecases/auth/sign_in.ts";
 import { signInWithGoogle } from "../usecases/auth/sign_in_with_google.ts";
+import { signOut } from "../usecases/auth/sign_out.ts";
+import { signUp } from "../usecases/auth/sign_up.ts";
 import {
   verifyPasswordResetCode,
   VerifyPasswordResetCodeError,
 } from "../usecases/auth/verify_password_reset_code.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
-import { refreshSession } from "../usecases/auth/refresh_session.ts";
 
 const protectedAuthRouter = new Elysia()
   .use(requireAuth)
