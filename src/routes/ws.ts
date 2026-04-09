@@ -1,27 +1,33 @@
-import { Elysia, t } from "elysia";
+import { Elysia } from "elysia";
 import { verifyAccessToken } from "../utils/jwt";
 import { wsPublisher } from "../websocket/publisher.ts";
 import type { WsClientEvent } from "../websocket/types.ts";
+import {
+  sendTypingState,
+  SendTypingStateError,
+} from "../usecases/conversations/send_typing_state.ts";
 
 export const wsRoutes = new Elysia()
-  .derive(({ query }) => {
+  .derive(({ headers }) => {
     try {
-      const payload = verifyAccessToken(query?.["token"] as string);
+      const authHeader = headers["authorization"];
+      const [scheme, token] = authHeader?.split(" ") ?? [];
+
+      if (scheme !== "Bearer" || !token) {
+        return { userId: null };
+      }
+
+      const payload = verifyAccessToken(token);
 
       return {
         userId: payload.sub as string,
       };
     } catch (error) {
-      // console.error("[WS Auth Error]:", error);
       return { userId: null };
     }
   })
 
   .ws("/ws", {
-    query: t.Object({
-      token: t.String(),
-    }),
-
     open(ws) {
       if (!ws.data.userId) {
         ws.send(JSON.stringify({ error: "Unauthorized" }));
@@ -41,14 +47,29 @@ export const wsRoutes = new Elysia()
 
           if (!senderId) return;
 
-          wsPublisher.sendToUser(data.payload.receiverId, {
-            type: "TYPING_INDICATOR",
-            payload: {
-              conversationId: data.payload.conversationId,
-              senderId: senderId,
-              isTyping: data.payload.isTyping,
-            },
-          });
+          void sendTypingState({
+            senderId,
+            conversationId: data.payload.conversationId,
+            receiverId: data.payload.receiverId,
+            isTyping: data.payload.isTyping,
+          })
+            .then((result) => {
+              wsPublisher.sendToUser(result.receiverId, {
+                type: "TYPING_INDICATOR",
+                payload: {
+                  conversationId: result.conversationId,
+                  senderId: result.senderId,
+                  isTyping: result.isTyping,
+                },
+              });
+            })
+            .catch((error: unknown) => {
+              if (error instanceof SendTypingStateError) {
+                return;
+              }
+
+              console.error("[WS] Failed to process typing state", error);
+            });
         }
       } catch (error) {
         console.error("[WS] Failed to process incoming message", error);

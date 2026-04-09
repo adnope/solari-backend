@@ -16,8 +16,8 @@
 
 ```json
 {
-    "type": "<endpoint specific error type>",
-    "message": "<endpoint specific error message>"
+  "type": "<endpoint specific error type>",
+  "message": "<endpoint specific error message>"
 }
 ```
 
@@ -53,9 +53,9 @@ POST /signup
 
 ```json
 {
-    "username": "user1234",
-    "email": "user1234@example.com",
-    "password": "userpassword"
+  "username": "user1234",
+  "email": "user1234@example.com",
+  "password": "userpassword"
 }
 ```
 
@@ -65,15 +65,15 @@ POST /signup
 
 ```json
 {
-    "message": "Account created successfully.",
-    "user": {
-        "id": "018f9e...",
-        "username": "johndoe",
-        "email": "john@example.com",
-        "display_name": null,
-        "avatar_key": null,
-        "created_at": "2026-04-08T11:49:14.000Z"
-    }
+  "message": "Account created successfully.",
+  "user": {
+    "id": "018f9e...",
+    "username": "johndoe",
+    "email": "john@example.com",
+    "display_name": null,
+    "avatar_key": null,
+    "created_at": "2026-04-08T11:49:14.000Z"
+  }
 }
 ```
 
@@ -99,8 +99,8 @@ POST /signin
 
 ```json
 {
-    "identifier": "user1234@example.com",
-    "password": "userpassword"
+  "identifier": "user1234@example.com",
+  "password": "userpassword"
 }
 ```
 
@@ -110,11 +110,11 @@ POST /signin
 
 ```json
 {
-    "message": "Signed in successfully.",
-    "session_id": "018f9e...",
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR...",
-    "refresh_token": "a1b2c3d4e5f6...",
-    "expires_at": "2026-04-22T11:49:14.000Z"
+  "message": "Signed in successfully.",
+  "session_id": "018f9e...",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR...",
+  "refresh_token": "a1b2c3d4e5f6...",
+  "expires_at": "2026-04-22T11:49:14.000Z"
 }
 ```
 
@@ -136,11 +136,11 @@ POST /signout
 
 - device_token (string, Optional): The push notification device token to be removed from the user's registered devices.
 - Example:
-    ```json
-    {
-        "device_token": "fcm_token_xyz123..."
-    }
-    ```
+  ```json
+  {
+    "device_token": "fcm_token_xyz123..."
+  }
+  ```
 
 ### Responses:
 
@@ -148,7 +148,7 @@ POST /signout
 
 ```json
 {
-    "message": "Logged out successfully."
+  "message": "Logged out successfully."
 }
 ```
 
@@ -173,7 +173,7 @@ POST /password-resets
 
 ```json
 {
-    "email": "user1234@example.com"
+  "email": "user1234@example.com"
 }
 ```
 
@@ -183,7 +183,7 @@ POST /password-resets
 
 ```json
 {
-    "message": "If that account exists, a password reset code has been sent."
+  "message": "If that account exists, a password reset code has been sent."
 }
 ```
 
@@ -208,8 +208,8 @@ POST /password-resets/verify
 
 ```json
 {
-    "email": "user1234@example.com",
-    "code": "123456"
+  "email": "user1234@example.com",
+  "code": "123456"
 }
 ```
 
@@ -219,8 +219,8 @@ POST /password-resets/verify
 
 ```json
 {
-    "message": "Password reset code verified successfully.",
-    "verified": true
+  "message": "Password reset code verified successfully.",
+  "verified": true
 }
 ```
 
@@ -245,8 +245,8 @@ POST /password-resets/complete
 
 ```json
 {
-    "email": "user1234@example.com",
-    "new_password": "newSecurePassword123"
+  "email": "user1234@example.com",
+  "new_password": "newSecurePassword123"
 }
 ```
 
@@ -256,7 +256,7 @@ POST /password-resets/complete
 
 ```json
 {
-    "message": "Password reset successfully."
+  "message": "Password reset successfully."
 }
 ```
 
@@ -280,7 +280,7 @@ POST /sessions/refresh
 
 ```json
 {
-    "refresh_token": "a1b2c3d4e5f6..."
+  "refresh_token": "a1b2c3d4e5f6..."
 }
 ```
 
@@ -290,11 +290,11 @@ POST /sessions/refresh
 
 ```json
 {
-    "message": "Session refreshed successfully.",
-    "session_id": "018f9e...",
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR...",
-    "refresh_token": "f6e5d4c3b2a1...",
-    "expires_at": "2026-04-22T11:49:14.000Z"
+  "message": "Session refreshed successfully.",
+  "session_id": "018f9e...",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR...",
+  "refresh_token": "f6e5d4c3b2a1...",
+  "expires_at": "2026-04-22T11:49:14.000Z"
 }
 ```
 
@@ -322,16 +322,16 @@ GET /me
 
 ```json
 {
-    "message": "Got me",
-    "session_id": "018f9e...",
-    "user": {
-        "id": "018f9e...",
-        "username": "johndoe",
-        "email": "john@example.com",
-        "display_name": null,
-        "avatar_key": null,
-        "created_at": "2026-04-08T11:49:14.000Z"
-    }
+  "message": "Got me",
+  "session_id": "018f9e...",
+  "user": {
+    "id": "018f9e...",
+    "username": "johndoe",
+    "email": "john@example.com",
+    "display_name": null,
+    "avatar_key": null,
+    "created_at": "2026-04-08T11:49:14.000Z"
+  }
 }
 ```
 
@@ -358,7 +358,7 @@ POST /conversations
 
 ```json
 {
-    "target_user_id": "123e4567-e89b-12d3-a456-426614174000"
+  "target_user_id": "123e4567-e89b-12d3-a456-426614174000"
 }
 ```
 
@@ -368,13 +368,13 @@ POST /conversations
 
 ```json
 {
-    "message": "Conversation created.",
-    "conversation": {
-        "id": "018f9e...",
-        "user_low": "123e4567-e89b-12d3-a456-426614174000",
-        "user_high": "987f6543-e21b-34c4-b567-513314175000",
-        "created_at": "2026-04-08T12:40:02.000Z"
-    }
+  "message": "Conversation created.",
+  "conversation": {
+    "id": "018f9e...",
+    "user_low": "123e4567-e89b-12d3-a456-426614174000",
+    "user_high": "987f6543-e21b-34c4-b567-513314175000",
+    "created_at": "2026-04-08T12:40:02.000Z"
+  }
 }
 ```
 
@@ -401,8 +401,8 @@ POST /conversations/:conversationId/messages
 
 ```json
 {
-    "content": "Yo!",
-    "referenced_post_id": "123e4567-e89b-12d3-a456-426614174000"
+  "content": "Yo!",
+  "referenced_post_id": "123e4567-e89b-12d3-a456-426614174000"
 }
 ```
 
@@ -412,16 +412,16 @@ POST /conversations/:conversationId/messages
 
 ```json
 {
-    "message": "Message sent successfully.",
-    "data": {
-        "id": "018f9e...",
-        "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
-        "sender_id": "987f6543-e21b-34c4-b567-513314175000",
-        "content": "Yo!",
-        "referenced_post_id": "123e4567-e89b-12d3-a456-426614174000",
-        "replied_message_id": null,
-        "created_at": "2026-04-08T12:45:10.000Z"
-    }
+  "message": "Message sent successfully.",
+  "data": {
+    "id": "018f9e...",
+    "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+    "sender_id": "987f6543-e21b-34c4-b567-513314175000",
+    "content": "Yo!",
+    "referenced_post_id": "123e4567-e89b-12d3-a456-426614174000",
+    "replied_message_id": null,
+    "created_at": "2026-04-08T12:45:10.000Z"
+  }
 }
 ```
 
@@ -450,12 +450,12 @@ DELETE /conversations/:conversationId/messages/:messageId
 
 ```json
 {
-    "message": "Message unsent successfully.",
-    "data": {
-        "id": "018f9e...",
-        "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
-        "is_deleted": true
-    }
+  "message": "Message unsent successfully.",
+  "data": {
+    "id": "018f9e...",
+    "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+    "is_deleted": true
+  }
 }
 ```
 
@@ -491,25 +491,25 @@ GET /conversations/123e4567-e89b-12d3-a456-426614174000/messages?limit=20&cursor
 
 ```json
 {
-    "items": [
+  "items": [
+    {
+      "id": "018fa1...",
+      "sender_id": "987f6543-e21b-34c4-b567-513314175000",
+      "content": "Yo!",
+      "is_deleted": false,
+      "referenced_post_id": null,
+      "replied_message_id": null,
+      "created_at": "2026-04-08T12:45:10.000Z",
+      "reactions": [
         {
-            "id": "018fa1...",
-            "sender_id": "987f6543-e21b-34c4-b567-513314175000",
-            "content": "Yo!",
-            "is_deleted": false,
-            "referenced_post_id": null,
-            "replied_message_id": null,
-            "created_at": "2026-04-08T12:45:10.000Z",
-            "reactions": [
-                {
-                    "user_id": "123e4567-e89b-12d3-a456-426614174000",
-                    "emoji": "💀"
-                }
-            ]
+          "user_id": "123e4567-e89b-12d3-a456-426614174000",
+          "emoji": "💀"
         }
-    ],
-    "next_cursor": "2026-04-08T12:40:02.000Z",
-    "partner_last_read_at": "2026-04-08T12:46:00.000Z"
+      ]
+    }
+  ],
+  "next_cursor": "2026-04-08T12:40:02.000Z",
+  "partner_last_read_at": "2026-04-08T12:46:00.000Z"
 }
 ```
 
@@ -542,12 +542,12 @@ POST /conversations/:conversationId/read
 
 ```json
 {
-    "message": "Conversation marked as read.",
-    "read_state": {
-        "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
-        "user_id": "987f6543-e21b-34c4-b567-513314175000",
-        "last_read_at": "2026-04-08T12:45:10.000Z"
-    }
+  "message": "Conversation marked as read.",
+  "read_state": {
+    "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+    "user_id": "987f6543-e21b-34c4-b567-513314175000",
+    "last_read_at": "2026-04-08T12:45:10.000Z"
+  }
 }
 ```
 
@@ -581,32 +581,32 @@ GET /conversations?limit=20&cursor=2026-04-08T12:45:10.000Z
 
 ```json
 {
-    "items": [
-        {
-            "id": "018f9e...",
-            "user_low": "123e4567-e89b-12d3-a456-426614174000",
-            "user_high": "987f6543-e21b-34c4-b567-513314175000",
-            "created_at": "2026-04-01T10:00:00.000Z",
-            "updated_at": "2026-04-08T12:45:10.000Z",
-            "partner": {
-                "id": "987f6543-e21b-34c4-b567-513314175000",
-                "username": "janesmith",
-                "display_name": "Jane (Work)",
-                "avatar_key": "avatars/018fa1..."
-            },
-            "last_message": {
-                "id": "018fa2...",
-                "sender_id": "123e4567-e89b-12d3-a456-426614174000",
-                "content": "that's unfortunate",
-                "is_deleted": false,
-                "created_at": "2026-04-08T12:45:10.000Z"
-            },
-            "current_user_last_read_at": "2026-04-08T12:45:10.000Z",
-            "partner_last_read_at": "2026-04-08T12:40:00.000Z",
-            "is_readonly": false
-        }
-    ],
-    "next_cursor": "2026-04-07T09:15:00.000Z"
+  "items": [
+    {
+      "id": "018f9e...",
+      "user_low": "123e4567-e89b-12d3-a456-426614174000",
+      "user_high": "987f6543-e21b-34c4-b567-513314175000",
+      "created_at": "2026-04-01T10:00:00.000Z",
+      "updated_at": "2026-04-08T12:45:10.000Z",
+      "partner": {
+        "id": "987f6543-e21b-34c4-b567-513314175000",
+        "username": "janesmith",
+        "display_name": "Jane (Work)",
+        "avatar_key": "avatars/018fa1..."
+      },
+      "last_message": {
+        "id": "018fa2...",
+        "sender_id": "123e4567-e89b-12d3-a456-426614174000",
+        "content": "that's unfortunate",
+        "is_deleted": false,
+        "created_at": "2026-04-08T12:45:10.000Z"
+      },
+      "current_user_last_read_at": "2026-04-08T12:45:10.000Z",
+      "partner_last_read_at": "2026-04-08T12:40:00.000Z",
+      "is_readonly": false
+    }
+  ],
+  "next_cursor": "2026-04-07T09:15:00.000Z"
 }
 ```
 
@@ -637,7 +637,7 @@ DELETE /conversations/:conversationId
 
 ```json
 {
-    "message": "Conversation cleared successfully."
+  "message": "Conversation cleared successfully."
 }
 ```
 
@@ -666,7 +666,7 @@ POST /messages/:messageId/reactions
 
 ```json
 {
-    "emoji": "👍"
+  "emoji": "👍"
 }
 ```
 
@@ -676,14 +676,14 @@ POST /messages/:messageId/reactions
 
 ```json
 {
-    "message": "Reaction recorded successfully.",
-    "data": {
-        "id": "018f9e...",
-        "message_id": "123e4567-e89b-12d3-a456-426614174000",
-        "user_id": "987f6543-e21b-34c4-b567-513314175000",
-        "emoji": "👍",
-        "created_at": "2026-04-08T12:45:10.000Z"
-    }
+  "message": "Reaction recorded successfully.",
+  "data": {
+    "id": "018f9e...",
+    "message_id": "123e4567-e89b-12d3-a456-426614174000",
+    "user_id": "987f6543-e21b-34c4-b567-513314175000",
+    "emoji": "👍",
+    "created_at": "2026-04-08T12:45:10.000Z"
+  }
 }
 ```
 
@@ -715,7 +715,7 @@ DELETE /messages/:messageId/reactions
 
 ```json
 {
-    "message": "Reaction removed successfully."
+  "message": "Reaction removed successfully."
 }
 ```
 
@@ -745,7 +745,7 @@ PATCH /messages/:messageId/reactions
 
 ```json
 {
-    "emoji": "💀"
+  "emoji": "💀"
 }
 ```
 
@@ -755,14 +755,14 @@ PATCH /messages/:messageId/reactions
 
 ```json
 {
-    "message": "Reaction updated successfully.",
-    "data": {
-        "id": "018f9e...",
-        "message_id": "123e4567-e89b-12d3-a456-426614174000",
-        "user_id": "987f6543-e21b-34c4-b567-513314175000",
-        "emoji": "💀",
-        "created_at": "2026-04-08T12:45:10.000Z"
-    }
+  "message": "Reaction updated successfully.",
+  "data": {
+    "id": "018f9e...",
+    "message_id": "123e4567-e89b-12d3-a456-426614174000",
+    "user_id": "987f6543-e21b-34c4-b567-513314175000",
+    "emoji": "💀",
+    "created_at": "2026-04-08T12:45:10.000Z"
+  }
 }
 ```
 
@@ -788,7 +788,7 @@ POST /conversations/mute
 
 ```json
 {
-    "conversation_id": "123e4567-e89b-12d3-a456-426614174000"
+  "conversation_id": "123e4567-e89b-12d3-a456-426614174000"
 }
 ```
 
@@ -798,9 +798,9 @@ POST /conversations/mute
 
 ```json
 {
-    "message": "Conversation muted.",
-    "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
-    "is_muted": true
+  "message": "Conversation muted.",
+  "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+  "is_muted": true
 }
 ```
 
@@ -826,9 +826,9 @@ GET /feed
 - cursor (string, Optional): An ISO date string used for pagination. Fetches posts created before this timestamp (passed as a query parameter).
 - authors (string, Optional): A comma-separated list of user UUIDs to filter the feed to only show posts from those specific authors (passed as a query parameter).
 - Example:
-    ```text
-    GET /feed?limit=20&cursor=2026-04-08T12:45:10.000Z&authors=123e4567-e89b-12d3-a456-426614174000,987f6543-e21b-34c4-b567-513314175000
-    ```
+  ```text
+  GET /feed?limit=20&cursor=2026-04-08T12:45:10.000Z&authors=123e4567-e89b-12d3-a456-426614174000,987f6543-e21b-34c4-b567-513314175000
+  ```
 
 ### Request body:
 
@@ -840,28 +840,28 @@ GET /feed
 
 ```json
 {
-    "items": [
-        {
-            "id": "018f9e...",
-            "caption": "Beautiful sunset today!",
-            "created_at": "2026-04-08T12:45:10.000Z",
-            "author": {
-                "id": "123e4567-e89b-12d3-a456-426614174000",
-                "username": "johndoe",
-                "display_name": "Johnny (Bestie)",
-                "avatar_key": "avatars/018fa1..."
-            },
-            "media": {
-                "url": "https://s3.amazonaws.com/bucket/media_xyz...",
-                "thumbnail_url": "https://s3.amazonaws.com/bucket/thumb_xyz...",
-                "media_type": "image/jpeg",
-                "width": 1080,
-                "height": 1350,
-                "duration_ms": null
-            }
-        }
-    ],
-    "next_cursor": "2026-04-07T09:15:00.000Z"
+  "items": [
+    {
+      "id": "018f9e...",
+      "caption": "Beautiful sunset today!",
+      "created_at": "2026-04-08T12:45:10.000Z",
+      "author": {
+        "id": "123e4567-e89b-12d3-a456-426614174000",
+        "username": "johndoe",
+        "display_name": "Johnny (Bestie)",
+        "avatar_key": "avatars/018fa1..."
+      },
+      "media": {
+        "url": "https://s3.amazonaws.com/bucket/media_xyz...",
+        "thumbnail_url": "https://s3.amazonaws.com/bucket/thumb_xyz...",
+        "media_type": "image/jpeg",
+        "width": 1080,
+        "height": 1350,
+        "duration_ms": null
+      }
+    }
+  ],
+  "next_cursor": "2026-04-07T09:15:00.000Z"
 }
 ```
 
@@ -886,7 +886,7 @@ POST /friend-requests
 
 ```json
 {
-    "identifier": "janesmith"
+  "identifier": "janesmith"
 }
 ```
 
@@ -896,13 +896,13 @@ POST /friend-requests
 
 ```json
 {
-    "message": "Friend request to janesmith sent successfully.",
-    "friend_request": {
-        "id": "018f9e...",
-        "requester_id": "123e4567-e89b-12d3-a456-426614174000",
-        "receiver_id": "987f6543-e21b-34c4-b567-513314175000",
-        "created_at": "2026-04-08T12:51:43.000Z"
-    }
+  "message": "Friend request to janesmith sent successfully.",
+  "friend_request": {
+    "id": "018f9e...",
+    "requester_id": "123e4567-e89b-12d3-a456-426614174000",
+    "receiver_id": "987f6543-e21b-34c4-b567-513314175000",
+    "created_at": "2026-04-08T12:51:43.000Z"
+  }
 }
 ```
 
@@ -928,9 +928,9 @@ GET /friend-requests
 - direction (string, Optional): Filters requests by direction. Valid values are 'incoming', 'outgoing', or 'both'. Defaults to 'both' (passed as a query parameter).
 - sort (string, Optional): Sorts the results by creation date. Valid values are 'newest' or 'oldest'. Defaults to 'newest' (passed as a query parameter).
 - Example:
-    ```text
-    GET /friend-requests?limit=10&direction=incoming&sort=newest
-    ```
+  ```text
+  GET /friend-requests?limit=10&direction=incoming&sort=newest
+  ```
 
 ### Request body:
 
@@ -942,30 +942,30 @@ GET /friend-requests
 
 ```json
 {
-    "items": [
-        {
-            "id": "018f9e...",
-            "created_at": "2026-04-08T12:51:43.000Z",
-            "direction": "incoming",
-            "requester": {
-                "id": "123e4567-e89b-12d3-a456-426614174000",
-                "username": "janesmith",
-                "email": "jane@example.com",
-                "display_name": "Jane Smith",
-                "avatar_key": "avatars/018fa1..."
-            },
-            "receiver": {
-                "id": "987f6543-e21b-34c4-b567-513314175000",
-                "username": "johndoe",
-                "email": "john@example.com",
-                "display_name": "John Doe",
-                "avatar_key": null
-            }
-        }
-    ],
-    "next_cursor": "2026-04-07T09:15:00.000Z",
-    "limit": 10,
-    "direction": "incoming"
+  "items": [
+    {
+      "id": "018f9e...",
+      "created_at": "2026-04-08T12:51:43.000Z",
+      "direction": "incoming",
+      "requester": {
+        "id": "123e4567-e89b-12d3-a456-426614174000",
+        "username": "janesmith",
+        "email": "jane@example.com",
+        "display_name": "Jane Smith",
+        "avatar_key": "avatars/018fa1..."
+      },
+      "receiver": {
+        "id": "987f6543-e21b-34c4-b567-513314175000",
+        "username": "johndoe",
+        "email": "john@example.com",
+        "display_name": "John Doe",
+        "avatar_key": null
+      }
+    }
+  ],
+  "next_cursor": "2026-04-07T09:15:00.000Z",
+  "limit": 10,
+  "direction": "incoming"
 }
 ```
 
@@ -1001,13 +1001,13 @@ PATCH /friend-requests/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a
 
 ```json
 {
-    "message": "Friend request accepted successfully.",
-    "friend_request": {
-        "id": "018f9e...",
-        "requester_id": "123e4567-e89b-12d3-a456-426614174000",
-        "receiver_id": "987f6543-e21b-34c4-b567-513314175000",
-        "created_at": "2026-04-08T12:51:43.000Z"
-    }
+  "message": "Friend request accepted successfully.",
+  "friend_request": {
+    "id": "018f9e...",
+    "requester_id": "123e4567-e89b-12d3-a456-426614174000",
+    "receiver_id": "987f6543-e21b-34c4-b567-513314175000",
+    "created_at": "2026-04-08T12:51:43.000Z"
+  }
 }
 ```
 
@@ -1040,7 +1040,7 @@ DELETE /friend-requests/:requestId
 
 ```json
 {
-    "message": "Friend request canceled or rejected successfully."
+  "message": "Friend request canceled or rejected successfully."
 }
 ```
 
@@ -1078,7 +1078,7 @@ DELETE /friendships/123e4567-e89b-12d3-a456-426614174000
 
 ```json
 {
-    "message": "Unfriended successfully."
+  "message": "Unfriended successfully."
 }
 ```
 
@@ -1117,17 +1117,17 @@ GET /friends?limit=20&sort=newest
 
 ```json
 {
-    "items": [
-        {
-            "id": "987f6543-e21b-34c4-b567-513314175000",
-            "username": "johndoe",
-            "display_name": "Johnny",
-            "avatar_key": "avatars/018fa1...",
-            "created_at": "2026-04-08T12:51:43.000Z"
-        }
-    ],
-    "next_cursor": "2026-04-07T09:15:00.000Z",
-    "limit": 20
+  "items": [
+    {
+      "id": "987f6543-e21b-34c4-b567-513314175000",
+      "username": "johndoe",
+      "display_name": "Johnny",
+      "avatar_key": "avatars/018fa1...",
+      "created_at": "2026-04-08T12:51:43.000Z"
+    }
+  ],
+  "next_cursor": "2026-04-07T09:15:00.000Z",
+  "limit": 20
 }
 ```
 
@@ -1157,7 +1157,7 @@ POST /nicknames/:targetUserId
 
 ```json
 {
-    "nickname": "League Bro"
+  "nickname": "League Bro"
 }
 ```
 
@@ -1167,11 +1167,11 @@ POST /nicknames/:targetUserId
 
 ```json
 {
-    "message": "Nickname set successfully.",
-    "data": {
-        "target_user_id": "987f6543-e21b-34c4-b567-513314175000",
-        "nickname": "League Bro"
-    }
+  "message": "Nickname set successfully.",
+  "data": {
+    "target_user_id": "987f6543-e21b-34c4-b567-513314175000",
+    "nickname": "League Bro"
+  }
 }
 ```
 
@@ -1202,7 +1202,7 @@ PATCH /nicknames/:targetUserId
 
 ```json
 {
-    "new_nickname": "League Bro (Diamond Hardstuck)"
+  "new_nickname": "League Bro (Diamond Hardstuck)"
 }
 ```
 
@@ -1212,11 +1212,11 @@ PATCH /nicknames/:targetUserId
 
 ```json
 {
-    "message": "Nickname updated successfully.",
-    "data": {
-        "target_user_id": "987f6543-e21b-34c4-b567-513314175000",
-        "nickname": "League Bro (Diamond Hardstuck)"
-    }
+  "message": "Nickname updated successfully.",
+  "data": {
+    "target_user_id": "987f6543-e21b-34c4-b567-513314175000",
+    "nickname": "League Bro (Diamond Hardstuck)"
+  }
 }
 ```
 
@@ -1253,10 +1253,10 @@ DELETE /nicknames/987f6543-e21b-34c4-b567-513314175000
 
 ```json
 {
-    "message": "Nickname removed successfully.",
-    "data": {
-        "target_user_id": "987f6543-e21b-34c4-b567-513314175000"
-    }
+  "message": "Nickname removed successfully.",
+  "data": {
+    "target_user_id": "987f6543-e21b-34c4-b567-513314175000"
+  }
 }
 ```
 
@@ -1292,7 +1292,7 @@ GET /nicknames/987f6543-e21b-34c4-b567-513314175000
 
 ```json
 {
-    "nickname": "Johnny"
+  "nickname": "Johnny"
 }
 ```
 
@@ -1328,16 +1328,16 @@ GET /nicknames
 
 ```json
 {
-    "items": [
-        {
-            "target_id": "987f6543-e21b-34c4-b567-513314175000",
-            "nickname": "League Bro (Diamond Hardstuck)"
-        },
-        {
-            "target_id": "123e4567-e89b-12d3-a456-426614174000",
-            "nickname": "League Bro 2"
-        }
-    ]
+  "items": [
+    {
+      "target_id": "987f6543-e21b-34c4-b567-513314175000",
+      "nickname": "League Bro (Diamond Hardstuck)"
+    },
+    {
+      "target_id": "123e4567-e89b-12d3-a456-426614174000",
+      "nickname": "League Bro 2"
+    }
+  ]
 }
 ```
 
@@ -1371,15 +1371,15 @@ POST /posts/initiate
 
 ```json
 {
-    "content_type": "video/mp4",
-    "caption": "what is this???",
-    "audience_type": "selected",
-    "viewer_ids": "123e4567-e89b-12d3-a456-426614174000,987f6543-e21b-34c4-b567-513314175000",
-    "width": 1080,
-    "height": 1080,
-    "byte_size": 8388608,
-    "duration_ms": 3200,
-    "timezone": "Asia/Ho_Chi_Minh"
+  "content_type": "video/mp4",
+  "caption": "what is this???",
+  "audience_type": "selected",
+  "viewer_ids": "123e4567-e89b-12d3-a456-426614174000,987f6543-e21b-34c4-b567-513314175000",
+  "width": 1080,
+  "height": 1080,
+  "byte_size": 8388608,
+  "duration_ms": 3200,
+  "timezone": "Asia/Ho_Chi_Minh"
 }
 ```
 
@@ -1389,9 +1389,9 @@ POST /posts/initiate
 
 ```json
 {
-    "post_id": "018f9e...",
-    "object_key": "posts/018f9e....mp4",
-    "upload_url": "https://s3.amazonaws.com/bucket/posts/..."
+  "post_id": "018f9e...",
+  "object_key": "posts/018f9e....mp4",
+  "upload_url": "https://s3.amazonaws.com/bucket/posts/..."
 }
 ```
 
@@ -1417,8 +1417,8 @@ POST /posts/finalize
 
 ```json
 {
-    "post_id": "018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a",
-    "object_key": "posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a.mp4"
+  "post_id": "018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a",
+  "object_key": "posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a.mp4"
 }
 ```
 
@@ -1428,9 +1428,9 @@ POST /posts/finalize
 
 ```json
 {
-    "message": "Post upload queued for processing.",
-    "post_id": "018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a",
-    "status": "processing"
+  "message": "Post upload queued for processing.",
+  "post_id": "018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a",
+  "status": "processing"
 }
 ```
 
@@ -1468,10 +1468,10 @@ GET /posts/statuses?ids=018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a,018f9e7b-9e7b-4e7b-
 
 ```json
 {
-    "statuses": {
-        "018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a": "COMPLETED",
-        "018f9e7b-9e7b-4e7b-8e7b-9e7b9e7b9e7b": "PROCESSING"
-    }
+  "statuses": {
+    "018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a": "COMPLETED",
+    "018f9e7b-9e7b-4e7b-8e7b-9e7b9e7b9e7b": "PROCESSING"
+  }
 }
 ```
 
@@ -1513,7 +1513,7 @@ DELETE /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a
 
 ```json
 {
-    "message": "Post deleted successfully."
+  "message": "Post deleted successfully."
 }
 ```
 
@@ -1549,8 +1549,8 @@ POST /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/reactions
 
 ```json
 {
-    "emoji": "🔥",
-    "note": "Oach vcl!"
+  "emoji": "🔥",
+  "note": "Oach vcl!"
 }
 ```
 
@@ -1560,15 +1560,15 @@ POST /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/reactions
 
 ```json
 {
-    "message": "Reaction sent successfully.",
-    "reaction": {
-        "id": "018f9e...",
-        "post_id": "018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a",
-        "user_id": "123e4567-e89b-12d3-a456-426614174000",
-        "emoji": "🔥",
-        "note": "Oach vcl!",
-        "created_at": "2026-04-08T20:10:31.000Z"
-    }
+  "message": "Reaction sent successfully.",
+  "reaction": {
+    "id": "018f9e...",
+    "post_id": "018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a",
+    "user_id": "123e4567-e89b-12d3-a456-426614174000",
+    "emoji": "🔥",
+    "note": "Oach vcl!",
+    "created_at": "2026-04-08T20:10:31.000Z"
+  }
 }
 ```
 
@@ -1607,7 +1607,7 @@ DELETE /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/reactions/018f9e7b-9e7b-4e7b-
 
 ```json
 {
-    "message": "Reaction deleted successfully."
+  "message": "Reaction deleted successfully."
 }
 ```
 
@@ -1646,21 +1646,21 @@ GET /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/reactions?limit=20&cursor=2026-0
 
 ```json
 {
-    "items": [
-        {
-            "id": "018f9e...",
-            "emoji": "🔥",
-            "note": "Oach vcl!",
-            "created_at": "2026-04-08T20:10:31.000Z",
-            "user": {
-                "id": "123e4567-e89b-12d3-a456-426614174000",
-                "username": "johndoe",
-                "display_name": "Dôn",
-                "avatar_key": "avatars/018fa1..."
-            }
-        }
-    ],
-    "next_cursor": "2026-04-07T09:15:00.000Z"
+  "items": [
+    {
+      "id": "018f9e...",
+      "emoji": "🔥",
+      "note": "Oach vcl!",
+      "created_at": "2026-04-08T20:10:31.000Z",
+      "user": {
+        "id": "123e4567-e89b-12d3-a456-426614174000",
+        "username": "johndoe",
+        "display_name": "Dôn",
+        "avatar_key": "avatars/018fa1..."
+      }
+    }
+  ],
+  "next_cursor": "2026-04-07T09:15:00.000Z"
 }
 ```
 
@@ -1698,7 +1698,7 @@ POST /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/views
 
 ```json
 {
-    "message": "Post view recorded successfully."
+  "message": "Post view recorded successfully."
 }
 ```
 
@@ -1738,16 +1738,16 @@ GET /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/viewers?limit=20&cursor=2026-04-
 
 ```json
 {
-    "items": [
-        {
-            "id": "123e4567-e89b-12d3-a456-426614174000",
-            "username": "janesmith",
-            "display_name": "Jane Smith",
-            "avatar_key": "avatars/018fa1...",
-            "viewed_at": "2026-04-08T12:45:10.000Z"
-        }
-    ],
-    "next_cursor": "2026-04-07T09:15:00.000Z"
+  "items": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "username": "janesmith",
+      "display_name": "Jane Smith",
+      "avatar_key": "avatars/018fa1...",
+      "viewed_at": "2026-04-08T12:45:10.000Z"
+    }
+  ],
+  "next_cursor": "2026-04-07T09:15:00.000Z"
 }
 ```
 
@@ -1779,9 +1779,9 @@ PATCH /users/me
 
 ```json
 {
-    "email": "newemail@example.com",
-    "display_name": "John Doe",
-    "remove_avatar": "false"
+  "email": "newemail@example.com",
+  "display_name": "John Doe",
+  "remove_avatar": "false"
 }
 ```
 
@@ -1791,15 +1791,15 @@ PATCH /users/me
 
 ```json
 {
-    "message": "Profile updated successfully.",
-    "user": {
-        "id": "123e4567-e89b-12d3-a456-426614174000",
-        "username": "johndoe",
-        "email": "newemail@example.com",
-        "display_name": "John Doe",
-        "avatar_key": "avatars/123e4567...jpeg",
-        "updated_at": "2026-04-08T20:15:05.000Z"
-    }
+  "message": "Profile updated successfully.",
+  "user": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "username": "johndoe",
+    "email": "newemail@example.com",
+    "display_name": "John Doe",
+    "avatar_key": "avatars/123e4567...jpeg",
+    "updated_at": "2026-04-08T20:15:05.000Z"
+  }
 }
 ```
 
@@ -1838,7 +1838,7 @@ DELETE /users/me
 
 ```json
 {
-    "message": "Account deleted successfully."
+  "message": "Account deleted successfully."
 }
 ```
 
@@ -1863,8 +1863,8 @@ POST /users/me/devices
 
 ```json
 {
-    "device_token": "fcm_token_1234567890",
-    "platform": "ios"
+  "device_token": "fcm_token_1234567890",
+  "platform": "ios"
 }
 ```
 
@@ -1874,7 +1874,7 @@ POST /users/me/devices
 
 ```json
 {
-    "message": "Device registered successfully."
+  "message": "Device registered successfully."
 }
 ```
 
@@ -1910,12 +1910,12 @@ GET /users/public/janesmith
 
 ```json
 {
-    "profile": {
-        "id": "123e4567-e89b-12d3-a456-426614174000",
-        "username": "janesmith",
-        "displayName": "Jane (Bestie)",
-        "avatarUrl": "https://s3.amazonaws.com/bucket/avatars/123e4567...jpeg"
-    }
+  "profile": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "username": "janesmith",
+    "displayName": "Jane (Bestie)",
+    "avatarUrl": "https://s3.amazonaws.com/bucket/avatars/123e4567...jpeg"
+  }
 }
 ```
 
@@ -1945,8 +1945,8 @@ PATCH /users/password
 
 ```json
 {
-    "old_password": "CurrentPassword123!",
-    "new_password": "NewPassword456!"
+  "old_password": "CurrentPassword123!",
+  "new_password": "NewPassword456!"
 }
 ```
 
@@ -1956,7 +1956,7 @@ PATCH /users/password
 
 ```json
 {
-    "message": "Password updated successfully."
+  "message": "Password updated successfully."
 }
 ```
 
@@ -1994,13 +1994,98 @@ POST /users/987f6543-e21b-34c4-b567-513314175000/block
 
 ```json
 {
-    "message": "User blocked successfully."
+  "message": "User blocked successfully."
 }
 ```
 
 - [400 Bad Request] - Possible 'type' values: MISSING_INPUT, CANNOT_BLOCK_SELF.
 - [404 Not Found] - Possible 'type' values: USER_NOT_FOUND.
 - [409 Conflict] - Possible 'type' values: ALREADY_BLOCKED.
+
+## Unblock a user
+
+- Endpoint:
+
+```text
+DELETE /users/:targetId/block
+```
+
+- Description: Removes an existing block relationship created by the authenticated user for a specified target user.
+- Auth required: Yes
+
+### Request parameters:
+
+- targetId (string, Required): The UUID of the user to unblock (passed as a path parameter).
+- Example:
+
+```text
+DELETE /users/987f6543-e21b-34c4-b567-513314175000/block
+```
+
+### Request body:
+
+- None
+
+### Responses:
+
+- [200 OK] - User unblocked successfully.
+
+```json
+{
+  "message": "User unblocked successfully."
+}
+```
+
+- [400 Bad Request] - Possible 'type' values: MISSING_INPUT, CANNOT_UNBLOCK_SELF.
+- [404 Not Found] - Possible 'type' values: NOT_BLOCKED.
+
+## View blocked users
+
+- Endpoint:
+
+```text
+GET /users/me/blocked
+```
+
+- Description: Retrieves a paginated list of users that the authenticated user has blocked. Supports sorting by date and cursor-based pagination using the creation timestamp.
+- Auth required: Yes
+
+### Request parameters:
+
+- limit (string, Optional): The maximum number of blocked users to return. Max is 100. Defaults to 20 (passed as a query parameter).
+- sort (string, Optional): Sorts the results by when the block was created. Valid values are 'newest' or 'oldest'. Defaults to 'newest' (passed as a query parameter).
+- cursor (string, Optional): An ISO date string used for pagination. Fetches block records created before or after this timestamp depending on the sort order (passed as a query parameter).
+- Example:
+
+```text
+GET /users/me/blocked?limit=20&sort=newest
+```
+
+### Request body:
+
+- None
+
+### Responses:
+
+- [200 OK] - Blocked users retrieved successfully.
+
+```json
+{
+  "items": [
+    {
+      "id": "987f6543-e21b-34c4-b567-513314175000",
+      "username": "johndoe",
+      "display_name": "John Doe",
+      "avatar_key": "avatars/018fa1...",
+      "blocked_at": "2026-04-08T12:51:43.000Z"
+    }
+  ],
+  "next_cursor": "2026-04-07T09:15:00.000Z",
+  "limit": 20
+}
+```
+
+- [400 Bad Request] - Possible 'type' values: MISSING_USER_ID, INVALID_CURSOR, INVALID_LIMIT, INVALID_SORT.
 
 ## Get current user's streak
 
@@ -2032,11 +2117,11 @@ GET /users/me/streak?timezone=Asia/Ho_Chi_Minh
 
 ```json
 {
-    "currentStreak": 5,
-    "longestStreak": 14,
-    "lastPostDate": "2026-04-07T18:30:00.000Z",
-    "isAlive": true,
-    "postedToday": false
+  "currentStreak": 5,
+  "longestStreak": 14,
+  "lastPostDate": "2026-04-07T18:30:00.000Z",
+  "isAlive": true,
+  "postedToday": false
 }
 ```
 

@@ -8,6 +8,8 @@ import { withApiErrorHandler } from "./api_error_handler.ts";
 import { updatePassword, UpdatePasswordError } from "../usecases/auth/update_password.ts";
 import { blockUser } from "../usecases/users/block_user.ts";
 import { getUserStreak } from "../usecases/users/get_user_streak.ts";
+import { viewBlockedUsers, ViewBlockedUsersError } from "../usecases/users/view_blocked_users.ts";
+import { unblockUser, UnblockUserError } from "../usecases/users/unblock_user.ts";
 
 const protectedUsersRouter = new Elysia()
   .use(requireAuth)
@@ -158,6 +160,56 @@ const protectedUsersRouter = new Elysia()
     },
   )
 
+  // Unblock a user
+  .delete(
+    "/users/:targetId/block",
+    async ({ authUserId, params, set }) => {
+      await unblockUser(authUserId, params.targetId);
+
+      set.status = 200;
+      return {
+        message: "User unblocked successfully.",
+      };
+    },
+    {
+      params: t.Object({
+        targetId: t.String(),
+      }),
+    },
+  )
+
+  // View blocked users
+  .get(
+    "/users/me/blocked",
+    async ({ authUserId, query, set }) => {
+      const limit = query.limit ? Number(query.limit) : 20;
+      const sort = (query.sort as "newest" | "oldest" | undefined) || "newest";
+      const cursor = query.cursor;
+
+      const result = await viewBlockedUsers(authUserId, cursor, limit, sort);
+
+      set.status = 200;
+      return {
+        items: result.items.map((blockedUser) => ({
+          id: blockedUser.id,
+          username: blockedUser.username,
+          display_name: blockedUser.displayName,
+          avatar_key: blockedUser.avatarKey,
+          blocked_at: blockedUser.blockedAt,
+        })),
+        next_cursor: result.nextCursor,
+        limit: result.limit,
+      };
+    },
+    {
+      query: t.Object({
+        cursor: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
+        sort: t.Optional(t.String()),
+      }),
+    },
+  )
+
   // Get current user's streak
   .get(
     "/users/me/streak",
@@ -183,6 +235,8 @@ const usersRouter = withApiErrorHandler(new Elysia(), {
   RegisterDeviceError,
   GetPublicProfileError,
   UpdatePasswordError,
+  ViewBlockedUsersError,
+  UnblockUserError,
 }).use(protectedUsersRouter);
 
 export default usersRouter;
