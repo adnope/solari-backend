@@ -1,7 +1,7 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, messages } from "../../db/schema.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
+import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 
 export type MarkConversationAsReadResult = {
   conversationId: string;
@@ -160,8 +160,7 @@ export async function markConversationAsRead(
         payload: result,
       };
 
-      wsPublisher.sendToUser(receiverId, eventPayload);
-      wsPublisher.sendToUser(normalizedUserId, eventPayload);
+      await publishWebSocketEventToUsers([receiverId, normalizedUserId], eventPayload);
     }
 
     return result;

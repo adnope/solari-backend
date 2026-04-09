@@ -1,9 +1,11 @@
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, messageReactions, messages, users } from "../../db/schema.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
 import { getNickname, hasBlockingRelationship } from "../common_queries.ts";
-import { enqueueJob } from "../../jobs/queue.ts";
+import {
+  enqueuePushNotification,
+  publishWebSocketEventToUsers,
+} from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
 export type ReactMessageInput = {
@@ -208,12 +210,11 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
       },
     };
 
-    wsPublisher.sendToUser(receiverId, eventPayload);
-    wsPublisher.sendToUser(normalizedUserId, eventPayload);
+    await publishWebSocketEventToUsers([receiverId, normalizedUserId], eventPayload);
 
     if (pushData) {
       try {
-        await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+        await enqueuePushNotification({
           recipientUserId: pushData.receiverId,
           title: "New Reaction",
           body: `${pushData.reactorName} reacted ${trimmedEmoji}`,

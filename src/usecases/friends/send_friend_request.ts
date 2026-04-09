@@ -1,10 +1,12 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { friendRequests, friendships, users } from "../../db/schema.ts";
+import {
+  enqueuePushNotification,
+  publishWebSocketEvent,
+} from "../../jobs/queue.ts";
 import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
-import { enqueueJob } from "../../jobs/queue.ts";
 
 export type FriendRequestResult = {
   id: string;
@@ -207,7 +209,7 @@ export async function sendFriendRequest(
       };
     });
 
-    wsPublisher.sendToUser(requestResult.receiverId, {
+    await publishWebSocketEvent(requestResult.receiverId, {
       type: "NEW_FRIEND_REQUEST" as const,
       payload: requestResult,
     });
@@ -219,7 +221,7 @@ export async function sendFriendRequest(
       };
 
       try {
-        await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+        await enqueuePushNotification({
           recipientUserId: requestResult.receiverId,
           title: "New Friend Request",
           body: `${pushData.requesterName} sent you a friend request.`,

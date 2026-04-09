@@ -1,9 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { friendRequests, friendships, users } from "../../db/schema.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
+import {
+  enqueuePushNotification,
+  publishWebSocketEventToUsers,
+} from "../../jobs/queue.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
-import { enqueueJob } from "../../jobs/queue.ts";
 
 export type AcceptFriendRequestResult = {
   id: string;
@@ -155,8 +157,7 @@ export async function acceptFriendRequest(
       payload: result,
     };
 
-    wsPublisher.sendToUser(result.requesterId, wsPayload);
-    wsPublisher.sendToUser(result.receiverId, wsPayload);
+    await publishWebSocketEventToUsers([result.requesterId, result.receiverId], wsPayload);
 
     if (pushData) {
       const extraData = {
@@ -165,7 +166,7 @@ export async function acceptFriendRequest(
       };
 
       try {
-        await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+        await enqueuePushNotification({
           recipientUserId: result.requesterId,
           title: "Friend Request Accepted",
           body: `${pushData.acceptorName} accepted your friend request.`,

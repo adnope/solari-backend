@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, friendships, messages } from "../../db/schema.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
+import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type UnsendMessageInput = {
@@ -158,8 +158,7 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
       payload: resultPayload,
     };
 
-    wsPublisher.sendToUser(receiverId, eventPayload);
-    wsPublisher.sendToUser(normalizedSenderId, eventPayload);
+    await publishWebSocketEventToUsers([receiverId, normalizedSenderId], eventPayload);
 
     return resultPayload;
   } catch (error) {

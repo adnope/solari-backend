@@ -1,7 +1,7 @@
 import { and, eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { friendships, friendNicknames } from "../../db/schema.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
+import { publishWebSocketEvent } from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
 export type UnfriendErrorType =
@@ -81,15 +81,16 @@ export async function unfriend(userId: string, otherUserId: string): Promise<voi
       payload: { partnerId: "", isFriend: false },
     };
 
-    wsPublisher.sendToUser(normalizedUserId, {
-      ...unfriendPayload,
-      payload: { partnerId: normalizedOtherUserId, isFriend: false },
-    });
-
-    wsPublisher.sendToUser(normalizedOtherUserId, {
-      ...unfriendPayload,
-      payload: { partnerId: normalizedUserId, isFriend: false },
-    });
+    await Promise.all([
+      publishWebSocketEvent(normalizedUserId, {
+        ...unfriendPayload,
+        payload: { partnerId: normalizedOtherUserId, isFriend: false },
+      }),
+      publishWebSocketEvent(normalizedOtherUserId, {
+        ...unfriendPayload,
+        payload: { partnerId: normalizedUserId, isFriend: false },
+      }),
+    ]);
   } catch (error: unknown) {
     if (error instanceof UnfriendError) {
       throw error;

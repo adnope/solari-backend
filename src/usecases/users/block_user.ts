@@ -1,8 +1,8 @@
 import { and, eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { blockedUsers, friendships, users, friendNicknames } from "../../db/schema.ts";
+import { publishWebSocketEvent } from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type BlockUserErrorType =
   | "MISSING_INPUT"
@@ -96,15 +96,16 @@ export async function blockUser(blockerId: string, targetUserId: string): Promis
         payload: { partnerId: "", isFriend: false },
       };
 
-      wsPublisher.sendToUser(normalizedBlockerId, {
-        ...unfriendPayload,
-        payload: { partnerId: normalizedTargetId, isFriend: false },
-      });
-
-      wsPublisher.sendToUser(normalizedTargetId, {
-        ...unfriendPayload,
-        payload: { partnerId: normalizedBlockerId, isFriend: false },
-      });
+      await Promise.all([
+        publishWebSocketEvent(normalizedBlockerId, {
+          ...unfriendPayload,
+          payload: { partnerId: normalizedTargetId, isFriend: false },
+        }),
+        publishWebSocketEvent(normalizedTargetId, {
+          ...unfriendPayload,
+          payload: { partnerId: normalizedBlockerId, isFriend: false },
+        }),
+      ]);
     }
   } catch (error: unknown) {
     if (error instanceof BlockUserError) {

@@ -1,7 +1,7 @@
 import { inArray, and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { posts } from "../../db/schema.ts";
-import { redisClient } from "../../jobs/queue.ts";
+import { getJobStatusKey, redisClient } from "../../jobs/queue.ts";
 
 export type PostUploadStatus = "UPLOADING" | "PROCESSING" | "COMPLETED" | "FAILED" | "NOT_FOUND";
 
@@ -28,7 +28,7 @@ export async function getPostUploadStatuses(
   const remainingIds = uniqueIds.filter((id) => !dbPostIds.has(id));
   if (remainingIds.length === 0) return statuses;
 
-  const jobKeys = remainingIds.map((id) => `job:${id}:status`);
+  const jobKeys = remainingIds.map((id) => getJobStatusKey(id));
   const ticketKeys = remainingIds.map((id) => `upload_ticket:${id}`);
 
   const jobStatuses = await redisClient.mget(...jobKeys);

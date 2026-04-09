@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { postReactions, postVisibility, posts, users } from "../../db/schema.ts";
-import { enqueueJob } from "../../jobs/queue.ts";
+import { enqueuePushNotification } from "../../jobs/queue.ts";
 import { hasBlockingRelationship, getNickname } from "../common_queries.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
@@ -167,7 +167,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
 
     void (async () => {
       try {
-        await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+        await enqueuePushNotification({
           recipientUserId: pushData.postOwnerId,
           title: "New Reaction",
           body: `${pushData.reactorName} reacted ${trimmedEmoji} to your post.`,

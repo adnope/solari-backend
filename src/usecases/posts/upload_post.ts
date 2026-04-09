@@ -2,7 +2,7 @@ import { eq, or } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { friendships, userStreaks } from "../../db/schema.ts";
 import { getUploadPresignedUrl } from "../../storage/s3.ts";
-import { redisClient, enqueueJob } from "../../jobs/queue.ts";
+import { enqueuePostUploadProcessing, enqueuePushNotification, redisClient } from "../../jobs/queue.ts";
 import type { UploadPostJobPayload } from "../../jobs/types.ts";
 import { calculateNewStreak } from "../../utils/streak.ts";
 
@@ -272,7 +272,7 @@ export async function finalizePostUpload(input: FinalizePostInput) {
 
         const milestones = [3, 7, 10, 30, 50, 100];
         if (milestones.includes(streakMath.newStreak)) {
-          void enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+          void enqueuePushNotification({
             recipientUserId: normalizedAuthorId,
             title: `🔥 ${streakMath.newStreak} Day Streak!`,
             body: "You're on fire! Keep the momentum going tomorrow.",
@@ -292,7 +292,7 @@ export async function finalizePostUpload(input: FinalizePostInput) {
       viewerIds: ticketData.viewerIds,
     };
 
-    await enqueueJob("post-upload-processing", normalizedPostId, jobPayload);
+    await enqueuePostUploadProcessing(jobPayload);
     await redisClient.del(ticketKey);
 
     return {

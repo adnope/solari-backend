@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
+import { publishWebSocketEvent } from "../jobs/queue.ts";
 import { verifyAccessToken } from "../utils/jwt";
-import { wsPublisher } from "../websocket/publisher.ts";
 import type { WsClientEvent } from "../websocket/types.ts";
 import {
   sendTypingState,
@@ -54,7 +54,7 @@ export const wsRoutes = new Elysia()
             isTyping: data.payload.isTyping,
           })
             .then((result) => {
-              wsPublisher.sendToUser(result.receiverId, {
+              return publishWebSocketEvent(result.receiverId, {
                 type: "TYPING_INDICATOR",
                 payload: {
                   conversationId: result.conversationId,

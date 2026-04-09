@@ -4,7 +4,7 @@ import { friendships, postMedia, posts, postVisibility } from "../../db/schema.t
 import { uploadFile, deleteFile, getFileBuffer } from "../../storage/s3.ts";
 import { generateThumbnail } from "../../utils/thumbnail.ts";
 import { extractMediaMetadata } from "../../utils/media_parser.ts";
-import { redisClient } from "../queue.ts";
+import { publishWebSocketEvent } from "../queue.ts";
 import type { UploadPostJobPayload } from "../types.ts";
 
 export async function handlePostProcessing(
@@ -100,31 +100,19 @@ export async function handlePostProcessing(
       }
     });
 
-    await redisClient.publish(
-      "ws-events",
-      JSON.stringify({
-        userId: payload.authorId,
-        message: {
-          type: "POST_PROCESSED",
-          payload: { postId: payload.postId, status: "completed" },
-        },
-      }),
-    );
+    await publishWebSocketEvent(payload.authorId, {
+      type: "POST_PROCESSED",
+      payload: { postId: payload.postId, status: "completed" },
+    });
   } catch (error) {
     console.error(`[HANDLER] Post processing failed for ${jobId}:`, error);
 
     await deleteFile(payload.objectKey).catch(() => {});
 
-    await redisClient.publish(
-      "ws-events",
-      JSON.stringify({
-        userId: payload.authorId,
-        message: {
-          type: "POST_FAILED",
-          payload: { postId: payload.postId, error: "Failed to process media." },
-        },
-      }),
-    );
+    await publishWebSocketEvent(payload.authorId, {
+      type: "POST_FAILED",
+      payload: { postId: payload.postId, error: "Failed to process media." },
+    });
 
     throw error;
   }

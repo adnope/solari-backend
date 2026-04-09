@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, friendships, messageReactions, messages } from "../../db/schema.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
+import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { isSingleEmoji } from "./react_message.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 
@@ -164,8 +164,7 @@ export async function updateMessageReaction(
       },
     };
 
-    wsPublisher.sendToUser(receiverId, eventPayload);
-    wsPublisher.sendToUser(normalizedUserId, eventPayload);
+    await publishWebSocketEventToUsers([receiverId, normalizedUserId], eventPayload);
 
     return updatedReaction;
   } catch (error) {

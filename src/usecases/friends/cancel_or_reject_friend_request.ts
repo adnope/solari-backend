@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { friendRequests } from "../../db/schema.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
+import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 
 export type CancelOrRejectFriendRequestErrorType =
   | "MISSING_INPUT"
@@ -90,8 +90,10 @@ export async function cancelOrRejectFriendRequest(
       },
     };
 
-    wsPublisher.sendToUser(requestData.requesterId, wsPayload);
-    wsPublisher.sendToUser(requestData.receiverId, wsPayload);
+    await publishWebSocketEventToUsers(
+      [requestData.requesterId, requestData.receiverId],
+      wsPayload,
+    );
   } catch (error) {
     if (error instanceof CancelOrRejectFriendRequestError) {
       throw error;

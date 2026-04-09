@@ -1,7 +1,7 @@
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, friendships, messageReactions, messages } from "../../db/schema.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
+import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type RemoveMessageReactionErrorType =
@@ -148,8 +148,7 @@ export async function removeMessageReaction(userId: string, messageId: string): 
       },
     };
 
-    wsPublisher.sendToUser(receiverId, eventPayload);
-    wsPublisher.sendToUser(normalizedUserId, eventPayload);
+    await publishWebSocketEventToUsers([receiverId, normalizedUserId], eventPayload);
   } catch (error) {
     if (error instanceof RemoveMessageReactionError) throw error;
 

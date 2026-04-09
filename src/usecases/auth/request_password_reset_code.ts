@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { passwordResetCodes, users } from "../../db/schema.ts";
-import { enqueueJob } from "../../jobs/queue.ts";
+import { enqueueSendEmail } from "../../jobs/queue.ts";
 
 export type RequestPasswordResetCodeErrorType =
   | "MISSING_EMAIL"
@@ -69,11 +69,12 @@ export async function requestPasswordResetCode(email: string): Promise<void> {
     });
     const expiresAt = new Date(Date.now() + RESET_CODE_TTL_MS).toISOString();
 
+    const resetCodeId = Bun.randomUUIDv7();
     await withTx(async (tx) => {
       await tx.delete(passwordResetCodes).where(eq(passwordResetCodes.userId, user.id));
 
       await tx.insert(passwordResetCodes).values({
-        id: Bun.randomUUIDv7(),
+        id: resetCodeId,
         userId: user.id,
         codeHash,
         expiresAt,
@@ -81,12 +82,15 @@ export async function requestPasswordResetCode(email: string): Promise<void> {
       });
     });
 
-    await enqueueJob("send-email", Bun.randomUUIDv7(), {
-      emailType: "PASSWORD_RESET",
-      to: user.email,
-      username: user.displayName || user.username,
-      code: rawCode,
-    });
+    await enqueueSendEmail(
+      {
+        emailType: "PASSWORD_RESET",
+        to: user.email,
+        username: user.displayName || user.username,
+        code: rawCode,
+      },
+      `send-email-password-reset-${resetCodeId}`,
+    );
   } catch (error) {
     if (error instanceof RequestPasswordResetCodeError) {
       throw error;

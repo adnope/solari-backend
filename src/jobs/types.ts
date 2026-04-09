@@ -25,9 +25,9 @@ export type SendEmailPayload = {
   code: string;
 };
 
-export type JobRegistryMap = {
+export type QueueNameToPayLoadMap = {
   "post-upload-processing": UploadPostJobPayload;
   "push-notification-processing": PushNotificationPayload;
   "send-email": SendEmailPayload;
 };
-export type QueueName = keyof JobRegistryMap;
+export type QueueName = keyof QueueNameToPayLoadMap;

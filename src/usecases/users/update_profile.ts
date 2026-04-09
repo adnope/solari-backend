@@ -1,9 +1,9 @@
 import { eq, or } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { friendships, users } from "../../db/schema.ts";
+import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { deleteFile, uploadFile } from "../../storage/s3.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
 
 export type UpdateProfileInput = {
   userId: string;
@@ -225,12 +225,14 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
             },
           };
 
-          wsPublisher.sendToUser(normalizedUserId, eventPayload);
+          const targetUserIds = [
+            normalizedUserId,
+            ...friends.map((friend) =>
+              friend.userLow === normalizedUserId ? friend.userHigh : friend.userLow,
+            ),
+          ];
 
-          for (const friend of friends) {
-            const targetId = friend.userLow === normalizedUserId ? friend.userHigh : friend.userLow;
-            wsPublisher.sendToUser(targetId, eventPayload);
-          }
+          await publishWebSocketEventToUsers(targetUserIds, eventPayload);
         } catch (err) {
           console.error(
             `[ERROR] Failed to broadcast profile update for user ${normalizedUserId}:`,

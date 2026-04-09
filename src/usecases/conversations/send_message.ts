@@ -8,10 +8,12 @@ import {
   posts,
   users,
 } from "../../db/schema.ts";
-import { wsPublisher } from "../../websocket/publisher.ts";
 import { hasBlockingRelationship, getNickname } from "../common_queries.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
-import { enqueueJob } from "../../jobs/queue.ts";
+import {
+  enqueuePushNotification,
+  publishWebSocketEventToUsers,
+} from "../../jobs/queue.ts";
 
 export type SendMessageInput = {
   senderId: string;
@@ -233,8 +235,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
       type: "NEW_MESSAGE" as const,
       payload: { conversationId: normalizedConversationId, message: messageResult },
     };
-    wsPublisher.sendToUser(receiverId, wsPayload);
-    wsPublisher.sendToUser(normalizedSenderId, wsPayload);
+    await publishWebSocketEventToUsers([receiverId, normalizedSenderId], wsPayload);
 
     void (async () => {
       try {
@@ -278,7 +279,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
             body = `${senderName} replied to a message.`;
           }
 
-          await enqueueJob("push-notification-processing", Bun.randomUUIDv7(), {
+          await enqueuePushNotification({
             recipientUserId: receiverId,
             title,
             body,

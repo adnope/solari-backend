@@ -8,7 +8,7 @@ export async function handlePushNotification(
   jobId: string,
   payload: PushNotificationPayload,
 ): Promise<void> {
-  console.log(`[FCM WORKER] Job ${jobId}: Fetching devices for user ${payload.recipientUserId}`);
+  console.log(`[FCM WORKER] Received job with ID: ${jobId}`);
 
   const devices = await db
     .select({ deviceToken: userDevices.deviceToken })
@@ -16,7 +16,7 @@ export async function handlePushNotification(
     .where(eq(userDevices.userId, payload.recipientUserId));
 
   if (devices.length === 0) {
-    console.log(`[FCM WORKER] Job ${jobId}: User has no registered devices. Skipping.`);
+    console.log(`[FCM WORKER] Job '${jobId}': User has no registered devices. Skipping.`);
     return;
   }
 
@@ -33,6 +33,6 @@ export async function handlePushNotification(
   await Promise.allSettled(pushPromises);
 
   console.log(
-    `[FCM WORKER] Job ${jobId}: Broadcasted ${payload.notificationType} to ${devices.length} devices.`,
+    `[FCM WORKER] Job '${jobId}': Broadcasted ${payload.notificationType} to ${devices.length} devices.`,
   );
 }
