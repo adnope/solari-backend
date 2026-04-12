@@ -90,10 +90,7 @@ export function getJobQueue<K extends QueueName>(queueName: K): JobQueue<K> {
   return jobQueues[queueName];
 }
 
-export async function publishWebSocketEvent(
-  userId: string,
-  event: WsServerEvent,
-): Promise<number> {
+export async function publishWebSocketEvent(userId: string, event: WsServerEvent): Promise<number> {
   return redisClient.publish(
     WS_EVENTS_CHANNEL,
     JSON.stringify({
@@ -124,7 +121,7 @@ export async function initRedis() {
     redisSubscriber.subscribe(WS_EVENTS_CHANNEL, (message) => {
       try {
         const event = JSON.parse(message);
-        console.log(`Sending websocket events to user: ${event.userId}`)
+        console.log(`Sending websocket events to user: ${event.userId}`);
         wsPublisher.sendToUser(event.userId, event.message);
       } catch (error) {
         console.error("Failed to parse websocket event from Redis", error);
@@ -156,9 +153,7 @@ export async function enqueueJob<K extends QueueName>(
   return jobId;
 }
 
-export async function enqueuePostUploadProcessing(
-  payload: UploadPostJobPayload,
-): Promise<string> {
+export async function enqueuePostUploadProcessing(payload: UploadPostJobPayload): Promise<string> {
   return enqueueJob("post-upload-processing", `post-upload-${payload.postId}`, payload);
 }
 
@@ -166,11 +161,7 @@ export async function enqueuePushNotification(
   payload: PushNotificationPayload,
   jobId: string = Bun.randomUUIDv7(),
 ): Promise<string> {
-  return enqueueJob(
-    "push-notification-processing",
-    `push-notif-${jobId}`,
-    payload,
-  );
+  return enqueueJob("push-notification-processing", `push-notif-${jobId}`, payload);
 }
 
 export async function enqueueSendEmail(

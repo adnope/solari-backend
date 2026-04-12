@@ -1,3 +1,4 @@
+import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import {
@@ -10,10 +11,7 @@ import {
 } from "../../db/schema.ts";
 import { hasBlockingRelationship, getNickname } from "../common_queries.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
-import {
-  enqueuePushNotification,
-  publishWebSocketEventToUsers,
-} from "../../jobs/queue.ts";
+import { enqueuePushNotification, publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 
 export type SendMessageInput = {
   senderId: string;
@@ -55,12 +53,6 @@ export class SendMessageError extends Error {
     this.type = type;
     this.statusCode = statusCode;
   }
-}
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
 }
 
 export async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> {

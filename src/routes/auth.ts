@@ -21,31 +21,6 @@ import { requireAuth } from "./middleware/require_auth.ts";
 const protectedAuthRouter = new Elysia()
   .use(requireAuth)
 
-  // Refresh session
-  .post(
-    "/sessions/refresh",
-    async ({ body, authSessionId, set }) => {
-      const result = await refreshSession({
-        sessionId: authSessionId,
-        refreshToken: body.refresh_token,
-      });
-
-      set.status = 200;
-      return {
-        message: "Session refreshed successfully.",
-        session_id: result.sessionId,
-        access_token: result.accessToken,
-        refresh_token: result.refreshToken,
-        expires_at: result.expiresAt,
-      };
-    },
-    {
-      body: t.Object({
-        refresh_token: t.String(),
-      }),
-    },
-  )
-
   // Sign out
   .post(
     "/signout",
@@ -95,6 +70,30 @@ const authRouter = withApiErrorHandler(
   },
   { validationErrorType: "INVALID_JSON" },
 )
+  // Refresh session
+  .post(
+    "/sessions/refresh",
+    async ({ body, set }) => {
+      const result = await refreshSession({
+        refreshToken: body.refresh_token,
+      });
+
+      set.status = 200;
+      return {
+        message: "Session refreshed successfully.",
+        session_id: result.sessionId,
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+        expires_at: result.expiresAt,
+      };
+    },
+    {
+      body: t.Object({
+        refresh_token: t.String(),
+      }),
+    },
+  )
+
   // Sign up a new account
   .post(
     "/signup",

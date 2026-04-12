@@ -1,8 +1,13 @@
+import { isValidUuid } from "../../utils/uuid.ts";
 import { eq, or } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { friendships, userStreaks } from "../../db/schema.ts";
 import { getUploadPresignedUrl } from "../../storage/s3.ts";
-import { enqueuePostUploadProcessing, enqueuePushNotification, redisClient } from "../../jobs/queue.ts";
+import {
+  enqueuePostUploadProcessing,
+  enqueuePushNotification,
+  redisClient,
+} from "../../jobs/queue.ts";
 import type { UploadPostJobPayload } from "../../jobs/types.ts";
 import { calculateNewStreak } from "../../utils/streak.ts";
 
@@ -27,12 +32,6 @@ export class UploadPostError extends Error {
     this.type = type;
     this.statusCode = statusCode;
   }
-}
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
 }
 
 export type InitiatePostUploadInput = {

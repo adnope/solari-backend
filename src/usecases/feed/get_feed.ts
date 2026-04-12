@@ -1,3 +1,4 @@
+import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, inArray, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, postMedia, postVisibility, posts, users } from "../../db/schema.ts";
@@ -51,12 +52,6 @@ export class GetFeedError extends Error {
   }
 }
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
-}
-
 function normalizeViewerId(viewerId: string): string {
   const value = viewerId.trim();
   if (!value) {
@@ -95,14 +90,14 @@ function normalizeAuthorIds(authorIds?: string[]): string[] | undefined {
 
 export async function getFeed(
   viewerId: string,
-  limit = 20,
+  limit = 30,
   cursor?: string,
   authorIds?: string[],
 ): Promise<GetFeedResult> {
   const normalizedViewerId = normalizeViewerId(viewerId);
   const normalizedCursor = normalizeCursor(cursor);
   const normalizedAuthorIds = normalizeAuthorIds(authorIds);
-  const normalizedLimit = Math.min(Math.max(1, limit), 50);
+  const normalizedLimit = Math.min(Math.max(1, limit), 100);
 
   try {
     if (normalizedAuthorIds) {

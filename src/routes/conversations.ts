@@ -8,6 +8,10 @@ import {
   CreateConversationError,
 } from "../usecases/conversations/create_conversation.ts";
 import {
+  getConversation,
+  GetConversationError,
+} from "../usecases/conversations/get_conversation.ts";
+import {
   getConversations,
   GetConversationsError,
 } from "../usecases/conversations/get_conversations.ts";
@@ -236,6 +240,48 @@ const protectedConversationsRouter = new Elysia()
     },
   )
 
+  // Get a single conversation
+  .get(
+    "/conversations/:conversationId",
+    async ({ authUserId, params, set }) => {
+      const conv = await getConversation(authUserId, params.conversationId);
+
+      set.status = 200;
+      return {
+        conversation: {
+          id: conv.id,
+          user_low: conv.userLow,
+          user_high: conv.userHigh,
+          created_at: conv.createdAt,
+          updated_at: conv.updatedAt,
+          partner: {
+            id: conv.partner.id,
+            username: conv.partner.username,
+            display_name: conv.partner.displayName,
+            avatar_key: conv.partner.avatarKey,
+          },
+          last_message: conv.lastMessage
+            ? {
+                id: conv.lastMessage.id,
+                sender_id: conv.lastMessage.senderId,
+                content: conv.lastMessage.content,
+                is_deleted: conv.lastMessage.isDeleted,
+                created_at: conv.lastMessage.createdAt,
+              }
+            : null,
+          current_user_last_read_at: conv.currentUserLastReadAt,
+          partner_last_read_at: conv.partnerLastReadAt,
+          is_readonly: conv.isReadOnly,
+        },
+      };
+    },
+    {
+      params: t.Object({
+        conversationId: t.String(),
+      }),
+    },
+  )
+
   // Clear a conversation
   .delete(
     "/conversations/:conversationId",
@@ -361,6 +407,7 @@ const conversationsRouter = withApiErrorHandler(new Elysia(), {
   SendMessageError,
   ViewConversationMessagesError,
   MarkConversationAsReadError,
+  GetConversationError,
   GetConversationsError,
   ClearConversationError,
   ReactMessageError,

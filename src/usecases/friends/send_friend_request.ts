@@ -1,10 +1,8 @@
+import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { friendRequests, friendships, users } from "../../db/schema.ts";
-import {
-  enqueuePushNotification,
-  publishWebSocketEvent,
-} from "../../jobs/queue.ts";
+import { enqueuePushNotification, publishWebSocketEvent } from "../../jobs/queue.ts";
 import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 
@@ -35,12 +33,6 @@ export class SendFriendRequestError extends Error {
     this.type = type;
     this.statusCode = statusCode;
   }
-}
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
 }
 
 function normalizeRequesterId(requesterId: string): string {

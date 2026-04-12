@@ -1,3 +1,4 @@
+import { isValidUuid } from "../../utils/uuid.ts";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { userStreaks } from "../../db/schema.ts";
@@ -22,12 +23,6 @@ export class GetUserStreakError extends Error {
     this.name = "GetUserStreakError";
     this.statusCode = statusCode;
   }
-}
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
 }
 
 function getLocalDateString(date: Date, timeZone: string): string {

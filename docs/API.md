@@ -16,8 +16,10 @@
 
 ```json
 {
-  "type": "<endpoint specific error type>",
-  "message": "<endpoint specific error message>"
+  "error": {
+    "type": "<endpoint specific error type>",
+    "message": "<endpoint specific error message>"
+  }
 }
 ```
 
@@ -270,8 +272,8 @@ POST /password-resets/complete
 POST /sessions/refresh
 ```
 
-- Description: Refreshes an active session. Validates the provided refresh token against the current session ID, then issues a new JWT access token and rotates the refresh token for security. If the current session has expired, it is automatically deleted.
-- Auth required: Yes
+- Description: Refreshes an active session. Validates the provided refresh token, then issues a new JWT access token and rotates the refresh token for security. If the current session has expired, it is automatically deleted.
+- Auth required: No
 
 ### Request body (application/json):
 
@@ -477,7 +479,7 @@ GET /conversations/:conversationId/messages
 ### Request parameters:
 
 - conversationId (string, Required): The UUID of the conversation (passed as a path parameter).
-- limit (string, Optional): The maximum number of messages to return. Max is 50. Defaults to 50 (passed as a query parameter).
+- limit (string, Optional): The maximum number of messages to return. Max is 100. Defaults to 30 (passed as a query parameter).
 - cursor (string, Optional): An ISO date string used for pagination. Fetches messages older than this timestamp (passed as a query parameter).
 - Example:
 
@@ -567,7 +569,7 @@ GET /conversations
 
 ### Request parameters:
 
-- limit (string, Optional): The maximum number of conversations to return. Max is 100. Defaults to 50 (passed as a query parameter).
+- limit (string, Optional): The maximum number of conversations to return. Max is 100. Defaults to 20 (passed as a query parameter).
 - cursor (string, Optional): An ISO date string used for pagination. Fetches conversations updated before this timestamp (passed as a query parameter).
 - Example:
 
@@ -611,6 +613,65 @@ GET /conversations?limit=20&cursor=2026-04-08T12:45:10.000Z
 ```
 
 - [400 Bad Request] - Possible 'type' values: MISSING_INPUT, INVALID_CURSOR.
+
+## Get a single conversation
+
+- Endpoint:
+
+```
+GET /conversations/:conversationId
+```
+
+- Description: Retrieves one conversation for the authenticated user. Includes the partner's profile (respecting custom nicknames and privacy blocks), the latest message, read receipts, and an `is_readonly` flag if the users are no longer friends. If the current user is blocked by the partner, the partner's profile is anonymized as "Someone".
+- Auth required: Yes
+
+### Request parameters:
+
+- conversationId (string, Required): The UUID of the conversation to retrieve (passed as a path parameter).
+- Example:
+
+```text
+GET /conversations/123e4567-e89b-12d3-a456-426614174000
+```
+
+### Request body:
+
+- None
+
+### Responses:
+
+- [200 OK] - Conversation retrieved successfully.
+
+```json
+{
+  "conversation": {
+    "id": "018f9e...",
+    "user_low": "123e4567-e89b-12d3-a456-426614174000",
+    "user_high": "987f6543-e21b-34c4-b567-513314175000",
+    "created_at": "2026-04-01T10:00:00.000Z",
+    "updated_at": "2026-04-08T12:45:10.000Z",
+    "partner": {
+      "id": "987f6543-e21b-34c4-b567-513314175000",
+      "username": "janesmith",
+      "display_name": "Jane (Work)",
+      "avatar_key": "avatars/018fa1..."
+    },
+    "last_message": {
+      "id": "018fa2...",
+      "sender_id": "123e4567-e89b-12d3-a456-426614174000",
+      "content": "that's unfortunate",
+      "is_deleted": false,
+      "created_at": "2026-04-08T12:45:10.000Z"
+    },
+    "current_user_last_read_at": "2026-04-08T12:45:10.000Z",
+    "partner_last_read_at": "2026-04-08T12:40:00.000Z",
+    "is_readonly": false
+  }
+}
+```
+
+- [400 Bad Request] - Possible 'type' values: MISSING_INPUT.
+- [404 Not Found] - Possible 'type' values: CONVERSATION_NOT_FOUND.
 
 ## Clear a conversation
 
@@ -822,7 +883,7 @@ GET /feed
 
 ### Request parameters:
 
-- limit (string, Optional): The maximum number of posts to return. Max is 50. Defaults to 50 (passed as a query parameter).
+- limit (string, Optional): The maximum number of posts to return. Max is 100. Defaults to 30 (passed as a query parameter).
 - cursor (string, Optional): An ISO date string used for pagination. Fetches posts created before this timestamp (passed as a query parameter).
 - authors (string, Optional): A comma-separated list of user UUIDs to filter the feed to only show posts from those specific authors (passed as a query parameter).
 - Example:
@@ -1628,7 +1689,7 @@ GET /posts/:postId/reactions
 ### Request parameters:
 
 - postId (string, Required): The UUID of the post (passed as a path parameter).
-- limit (number, Optional): The maximum number of reactions to return. Max is 50. Defaults to 50 (passed as a query parameter).
+- limit (number, Optional): The maximum number of reactions to return. Max is 100. Defaults to 20 (passed as a query parameter).
 - cursor (string, Optional): An ISO date string used for pagination. Fetches reactions created before this timestamp (passed as a query parameter).
 - Example:
 
@@ -1720,7 +1781,7 @@ GET /posts/:postId/viewers
 ### Request parameters:
 
 - postId (string, Required): The UUID of the post (passed as a path parameter).
-- limit (string, Optional): The maximum number of viewers to return. Max is 50. Defaults to 50 (passed as a query parameter).
+- limit (string, Optional): The maximum number of viewers to return. Max is 50. Defaults to 20 (passed as a query parameter).
 - cursor (string, Optional): An ISO date string used for pagination. Fetches viewers who viewed the post before this timestamp (passed as a query parameter).
 - Example:
 

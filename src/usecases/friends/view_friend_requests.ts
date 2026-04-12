@@ -1,3 +1,4 @@
+import { isValidUuid } from "../../utils/uuid.ts";
 import { and, asc, desc, eq, gt, inArray, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, friendRequests, users } from "../../db/schema.ts";
@@ -45,12 +46,6 @@ export class ViewFriendRequestsError extends Error {
     this.type = type;
     this.statusCode = statusCode;
   }
-}
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
 }
 
 function normalizeRequesterId(requesterId: string): string {

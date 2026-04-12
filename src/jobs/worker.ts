@@ -2,12 +2,7 @@ import { Worker, type Job, type WorkerOptions } from "bullmq";
 import { handlePostProcessing } from "./handlers/process_post_upload.ts";
 import { handlePushNotification } from "./handlers/process_push_notification.ts";
 import { handleSendEmail } from "./handlers/send_email.ts";
-import {
-  getJobStatusKey,
-  getTrackedJobId,
-  JOB_STATUS_TTL_SECONDS,
-  redisClient,
-} from "./queue.ts";
+import { getJobStatusKey, getTrackedJobId, JOB_STATUS_TTL_SECONDS, redisClient } from "./queue.ts";
 import type { QueueNameToPayLoadMap, QueueName } from "./types.ts";
 
 type JobHandler<K extends QueueName> = (

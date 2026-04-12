@@ -1,11 +1,9 @@
+import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, messageReactions, messages, users } from "../../db/schema.ts";
 import { getNickname, hasBlockingRelationship } from "../common_queries.ts";
-import {
-  enqueuePushNotification,
-  publishWebSocketEventToUsers,
-} from "../../jobs/queue.ts";
+import { enqueuePushNotification, publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
 export type ReactMessageInput = {
@@ -39,12 +37,6 @@ export class ReactMessageError extends Error {
     this.type = type;
     this.statusCode = statusCode;
   }
-}
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
 }
 
 export function isSingleEmoji(input: string): boolean {

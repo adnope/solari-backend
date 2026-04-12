@@ -1,3 +1,4 @@
+import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { conversations, messageReactions, messages } from "../../db/schema.ts";
@@ -43,16 +44,10 @@ export class ViewConversationMessagesError extends Error {
   }
 }
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
-}
-
 export async function viewConversationMessages(
   viewerId: string,
   conversationId: string,
-  limit = 50,
+  limit = 30,
   cursor?: string,
 ): Promise<ViewConversationMessagesResult> {
   const normalizedViewerId = viewerId.trim();
@@ -87,7 +82,7 @@ export async function viewConversationMessages(
     parsedCursor = parsed.toISOString();
   }
 
-  const normalizedLimit = Math.min(Math.max(1, limit), 50);
+  const normalizedLimit = Math.min(Math.max(1, limit), 100);
 
   try {
     const [conversation] = await db

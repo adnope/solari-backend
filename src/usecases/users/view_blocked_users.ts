@@ -1,3 +1,4 @@
+import { isValidUuid } from "../../utils/uuid.ts";
 import { and, asc, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, users } from "../../db/schema.ts";
@@ -34,12 +35,6 @@ export type ViewBlockedUsersResult = {
   nextCursor: string | null;
   limit: number;
 };
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
-}
 
 function normalizeLimit(limit = 20): number {
   if (!Number.isInteger(limit) || limit <= 0) {

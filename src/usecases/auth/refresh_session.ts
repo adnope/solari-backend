@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { sessions } from "../../db/schema.ts";
 import { createAccessToken } from "../../utils/jwt.ts";
@@ -17,15 +17,14 @@ function sha256Hex(value: string): string {
 }
 
 export type RefreshSessionInput = {
-  sessionId: string;
   refreshToken: string;
 };
 
 export async function refreshSession(input: RefreshSessionInput): Promise<SigninResult> {
-  const { sessionId, refreshToken } = input;
+  const { refreshToken } = input;
 
-  if (!sessionId.trim() || !refreshToken.trim()) {
-    throw new AuthError("INVALID_CREDENTIALS", "Missing session ID or refresh token.", 400);
+  if (!refreshToken.trim()) {
+    throw new AuthError("INVALID_CREDENTIALS", "Missing refresh token.", 400);
   }
 
   const incomingHash = sha256Hex(refreshToken);
@@ -34,9 +33,9 @@ export async function refreshSession(input: RefreshSessionInput): Promise<Signin
   try {
     return await withTx(async (tx) => {
       const [session] = await tx
-        .select({ userId: sessions.userId, expiresAt: sessions.expiresAt })
+        .select({ id: sessions.id, userId: sessions.userId, expiresAt: sessions.expiresAt })
         .from(sessions)
-        .where(and(eq(sessions.id, sessionId), eq(sessions.refreshTokenHash, incomingHash)))
+        .where(eq(sessions.refreshTokenHash, incomingHash))
         .limit(1);
 
       if (!session) {
@@ -44,7 +43,7 @@ export async function refreshSession(input: RefreshSessionInput): Promise<Signin
       }
 
       if (new Date(session.expiresAt) < now) {
-        await tx.delete(sessions).where(eq(sessions.id, sessionId));
+        await tx.delete(sessions).where(eq(sessions.id, session.id));
         throw new AuthError("SESSION_NOT_FOUND", "Session expired. Please sign in again.", 401);
       }
 
@@ -60,16 +59,16 @@ export async function refreshSession(input: RefreshSessionInput): Promise<Signin
           lastUsedAt: nowIso,
           expiresAt: expiresAt,
         })
-        .where(eq(sessions.id, sessionId));
+        .where(eq(sessions.id, session.id));
 
       const newAccessToken = createAccessToken({
         sub: session.userId,
-        sid: sessionId,
+        sid: session.id,
         type: "access",
       });
 
       return {
-        sessionId,
+        sessionId: session.id,
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
         expiresAt,
