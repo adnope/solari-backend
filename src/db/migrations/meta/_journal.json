@@ -5,43 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1773508896698,
-      "tag": "0000_bitter_amphibian",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1774834461188,
-      "tag": "0001_long_roulette",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1775052455969,
-      "tag": "0002_numerous_wonder_man",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1775435940446,
-      "tag": "0003_strong_caretaker",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1775440539446,
-      "tag": "0004_red_skrulls",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1775626193121,
-      "tag": "0005_overjoyed_doctor_spectrum",
+      "when": 1776236476000,
+      "tag": "0000_dapper_nightshade",
       "breakpoints": true
     }
   ]
