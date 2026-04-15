@@ -175,7 +175,7 @@ export const posts = pgTable(
   (table) => [
     index("idx_posts_author_created_at").using(
       "btree",
-      table.authorId.asc().nullsLast().op("timestamptz_ops"),
+      table.authorId.asc().nullsLast().op("uuid_ops"),
       table.createdAt.desc().nullsFirst().op("timestamptz_ops"),
     ),
     foreignKey({
@@ -247,7 +247,7 @@ export const postReactions = pgTable(
   (table) => [
     index("idx_post_reactions_post_id_created_at").using(
       "btree",
-      table.postId.asc().nullsLast().op("timestamptz_ops"),
+      table.postId.asc().nullsLast().op("uuid_ops"),
       table.createdAt.desc().nullsFirst().op("timestamptz_ops"),
     ),
     foreignKey({
@@ -328,7 +328,7 @@ export const messages = pgTable(
   (table) => [
     index("idx_messages_conversation_id_created_at").using(
       "btree",
-      table.conversationId.asc().nullsLast().op("timestamptz_ops"),
+      table.conversationId.asc().nullsLast().op("uuid_ops"),
       table.createdAt.desc().nullsFirst().op("timestamptz_ops"),
     ),
     foreignKey({
@@ -519,7 +519,7 @@ export const postViews = pgTable(
   (table) => [
     index("idx_post_views_post_id_viewed_at").using(
       "btree",
-      table.postId.asc().nullsLast().op("timestamptz_ops"),
+      table.postId.asc().nullsLast().op("uuid_ops"),
       table.viewedAt.desc().nullsFirst().op("timestamptz_ops"),
     ),
     foreignKey({
