@@ -2,100 +2,126 @@
 
 ## Prerequisites
 
-Ensure you have the following installed on your system:
-
 - [Bun](https://bun.com/)
-- [Docker & Docker Compose](https://www.docker.com/)
-- [FFmpeg](https://www.ffmpeg.org/) (included in PATH)
-
----
+- [Docker and Docker Compose](https://www.docker.com/)
 
 ## 1. Environment Variables
 
-Create a `.env` file in the root directory of the project and define the following variables.
+Create the .env file from the example:
 
----
+```bash
+cp .env.example .env
+```
+
+Fill all empty values before starting the stack.
 
 ### PostgreSQL Database
 
-| Variable            | Description                                                                                                             | Default |
-| :------------------ | :---------------------------------------------------------------------------------------------------------------------- | :------ |
-| `POSTGRES_HOST`     | Hostname of the PostgreSQL server. When using Docker Compose this should be the service name of the database container. | `db`    |
-| `POSTGRES_PORT`     | PostgreSQL port.                                                                                                        | `5432`  |
-| `POSTGRES_DB`       | Name of the PostgreSQL database.                                                                                        | -       |
-| `POSTGRES_USER`     | PostgreSQL username.                                                                                                    | -       |
-| `POSTGRES_PASSWORD` | PostgreSQL password.                                                                                                    | -       |
-| `PG_POOL_SIZE`      | Maximum number of database connections in the pool.                                                                     | `10`    |
-
-### Redis Cache & Queue
-
-| Variable     | Description                                                                                                       | Default |
-| :----------- | :---------------------------------------------------------------------------------------------------------------- | :------ |
-| `REDIS_HOST` | Hostname of the Redis server. When using Docker Compose, this should be the service name of the Redis container.  | `redis` |
-| `REDIS_PORT` | Port for the Redis connection.                                                                                    | `6379`  |
+| Variable             | Description                                                                                              | Example/default |
+| :------------------- | :------------------------------------------------------------------------------------------------------- | :-------------- |
+| `POSTGRES_HOST`      | PostgreSQL hostname used by the API, worker, and migration container. Use `db` with Docker Compose.      | `db`            |
+| `POSTGRES_DB`        | Database name created by the PostgreSQL container.                                                       | Required        |
+| `PG_POOL_SIZE`       | Maximum PostgreSQL connections used by the application pool.                                             | `30`            |
+| `POSTGRES_USER`      | PostgreSQL username.                                                                                     | Required        |
+| `POSTGRES_PASSWORD`  | PostgreSQL password.                                                                                     | Required        |
+| `POSTGRES_HOST_PORT` | Host port published by Docker Compose for local access to PostgreSQL.                                    | `5432`          |
+| `POSTGRES_PORT`      | PostgreSQL port inside the Docker network. Keep this aligned with the database container listener.       | `5432`          |
 
 ### S3 Object Storage
 
-The backend stores uploaded media using an S3-compatible storage service.
+The backend uses an S3-compatible object store for media uploads. Docker Compose runs MinIO as the local S3 service.
 
-| Variable               | Description                                                                                                                   | Default          |
-| :--------------------- | :---------------------------------------------------------------------------------------------------------------------------- | :--------------- |
-| `S3_API_PORT`          | API port of the S3 service.                                                                                                   | `9000`           |
-| `S3_ENDPOINT`          | Internal endpoint used by the backend container to communicate with the storage service. Should use the compose service name. | `http://s3:9000` |
-| `S3_PUBLIC_ENDPOINT`   | Public endpoint used to serve media externally (usually the domain of your VPS).                                              | -                |
-| `S3_REGION`            | S3 region identifier.                                                                                                         | `auto`           |
-| `S3_BUCKET_NAME`       | Bucket used to store all media uploads.                                                                                       | -                |
-| `S3_ACCESS_KEY_ID`     | S3 access key ID.                                                                                                             | -                |
-| `S3_SECRET_ACCESS_KEY` | S3 secret access key.                                                                                                         | -                |
+| Variable               | Description                                                                                         | Example/default         |
+| :--------------------- | :-------------------------------------------------------------------------------------------------- | :---------------------- |
+| `S3_HOST_PORT`         | Host port published by Docker Compose for local access to MinIO's S3 API.                           | `9000`                  |
+| `S3_API_PORT`          | MinIO S3 API port inside the Docker network.                                                        | `9000`                  |
+| `S3_ENDPOINT`          | Internal endpoint used by the API and worker. Use the Compose service name when running in Docker.  | `http://s3:9000`        |
+| `S3_PUBLIC_ENDPOINT`   | Public endpoint embedded in presigned upload/download URLs returned to clients.                     | `https://example.com`   |
+| `S3_REGION`            | S3 region identifier. MinIO accepts arbitrary region names; `auto` is fine for local development.   | `auto`                  |
+| `S3_BUCKET_NAME`       | Bucket used for all uploaded media.                                                                 | Required                |
+| `S3_ACCESS_KEY_ID`     | MinIO root user / S3 access key ID.                                                                 | Required                |
+| `S3_SECRET_ACCESS_KEY` | MinIO root password / S3 secret access key.                                                         | Required                |
 
-### Backend Server
+For Docker Compose, `S3_ENDPOINT` should usually stay internal, for example `http://s3:9000`. `S3_PUBLIC_ENDPOINT` must be reachable by the actual client consuming presigned URLs. On a server, prefer an HTTPS reverse-proxy domain such as `https://storage.example.com` routed to the MinIO S3 API host port.
 
-| Variable      | Description                             | Default |
-| :------------ | :-------------------------------------- | :------ |
-| `SERVER_PORT` | Port the backend server will listen on. | `5050`  |
-| `SERVER_ENV`  | Running mode of the backend server.     | `dev`   |
+### API Server
+
+| Variable        | Description                                                                                              | Example/default |
+| :-------------- | :------------------------------------------------------------------------------------------------------- | :-------------- |
+| `API_HOST_PORT` | Host port published by Docker Compose for the API container. The container listens on port `5050`.       | `5050`          |
+| `SERVER_ENV`    | Docker build target used by Compose. Use `dev` for local development and `prod` for production runtime.  | `dev`           |
+
+The current Compose file maps `127.0.0.1:${API_HOST_PORT:-5050}` to container port `5050`.
 
 ### Authentication
 
-| Variable                  | Description                                                        | Default |
-| :------------------------ | :----------------------------------------------------------------- | :------ |
-| `JWT_SECRET`              | Secret used to sign access tokens. Must be a strong random string. | -       |
-| `ACCESS_TOKEN_EXPIRES_IN` | Access token lifetime (example: 15m, 1h, 7d).                      | `30m`   |
+| Variable                  | Description                                                        | Example/default |
+| :------------------------ | :----------------------------------------------------------------- | :-------------- |
+| `JWT_SECRET`              | Secret used to sign access tokens. Use a strong random value.      | Required        |
+| `ACCESS_TOKEN_EXPIRES_IN` | Access token lifetime, such as `15m`, `30m`, `1h`, or `7d`.        | `30m`           |
 
-### SMTP Transporter
+### Firebase Cloud Messaging
 
-| Variable    | Description                                                               | Default |
-| :---------- | :------------------------------------------------------------------------ | :------ |
-| `SMTP_HOST` | Hostname of the SMTP server (example: smtp.gmail.com, smtp.sendgrid.net). | -       |
-| `SMTP_PORT` | Port for the SMTP connection (typically 587 for TLS or 465 for SSL).      | `587`   |
-| `SMTP_USER` | Username or email address used to authenticate with the SMTP server.      | -       |
-| `SMTP_PASS` | Password or app-specific password for the SMTP user.                      | -       |
-| `SMTP_FROM` | The default "From" email address for outgoing emails (e.g., noreply@...). | -       |
+| Variable         | Description                                                | Example/default |
+| :--------------- | :--------------------------------------------------------- | :-------------- |
+| `FCM_PROJECT_ID` | Firebase project ID used for push notifications.           | Required        |
 
-### Google Sign-In (OAuth)
+Create `firebase-service-account.json` in the project root:
 
-| Variable           | Description                                          | Default |
-| :----------------- | :--------------------------------------------------- | :------ |
-| `GOOGLE_CLIENT_ID` | The OAuth 2.0 Web Client ID used for Google sign in. | -       |
+1. Open Firebase Project settings.
+2. Open Service accounts.
+3. Generate a new private key with Node.js selected.
+4. Rename the downloaded JSON file to `firebase-service-account.json`.
 
-### Push Notifications (Firebase Cloud Messaging)
+### SMTP Transport
 
-| Variable         | Description                                              |
-| :--------------- | :------------------------------------------------------- |
-| `FCM_PROJECT_ID` | Firebase project ID used for sending push notifications. |
+| Variable    | Description                                                               | Example/default |
+| :---------- | :------------------------------------------------------------------------ | :-------------- |
+| `SMTP_HOST` | SMTP server hostname, such as `smtp.gmail.com` or `smtp.sendgrid.net`.    | Required        |
+| `SMTP_PORT` | SMTP server port. Common values are `587` for STARTTLS and `465` for SSL. | Required        |
+| `SMTP_USER` | SMTP username.                                                            | Required        |
+| `SMTP_PASS` | SMTP password or provider-specific app password.                          | Required        |
+| `SMTP_FROM` | Default sender address for outgoing emails.                               | Required        |
 
-Create a `firebase-service-account.json` file in the root directory. This file can be obtained by:
+### Google Sign-In
 
-- Going to Firebase **Project settings**
-- Open the tab **Service accounts**
-- Choose **Generate new private key** with **Node.js** selected
-- A json file will be downloaded, rename it to `firebase-service-account.json`
+| Variable           | Description                                          | Example/default |
+| :----------------- | :--------------------------------------------------- | :-------------- |
+| `GOOGLE_CLIENT_ID` | OAuth 2.0 client ID used for Google sign-in.         | Required        |
 
----
+### Redis Cache and Queue
 
-## 2. Start Docker Containers
+| Variable          | Description                                                                                         | Example/default |
+| :---------------- | :-------------------------------------------------------------------------------------------------- | :-------------- |
+| `REDIS_HOST_PORT` | Host port published by Docker Compose for local access to Redis.                                    | `6379`          |
+| `REDIS_HOST`      | Redis hostname used by the API and worker. Use `redis` with Docker Compose.                         | `redis`         |
+| `REDIS_PORT`      | Redis port inside the Docker network. Keep this aligned with the Redis container listener.          | `6379`          |
 
-Start the PostgreSQL database, Redis, S3 storage service, and the API Server with docker compose. Default database is local Postgresql, and default s3 storage is MinIO.
+## 2. Start Services
+
+Start the stack:
 
 ```bash
 docker compose up -d
+```
+
+The API health endpoint is available on the host at:
+
+```text
+http://127.0.0.1:${API_HOST_PORT}/health
+```
+
+## 3. Production Reverse Proxy
+
+In production, expose HTTPS through a reverse proxy:
+
+```text
+api.example.com:443     -> 127.0.0.1:5050
+storage.example.com:443 -> 127.0.0.1:9000
+```
+
+Set:
+
+```env
+S3_PUBLIC_ENDPOINT=https://storage.example.com
+```
