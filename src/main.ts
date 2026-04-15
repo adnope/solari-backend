@@ -7,9 +7,9 @@ await initRedis();
 
 app.use(wsRoutes);
 
-const port = process.env["SERVER_PORT"] ?? 5050;
+const port = 5050;
 
-app.listen(port);
+app.listen({ port, hostname: "0.0.0.0" });
 
 if (app.server) {
   wsPublisher.init(app.server);

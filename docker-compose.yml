@@ -1,4 +1,20 @@
 services:
+  db-init:
+    container_name: solari-db-init
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${SERVER_ENV:-dev}
+    env_file:
+      - .env
+    command: bunx drizzle-kit migrate
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+
   api:
     container_name: solari-api
     restart: unless-stopped
@@ -16,12 +32,12 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${SERVER_PORT:-5050}:5050"
+      - "127.0.0.1:${API_HOST_PORT:-5050}:5050"
     volumes:
       - .:/app
       - /app/node_modules
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:${SERVER_PORT:-5050}/health || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:5050/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -59,9 +75,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:${POSTGRES_PORT:-5432}"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -80,7 +97,7 @@ services:
       MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
     command: server /data --address ":${S3_API_PORT:-9000}" --console-address ":9001"
     ports:
-      - "127.0.0.1:${S3_API_PORT:-9000}:${S3_API_PORT:-9000}"
+      - "127.0.0.1:${S3_HOST_PORT:-9000}:${S3_API_PORT:-9000}"
       - "127.0.0.1:9001:9001"
     volumes:
       - s3data:/data
@@ -98,7 +115,7 @@ services:
     env_file:
       - .env
     ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:${REDIS_PORT:-6379}"
     volumes:
       - redisdata:/data
     healthcheck:

@@ -6,7 +6,7 @@ const dbName = process.env["POSTGRES_DB"];
 const port = process.env["POSTGRES_PORT"] || "5432";
 const user = process.env["POSTGRES_USER"];
 const password = process.env["POSTGRES_PASSWORD"];
-const poolSize = Number(process.env["PG_POOL_SIZE"] ?? "10");
+const poolSize = Number(process.env["PG_POOL_SIZE"] ?? "30");
 
 if (!dbName || !user || !password) {
   throw new Error("Missing required PostgreSQL environment variables.");
