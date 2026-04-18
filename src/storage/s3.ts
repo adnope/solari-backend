@@ -5,47 +5,58 @@ import {
   HeadBucketCommand,
   PutObjectCommand,
   S3Client,
+  type S3ClientConfig,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const internalEndpoint = process.env["S3_ENDPOINT"];
-const publicEndpoint = process.env["S3_PUBLIC_ENDPOINT"] || internalEndpoint;
+const endpoint = process.env["S3_ENDPOINT"]?.trim();
+const presignEndpoint = process.env["S3_PRESIGN_ENDPOINT"]?.trim() || endpoint;
 const region = process.env["S3_REGION"] || "us-east-1";
+const forcePathStyle = process.env["S3_FORCE_PATH_STYLE"] === "true";
+const createBucketIfMissing = process.env["S3_CREATE_BUCKET_IF_MISSING"] === "true";
 
 const accessKeyId = process.env["S3_ACCESS_KEY_ID"];
 const secretAccessKey = process.env["S3_SECRET_ACCESS_KEY"];
-export const s3BucketName = process.env["S3_BUCKET_NAME"] || "solari-media";
+export const s3BucketName = process.env["S3_BUCKET_NAME"];
 
-if (!internalEndpoint || !accessKeyId || !secretAccessKey) {
+if (!s3BucketName || !accessKeyId || !secretAccessKey) {
   throw new Error(
-    "Missing required S3 environment variables: S3_ENDPOINT, S3_ACCESS_KEY_ID, or S3_SECRET_ACCESS_KEY",
+    "Missing required S3 environment variables: S3_BUCKET_NAME, S3_ACCESS_KEY_ID, or S3_SECRET_ACCESS_KEY",
   );
 }
 
 const credentials = { accessKeyId, secretAccessKey };
 
-export const s3Client = new S3Client({
-  endpoint: internalEndpoint,
+const baseClientConfig: S3ClientConfig = {
   region,
   credentials,
-  forcePathStyle: true,
+  forcePathStyle,
+};
+
+export const s3Client = new S3Client({
+  ...baseClientConfig,
+  ...(endpoint ? { endpoint } : {}),
 });
 
 const presignClient = new S3Client({
-  endpoint: publicEndpoint ?? internalEndpoint,
-  region,
-  credentials,
-  forcePathStyle: true,
+  ...baseClientConfig,
+  ...(presignEndpoint ? { endpoint: presignEndpoint } : {}),
 });
 
 try {
   await s3Client.send(new HeadBucketCommand({ Bucket: s3BucketName }));
-  console.log(`[INFO] Connected to S3 Storage at ${internalEndpoint}`);
-} catch (_error) {
-  console.log(`[INFO] Bucket '${s3BucketName}' not found. Creating it now...`);
+  console.log(`[INFO] Connected to S3 bucket '${s3BucketName}'.`);
+} catch (error) {
+  if (!createBucketIfMissing) {
+    console.error(`[ERROR] Failed to access S3 bucket '${s3BucketName}'.`, error);
+    process.exit(1);
+  }
+
+  console.log(`[INFO] S3 bucket '${s3BucketName}' is not accessible. Creating it now...`);
   try {
     await s3Client.send(new CreateBucketCommand({ Bucket: s3BucketName }));
     console.log(`[INFO] Bucket '${s3BucketName}' created successfully.`);
+    console.log(`[INFO] Connected to S3 bucket '${s3BucketName}'.`);
   } catch (createError) {
     console.error(`[ERROR] Failed to create bucket '${s3BucketName}'.`, createError);
   }
@@ -98,7 +109,7 @@ export async function getUploadPresignedUrl(
 
 export async function getFileBuffer(objectKey: string): Promise<Uint8Array> {
   const command = new GetObjectCommand({
-    Bucket: process.env["S3_BUCKET_NAME"] || "solari-media",
+    Bucket: s3BucketName,
     Key: objectKey,
   });
 

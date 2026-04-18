@@ -32,20 +32,47 @@ The application first tries `POSTGRES_DATABASE_URL`. If it is empty or the conne
 
 ### S3 Object Storage
 
-The backend uses an S3-compatible object store for media uploads. Docker Compose runs MinIO as the local S3 service.
+The backend uses an S3-compatible object store for media uploads. Docker Compose runs MinIO locally, but the same client can connect to any S3-compatible provider.
 
-| Variable               | Description                                                                                        | Example/default       |
-| :--------------------- | :------------------------------------------------------------------------------------------------- | :-------------------- |
-| `S3_HOST_PORT`         | Host port published by Docker Compose for local access to MinIO's S3 API.                          | `9000`                |
-| `S3_API_PORT`          | MinIO S3 API port inside the Docker network.                                                       | `9000`                |
-| `S3_ENDPOINT`          | Internal endpoint used by the API and worker. Use the Compose service name when running in Docker. | `http://s3:9000`      |
-| `S3_PUBLIC_ENDPOINT`   | Public endpoint embedded in presigned upload/download URLs returned to clients.                    | `https://example.com` |
-| `S3_REGION`            | S3 region identifier. MinIO accepts arbitrary region names; `auto` is fine for local development.  | `auto`                |
-| `S3_BUCKET_NAME`       | Bucket used for all uploaded media.                                                                | Required              |
-| `S3_ACCESS_KEY_ID`     | MinIO root user / S3 access key ID.                                                                | Required              |
-| `S3_SECRET_ACCESS_KEY` | MinIO root password / S3 secret access key.                                                        | Required              |
+The S3 client checks bucket access on startup. If `S3_CREATE_BUCKET_IF_MISSING=true`, it tries to create the bucket when the check fails. Otherwise, startup fails when the bucket is inaccessible. Keep auto-creation disabled for external or production providers unless the credentials are allowed to create buckets.
 
-For Docker Compose, `S3_ENDPOINT` should usually stay internal, for example `http://s3:9000`. `S3_PUBLIC_ENDPOINT` must be reachable by the actual client consuming presigned URLs. On a server, prefer an HTTPS reverse-proxy domain such as `https://storage.example.com` routed to the MinIO S3 API host port.
+| Variable                      | Description                                                                                                                                   | Example/default               |
+| :---------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------- |
+| `S3_BUCKET_NAME`              | Bucket used for uploaded media. This is required.                                                                                             | `solari-media`                |
+| `S3_REGION`                   | S3 region used for request signing and AWS endpoint resolution.                                                                               | `us-east-1`                   |
+| `S3_ENDPOINT`                 | Optional S3 API endpoint. Leave empty for AWS S3 so the SDK derives the endpoint from `S3_REGION`. Required for most S3-compatible providers. | `https://example.com`         |
+| `S3_PRESIGN_ENDPOINT`         | Optional S3 API endpoint used when generating presigned upload/download URLs. Falls back to `S3_ENDPOINT` when empty.                         | `https://storage.example.com` |
+| `S3_PUBLIC_ASSET_URL`         | Optional public CDN or asset base URL for future public object URLs. It is not used for presigned URLs.                                       | `https://cdn.example.com`     |
+| `S3_ACCESS_KEY_ID`            | S3 access key ID.                                                                                                                             | Required                      |
+| `S3_SECRET_ACCESS_KEY`        | S3 secret access key.                                                                                                                         | Required                      |
+| `S3_FORCE_PATH_STYLE`         | Uses path-style bucket URLs when `true`. Use `true` for MinIO and many local/S3-compatible providers; use `false` for AWS S3.                 | `false`                       |
+| `S3_CREATE_BUCKET_IF_MISSING` | Creates the bucket on startup if the access check fails. Use `true` for local MinIO, and usually `false` for external providers.              | `false`                       |
+
+Examples:
+
+For local Docker Compose with MinIO, use:
+
+```env
+S3_BUCKET_NAME=solari-media
+S3_REGION=us-east-1
+S3_ENDPOINT=http://s3:9000
+S3_PRESIGN_ENDPOINT=http://127.0.0.1:9000
+S3_ACCESS_KEY_ID=minioadmin
+S3_SECRET_ACCESS_KEY=minioadmin
+S3_FORCE_PATH_STYLE=true
+S3_CREATE_BUCKET_IF_MISSING=true
+```
+
+For AWS S3, leave `S3_ENDPOINT` and `S3_PRESIGN_ENDPOINT` empty unless you intentionally use a custom S3-compatible endpoint:
+
+```env
+S3_BUCKET_NAME=solari-media-prod
+S3_REGION=ap-southeast-1
+S3_ENDPOINT=
+S3_PRESIGN_ENDPOINT=
+S3_FORCE_PATH_STYLE=false
+S3_CREATE_BUCKET_IF_MISSING=false
+```
 
 ### API Server
 
@@ -126,5 +153,5 @@ storage.example.com:443 -> 127.0.0.1:9000
 Set:
 
 ```env
-S3_PUBLIC_ENDPOINT=https://storage.example.com
+S3_PRESIGN_ENDPOINT=https://storage.example.com
 ```
