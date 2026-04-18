@@ -52,7 +52,14 @@ services:
       context: .
       dockerfile: Dockerfile
       target: ${SERVER_ENV:-dev}
-    command: bun run worker
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$${SERVER_ENV:-dev}" = "dev" ]; then
+          exec bun run worker:dev
+        fi
+        exec bun run worker
     depends_on:
       db:
         condition: service_healthy

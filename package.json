@@ -6,7 +6,8 @@
   "scripts": {
     "start": "bun run src/main.ts",
     "dev": "bun run --watch src/main.ts",
-    "worker": "bun run --watch src/jobs/worker.ts",
+    "worker": "bun run src/jobs/worker.ts",
+    "worker:dev": "bun run --watch src/jobs/worker.ts",
     "fmt": "prettier --write \"src/**/*.ts\""
   },
   "devDependencies": {
