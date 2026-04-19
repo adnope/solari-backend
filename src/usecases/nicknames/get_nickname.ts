@@ -1,8 +1,6 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { and, eq } from "drizzle-orm";
-import { db } from "../../db/client.ts";
-import { friendNicknames } from "../../db/schema.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
+import { getNickname as getNicknameValue } from "../common_queries.ts";
 
 export type GetNicknameResult = {
   nickname: string | null;
@@ -35,19 +33,8 @@ export async function getNickname(setterId: string, targetId: string): Promise<G
   }
 
   try {
-    const [record] = await db
-      .select({ nickname: friendNicknames.nickname })
-      .from(friendNicknames)
-      .where(
-        and(
-          eq(friendNicknames.setterId, normalizedSetterId),
-          eq(friendNicknames.targetId, normalizedTargetId),
-        ),
-      )
-      .limit(1);
-
     return {
-      nickname: record?.nickname ?? null,
+      nickname: await getNicknameValue(normalizedSetterId, normalizedTargetId),
     };
   } catch (error: unknown) {
     if (error instanceof GetNicknameError) throw error;

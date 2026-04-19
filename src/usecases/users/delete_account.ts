@@ -1,8 +1,9 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { postMedia, posts, users } from "../../db/schema.ts";
+import { friendNicknames, postMedia, posts, users } from "../../db/schema.ts";
 import { deleteFile } from "../../storage/s3.ts";
+import { deleteCachedNicknames } from "../../cache/nickname_cache.ts";
 
 export type DeleteAccountErrorType = "USER_NOT_FOUND" | "INTERNAL_ERROR";
 
@@ -21,6 +22,7 @@ export class DeleteAccountError extends Error {
 export async function deleteAccount(userId: string): Promise<void> {
   const normalizedUserId = userId.trim();
   const keysToDelete: string[] = [];
+  const nicknamePairsToInvalidate: Array<{ setterId: string; targetId: string }> = [];
 
   if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
     throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
@@ -44,6 +46,21 @@ export async function deleteAccount(userId: string): Promise<void> {
         keysToDelete.push(userRow.avatarKey);
       }
 
+      const nicknameRows = await tx
+        .select({
+          setterId: friendNicknames.setterId,
+          targetId: friendNicknames.targetId,
+        })
+        .from(friendNicknames)
+        .where(
+          or(
+            eq(friendNicknames.setterId, normalizedUserId),
+            eq(friendNicknames.targetId, normalizedUserId),
+          ),
+        );
+
+      nicknamePairsToInvalidate.push(...nicknameRows);
+
       const mediaRows = await tx
         .select({
           objectKey: postMedia.objectKey,
@@ -62,6 +79,8 @@ export async function deleteAccount(userId: string): Promise<void> {
 
       await tx.delete(users).where(eq(users.id, normalizedUserId));
     });
+
+    await deleteCachedNicknames(nicknamePairsToInvalidate);
 
     if (keysToDelete.length > 0) {
       await Promise.allSettled(

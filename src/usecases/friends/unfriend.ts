@@ -4,6 +4,7 @@ import { withTx } from "../../db/client.ts";
 import { friendships, friendNicknames } from "../../db/schema.ts";
 import { publishWebSocketEvent } from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
+import { deleteCachedNicknamePair } from "../../cache/nickname_cache.ts";
 
 export type UnfriendErrorType =
   | "MISSING_INPUT"
@@ -70,6 +71,8 @@ export async function unfriend(userId: string, otherUserId: string): Promise<voi
           ),
         );
     });
+
+    await deleteCachedNicknamePair(normalizedUserId, normalizedOtherUserId);
 
     const unfriendPayload = {
       type: "FRIENDSHIP_STATUS_CHANGED" as const,

@@ -1,8 +1,15 @@
 import { and, eq, or, inArray } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { blockedUsers, friendNicknames } from "../db/schema.ts";
+import {
+  cacheNickname,
+  cacheNicknames,
+  getCachedNickname,
+  getCachedNicknames,
+} from "../cache/nickname_cache.ts";
 
-type DbExecutor = typeof db | any;
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type DbExecutor = typeof db | DbTransaction;
 
 export async function hasBlockingRelationship(
   userId1: string,
@@ -48,6 +55,32 @@ export async function getNicknameMap(
     return new Map();
   }
 
+  const nicknameMap = new Map<string, string>();
+  const shouldUseCache = executor === db;
+  let targetIdsToFetch = uniqueTargetIds;
+
+  if (shouldUseCache) {
+    const cachedNicknames = await getCachedNicknames(setterId, uniqueTargetIds);
+    targetIdsToFetch = [];
+
+    for (const targetId of uniqueTargetIds) {
+      const cached = cachedNicknames.get(targetId);
+
+      if (!cached?.hit) {
+        targetIdsToFetch.push(targetId);
+        continue;
+      }
+
+      if (cached.nickname !== null) {
+        nicknameMap.set(targetId, cached.nickname);
+      }
+    }
+  }
+
+  if (targetIdsToFetch.length === 0) {
+    return nicknameMap;
+  }
+
   const results = await executor
     .select({
       targetId: friendNicknames.targetId,
@@ -57,13 +90,21 @@ export async function getNicknameMap(
     .where(
       and(
         eq(friendNicknames.setterId, setterId),
-        inArray(friendNicknames.targetId, uniqueTargetIds),
+        inArray(friendNicknames.targetId, targetIdsToFetch),
       ),
     );
 
-  const nicknameMap = new Map<string, string>();
+  const fetchedNicknames = new Map<string, string | null>(
+    targetIdsToFetch.map((targetId) => [targetId, null]),
+  );
+
   for (const row of results) {
     nicknameMap.set(row.targetId, row.nickname);
+    fetchedNicknames.set(row.targetId, row.nickname);
+  }
+
+  if (shouldUseCache) {
+    await cacheNicknames(setterId, fetchedNicknames);
   }
 
   return nicknameMap;
@@ -74,11 +115,26 @@ export async function getNickname(
   targetId: string,
   executor: DbExecutor = db,
 ): Promise<string | null> {
+  const shouldUseCache = executor === db;
+
+  if (shouldUseCache) {
+    const cached = await getCachedNickname(setterId, targetId);
+    if (cached.hit) {
+      return cached.nickname;
+    }
+  }
+
   const [record] = await executor
     .select({ nickname: friendNicknames.nickname })
     .from(friendNicknames)
     .where(and(eq(friendNicknames.setterId, setterId), eq(friendNicknames.targetId, targetId)))
     .limit(1);
 
-  return record?.nickname ?? null;
+  const nickname = record?.nickname ?? null;
+
+  if (shouldUseCache) {
+    await cacheNickname(setterId, targetId, nickname);
+  }
+
+  return nickname;
 }

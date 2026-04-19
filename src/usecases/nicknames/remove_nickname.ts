@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { friendNicknames } from "../../db/schema.ts";
+import { cacheNickname } from "../../cache/nickname_cache.ts";
 
 export type RemoveNicknameResult = {
   success: boolean;
@@ -45,6 +46,8 @@ export async function removeNickname(
           eq(friendNicknames.targetId, normalizedTargetId),
         ),
       );
+
+    await cacheNickname(normalizedSetterId, normalizedTargetId, null);
 
     return { success: true };
   } catch (error) {

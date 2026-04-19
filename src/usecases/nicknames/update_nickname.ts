@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { friendNicknames } from "../../db/schema.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
+import { cacheNickname } from "../../cache/nickname_cache.ts";
 
 export type UpdateNicknameResult = {
   success: boolean;
@@ -66,6 +67,8 @@ export async function updateNickname(
         404,
       );
     }
+
+    await cacheNickname(normalizedSetterId, normalizedTargetId, updatedRecord.nickname);
 
     return { success: true, nickname: updatedRecord.nickname };
   } catch (error) {

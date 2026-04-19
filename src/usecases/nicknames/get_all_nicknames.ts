@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { friendNicknames } from "../../db/schema.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
+import { cacheNicknames } from "../../cache/nickname_cache.ts";
 
 export type NicknameEntry = {
   targetId: string;
@@ -46,6 +47,11 @@ export async function getAllNicknames(setterId: string): Promise<GetAllNicknames
       })
       .from(friendNicknames)
       .where(eq(friendNicknames.setterId, normalizedSetterId));
+
+    await cacheNicknames(
+      normalizedSetterId,
+      new Map(results.map((row) => [row.targetId, row.nickname])),
+    );
 
     return {
       nicknames: results,
