@@ -16,7 +16,6 @@ services:
         condition: service_healthy
 
   api:
-    container_name: solari-api
     restart: unless-stopped
     env_file:
       - .env
@@ -31,8 +30,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:${API_HOST_PORT:-5050}:5050"
+    expose:
+      - "5050"
     volumes:
       - .:/app
       - /app/node_modules
@@ -70,6 +69,15 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
+
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-5050}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
 
   db:
     image: postgres:16.13-alpine

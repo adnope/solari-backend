@@ -8,22 +8,30 @@ import {
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { createGetFileUrl } from "./get_file_url.ts";
 
 const endpoint = process.env["S3_ENDPOINT"]?.trim();
 const presignEndpoint = process.env["S3_PRESIGN_ENDPOINT"]?.trim() || endpoint;
 const region = process.env["S3_REGION"] || "us-east-1";
 const forcePathStyle = process.env["S3_FORCE_PATH_STYLE"] === "true";
 const createBucketIfMissing = process.env["S3_CREATE_BUCKET_IF_MISSING"] === "true";
+const redisHost = process.env["REDIS_HOST"] || "localhost";
+const redisPort = process.env["REDIS_PORT"] || "6379";
+const redisUrl = `redis://${redisHost}:${redisPort}`;
 
-const accessKeyId = process.env["S3_ACCESS_KEY_ID"];
-const secretAccessKey = process.env["S3_SECRET_ACCESS_KEY"];
-export const s3BucketName = process.env["S3_BUCKET_NAME"];
+const configuredAccessKeyId = process.env["S3_ACCESS_KEY_ID"];
+const configuredSecretAccessKey = process.env["S3_SECRET_ACCESS_KEY"];
+const configuredBucketName = process.env["S3_BUCKET_NAME"];
 
-if (!s3BucketName || !accessKeyId || !secretAccessKey) {
+if (!configuredBucketName || !configuredAccessKeyId || !configuredSecretAccessKey) {
   throw new Error(
     "Missing required S3 environment variables: S3_BUCKET_NAME, S3_ACCESS_KEY_ID, or S3_SECRET_ACCESS_KEY",
   );
 }
+
+const accessKeyId = configuredAccessKeyId;
+const secretAccessKey = configuredSecretAccessKey;
+export const s3BucketName = configuredBucketName;
 
 const credentials = { accessKeyId, secretAccessKey };
 
@@ -76,14 +84,15 @@ export async function uploadFile(
   await s3Client.send(command);
 }
 
-export async function getFileUrl(objectKey: string, expiresInSeconds = 3600): Promise<string> {
-  const command = new GetObjectCommand({
-    Bucket: s3BucketName,
-    Key: objectKey,
-  });
-
-  return await getSignedUrl(presignClient, command, { expiresIn: expiresInSeconds });
-}
+export const getFileUrl = createGetFileUrl({
+  bucketName: s3BucketName,
+  presignClient,
+  region,
+  presignEndpoint,
+  forcePathStyle,
+  accessKeyId,
+  redisUrl,
+});
 
 export async function deleteFile(objectKey: string): Promise<void> {
   const command = new DeleteObjectCommand({
