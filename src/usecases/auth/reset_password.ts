@@ -1,6 +1,7 @@
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { passwordResetCodes, sessions, userPasswords, users } from "../../db/schema.ts";
+import { deleteCachedAuthSessions } from "../../cache/auth_session_cache.ts";
 
 export type ResetPasswordInput = {
   email: string;
@@ -67,7 +68,7 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
   const password = normalizePassword(input.newPassword);
 
   try {
-    await withTx(async (tx) => {
+    const deletedSessionIds = await withTx(async (tx) => {
       const [user] = await tx
         .select({
           id: users.id,
@@ -124,8 +125,15 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
         })
         .where(eq(passwordResetCodes.id, resetRow.id));
 
-      await tx.delete(sessions).where(eq(sessions.userId, user.id));
+      const deletedSessions = await tx
+        .delete(sessions)
+        .where(eq(sessions.userId, user.id))
+        .returning({ id: sessions.id });
+
+      return deletedSessions.map((session) => session.id);
     });
+
+    await deleteCachedAuthSessions(deletedSessionIds);
   } catch (error) {
     if (error instanceof ResetPasswordError) throw error;
 

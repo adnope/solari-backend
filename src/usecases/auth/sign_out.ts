@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { sessions, userDevices } from "../../db/schema.ts";
 import { AuthError } from "./error_type.ts";
+import { deleteCachedAuthSession } from "../../cache/auth_session_cache.ts";
 
 export async function signOut(sessionId: string, deviceToken?: string): Promise<boolean> {
   const normalizedSessionId = sessionId.trim();
@@ -11,7 +12,7 @@ export async function signOut(sessionId: string, deviceToken?: string): Promise<
   }
 
   try {
-    return await withTx(async (tx) => {
+    const signedOut = await withTx(async (tx) => {
       const [deletedSession] = await tx
         .delete(sessions)
         .where(eq(sessions.id, normalizedSessionId))
@@ -41,6 +42,9 @@ export async function signOut(sessionId: string, deviceToken?: string): Promise<
 
       return true;
     });
+
+    await deleteCachedAuthSession(normalizedSessionId);
+    return signedOut;
   } catch (error) {
     if (error instanceof AuthError) {
       throw error;

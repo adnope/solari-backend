@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq, ne } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { sessions, userPasswords, users } from "../../db/schema.ts";
+import { deleteCachedAuthSessions } from "../../cache/auth_session_cache.ts";
 
 export type UpdatePasswordInput = {
   userId: string;
@@ -88,7 +89,7 @@ export async function updatePassword(input: UpdatePasswordInput): Promise<void> 
   const newPassword = validateNewPassword(input.newPassword);
 
   try {
-    await withTx(async (tx) => {
+    const deletedSessionIds = await withTx(async (tx) => {
       const [row] = await tx
         .select({
           id: users.id,
@@ -128,10 +129,15 @@ export async function updatePassword(input: UpdatePasswordInput): Promise<void> 
         })
         .where(eq(userPasswords.userId, userId));
 
-      await tx
+      const deletedSessions = await tx
         .delete(sessions)
-        .where(and(eq(sessions.userId, userId), ne(sessions.id, currentSessionId)));
+        .where(and(eq(sessions.userId, userId), ne(sessions.id, currentSessionId)))
+        .returning({ id: sessions.id });
+
+      return deletedSessions.map((session) => session.id);
     });
+
+    await deleteCachedAuthSessions(deletedSessionIds);
   } catch (error) {
     if (error instanceof UpdatePasswordError) {
       throw error;

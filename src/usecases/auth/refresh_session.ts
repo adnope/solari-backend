@@ -5,6 +5,7 @@ import { createAccessToken } from "../../utils/jwt.ts";
 import { AuthError } from "./error_type.ts";
 import { createHash, randomBytes } from "node:crypto";
 import type { SigninResult } from "./sign_in.ts";
+import { deleteCachedAuthSession } from "../../cache/auth_session_cache.ts";
 
 const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
@@ -31,7 +32,7 @@ export async function refreshSession(input: RefreshSessionInput): Promise<Signin
   const now = new Date();
 
   try {
-    return await withTx(async (tx) => {
+    const result = await withTx(async (tx) => {
       const [session] = await tx
         .select({ id: sessions.id, userId: sessions.userId, expiresAt: sessions.expiresAt })
         .from(sessions)
@@ -74,6 +75,9 @@ export async function refreshSession(input: RefreshSessionInput): Promise<Signin
         expiresAt,
       };
     });
+
+    await deleteCachedAuthSession(result.sessionId);
+    return result;
   } catch (error) {
     if (error instanceof AuthError) throw error;
     console.error(`[ERROR] Unexpected error in use case: Refresh session\n${error}`);
