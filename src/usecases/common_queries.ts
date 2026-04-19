@@ -1,15 +1,25 @@
 import { and, eq, or, inArray } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { blockedUsers, friendNicknames } from "../db/schema.ts";
+import { blockedUsers, friendNicknames, friendships, users } from "../db/schema.ts";
 import {
   cacheNickname,
   cacheNicknames,
   getCachedNickname,
   getCachedNicknames,
 } from "../cache/nickname_cache.ts";
+import { cacheFriendIds, getCachedFriendIds } from "../cache/friend_cache.ts";
+import {
+  cacheUserSummary,
+  cacheUserSummaries,
+  getCachedUserSummaries,
+  getCachedUserSummary,
+  type CachedUserSummary,
+} from "../cache/user_summary_cache.ts";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DbExecutor = typeof db | DbTransaction;
+
+export type UserSummary = CachedUserSummary;
 
 export async function hasBlockingRelationship(
   userId1: string,
@@ -42,6 +52,120 @@ export async function isBlockedBy(
     .limit(1);
 
   return !!blockRecord;
+}
+
+export async function getFriendIds(userId: string, executor: DbExecutor = db): Promise<string[]> {
+  const shouldUseCache = executor === db;
+
+  if (shouldUseCache) {
+    const cachedFriendIds = await getCachedFriendIds(userId);
+    if (cachedFriendIds) {
+      return cachedFriendIds;
+    }
+  }
+
+  const friendshipRows = await executor
+    .select({
+      userLow: friendships.userLow,
+      userHigh: friendships.userHigh,
+    })
+    .from(friendships)
+    .where(or(eq(friendships.userLow, userId), eq(friendships.userHigh, userId)));
+
+  const friendIds = friendshipRows.map((row) =>
+    row.userLow === userId ? row.userHigh : row.userLow,
+  );
+
+  if (shouldUseCache) {
+    await cacheFriendIds(userId, friendIds);
+  }
+
+  return friendIds;
+}
+
+export async function getUserSummaryById(
+  userId: string,
+  executor: DbExecutor = db,
+): Promise<UserSummary | null> {
+  const shouldUseCache = executor === db;
+
+  if (shouldUseCache) {
+    const cachedSummary = await getCachedUserSummary(userId);
+    if (cachedSummary) {
+      return cachedSummary;
+    }
+  }
+
+  const [summary] = await executor
+    .select({
+      id: users.id,
+      username: users.username,
+      displayName: users.displayName,
+      avatarKey: users.avatarKey,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (summary && shouldUseCache) {
+    await cacheUserSummary(summary);
+  }
+
+  return summary ?? null;
+}
+
+export async function getUserSummariesByIds(
+  userIds: string[],
+  executor: DbExecutor = db,
+): Promise<Map<string, UserSummary>> {
+  const uniqueUserIds = [...new Set(userIds.map((id) => id.trim()).filter(Boolean))];
+
+  if (uniqueUserIds.length === 0) {
+    return new Map();
+  }
+
+  const shouldUseCache = executor === db;
+  const summaryMap = new Map<string, UserSummary>();
+  let userIdsToFetch = uniqueUserIds;
+
+  if (shouldUseCache) {
+    const cachedSummaries = await getCachedUserSummaries(uniqueUserIds);
+    userIdsToFetch = [];
+
+    for (const userId of uniqueUserIds) {
+      const cachedSummary = cachedSummaries.get(userId);
+
+      if (cachedSummary) {
+        summaryMap.set(userId, cachedSummary);
+      } else {
+        userIdsToFetch.push(userId);
+      }
+    }
+  }
+
+  if (userIdsToFetch.length === 0) {
+    return summaryMap;
+  }
+
+  const fetchedSummaries = await executor
+    .select({
+      id: users.id,
+      username: users.username,
+      displayName: users.displayName,
+      avatarKey: users.avatarKey,
+    })
+    .from(users)
+    .where(inArray(users.id, userIdsToFetch));
+
+  for (const summary of fetchedSummaries) {
+    summaryMap.set(summary.id, summary);
+  }
+
+  if (shouldUseCache) {
+    await cacheUserSummaries(fetchedSummaries);
+  }
+
+  return summaryMap;
 }
 
 export async function getNicknameMap(

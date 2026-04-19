@@ -5,6 +5,7 @@ import { friendships, users } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { deleteFile, uploadFile } from "../../storage/s3.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
+import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
 
 export type UpdateProfileInput = {
   userId: string;
@@ -194,6 +195,8 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
 
       return { finalUser, hasVisualChanges: visualDataChanged };
     });
+
+    await deleteCachedUserSummary(normalizedUserId);
 
     if (hasVisualChanges) {
       void (async () => {

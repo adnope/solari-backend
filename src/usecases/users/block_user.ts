@@ -5,6 +5,7 @@ import { blockedUsers, friendships, users, friendNicknames } from "../../db/sche
 import { publishWebSocketEvent } from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { deleteCachedNicknamePair } from "../../cache/nickname_cache.ts";
+import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
 
 export type BlockUserErrorType =
   | "MISSING_INPUT"
@@ -86,7 +87,10 @@ export async function blockUser(blockerId: string, targetUserId: string): Promis
       return !!deletedFriendship;
     });
 
-    await deleteCachedNicknamePair(normalizedBlockerId, normalizedTargetId);
+    await Promise.all([
+      deleteCachedFriendIdsForUsers([normalizedBlockerId, normalizedTargetId]),
+      deleteCachedNicknamePair(normalizedBlockerId, normalizedTargetId),
+    ]);
 
     if (wasFriends) {
       const unfriendPayload = {

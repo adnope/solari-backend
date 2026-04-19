@@ -1,11 +1,11 @@
-import { eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendships, postMedia, posts, postVisibility } from "../../db/schema.ts";
+import { postMedia, posts, postVisibility } from "../../db/schema.ts";
 import { uploadFile, deleteFile, getFileBuffer } from "../../storage/s3.ts";
 import { generateThumbnail } from "../../utils/thumbnail.ts";
 import { extractMediaMetadata } from "../../utils/media_parser.ts";
 import { publishWebSocketEvent } from "../queue.ts";
 import type { UploadPostJobPayload } from "../types.ts";
+import { getFriendIds } from "../../usecases/common_queries.ts";
 
 export async function handlePostProcessing(
   jobId: string,
@@ -52,6 +52,7 @@ export async function handlePostProcessing(
 
     const thumbBuffer = await generateThumbnail(buffer, mediaType);
     await uploadFile(thumbnailKey, thumbBuffer, "image/webp");
+    const allFriendIds = payload.audienceType === "all" ? await getFriendIds(payload.authorId) : [];
 
     await withTx(async (tx) => {
       await tx.insert(posts).values({
@@ -74,24 +75,10 @@ export async function handlePostProcessing(
       });
 
       if (payload.audienceType === "all") {
-        const friendshipRows = await tx
-          .select({ userLow: friendships.userLow, userHigh: friendships.userHigh })
-          .from(friendships)
-          .where(
-            or(
-              eq(friendships.userLow, payload.authorId),
-              eq(friendships.userHigh, payload.authorId),
-            ),
-          );
-
-        const viewerIds = friendshipRows.map((row) =>
-          row.userLow === payload.authorId ? row.userHigh : row.userLow,
-        );
-
-        if (viewerIds.length > 0) {
+        if (allFriendIds.length > 0) {
           await tx
             .insert(postVisibility)
-            .values(viewerIds.map((viewerId) => ({ postId: payload.postId, viewerId })));
+            .values(allFriendIds.map((viewerId) => ({ postId: payload.postId, viewerId })));
         }
       } else if (payload.viewerIds && payload.viewerIds.length > 0) {
         await tx

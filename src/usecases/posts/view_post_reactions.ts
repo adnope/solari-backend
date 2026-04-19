@@ -1,8 +1,8 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { blockedUsers, postReactions, posts, users } from "../../db/schema.ts";
-import { getNicknameMap } from "../common_queries.ts";
+import { blockedUsers, postReactions, posts } from "../../db/schema.ts";
+import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type ReactionUser = {
   id: string;
@@ -96,13 +96,9 @@ export async function viewPostReactions(
         emoji: postReactions.emoji,
         note: postReactions.note,
         createdAt: postReactions.createdAt,
-        userId: users.id,
-        username: users.username,
-        displayName: users.displayName,
-        avatarKey: users.avatarKey,
+        userId: postReactions.userId,
       })
       .from(postReactions)
-      .innerJoin(users, eq(users.id, postReactions.userId))
       .where(
         and(
           eq(postReactions.postId, normalizedPostId),
@@ -130,20 +126,31 @@ export async function viewPostReactions(
       .limit(normalizedLimit);
 
     const reactorIds = rows.map((r) => r.userId);
-    const nicknames = await getNicknameMap(normalizedViewerId, reactorIds);
+    const [userMap, nicknames] = await Promise.all([
+      getUserSummariesByIds(reactorIds),
+      getNicknameMap(normalizedViewerId, reactorIds),
+    ]);
 
-    const items: PostReaction[] = rows.map((row) => ({
-      id: row.id,
-      emoji: row.emoji,
-      note: row.note,
-      createdAt: row.createdAt,
-      user: {
-        id: row.userId,
-        username: row.username,
-        displayName: nicknames.get(row.userId) ?? row.displayName,
-        avatarKey: row.avatarKey,
-      },
-    }));
+    const items: PostReaction[] = rows.map((row) => {
+      const user = userMap.get(row.userId);
+
+      if (!user) {
+        throw new ViewPostReactionsError("INTERNAL_ERROR", "Internal server error.", 500);
+      }
+
+      return {
+        id: row.id,
+        emoji: row.emoji,
+        note: row.note,
+        createdAt: row.createdAt,
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: nicknames.get(row.userId) ?? user.displayName,
+          avatarKey: user.avatarKey,
+        },
+      };
+    });
 
     return {
       items,

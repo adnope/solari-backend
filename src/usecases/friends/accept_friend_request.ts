@@ -1,9 +1,10 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendRequests, friendships, users } from "../../db/schema.ts";
+import { friendRequests, friendships } from "../../db/schema.ts";
 import { enqueuePushNotification, publishWebSocketEventToUsers } from "../../jobs/queue.ts";
-import { hasBlockingRelationship } from "../common_queries.ts";
+import { getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
+import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
 
 export type AcceptFriendRequestResult = {
   id: string;
@@ -115,15 +116,7 @@ export async function acceptFriendRequest(
 
       await tx.delete(friendRequests).where(eq(friendRequests.id, normalizedRequestId));
 
-      const [acceptor] = await tx
-        .select({
-          username: users.username,
-          displayName: users.displayName,
-          avatarKey: users.avatarKey,
-        })
-        .from(users)
-        .where(eq(users.id, normalizedReceiverId))
-        .limit(1);
+      const acceptor = await getUserSummaryById(normalizedReceiverId, tx);
 
       if (!acceptor) {
         throw new AcceptFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
@@ -148,6 +141,8 @@ export async function acceptFriendRequest(
       type: "FRIEND_REQUEST_ACCEPTED" as const,
       payload: result,
     };
+
+    await deleteCachedFriendIdsForUsers([result.requesterId, result.receiverId]);
 
     await publishWebSocketEventToUsers([result.requesterId, result.receiverId], wsPayload);
 

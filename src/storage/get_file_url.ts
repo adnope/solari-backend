@@ -88,10 +88,12 @@ export function createGetFileUrl({
     if (!Number.isFinite(expiresInSeconds) || expiresInSeconds <= 0) {
       throw new Error(`Invalid presigned URL expiry '${expiresInSeconds}'.`);
     }
-    const normalizedExpiresInSeconds =  Math.floor(expiresInSeconds);
+    const normalizedExpiresInSeconds = Math.floor(expiresInSeconds);
 
-    const cacheTtlSeconds = Math.floor(normalizedExpiresInSeconds <= 10 ? 0 : normalizedExpiresInSeconds * 0.9);
-    
+    const cacheTtlSeconds = Math.floor(
+      normalizedExpiresInSeconds <= 10 ? 0 : normalizedExpiresInSeconds * 0.9,
+    );
+
     const cacheKey = getPresignedUrlCacheKey(normalizedObjectKey, normalizedExpiresInSeconds);
 
     if (cacheTtlSeconds > 0) {

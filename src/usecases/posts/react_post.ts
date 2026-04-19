@@ -1,9 +1,9 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { postReactions, postVisibility, posts, users } from "../../db/schema.ts";
+import { postReactions, postVisibility, posts } from "../../db/schema.ts";
 import { enqueuePushNotification } from "../../jobs/queue.ts";
-import { hasBlockingRelationship, getNickname } from "../common_queries.ts";
+import { hasBlockingRelationship, getNickname, getUserSummaryById } from "../common_queries.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
 export type ReactPostInput = {
@@ -129,17 +129,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
       }
 
       const [reactor, nickname] = await Promise.all([
-        tx
-          .select({
-            username: users.username,
-            displayName: users.displayName,
-            avatarKey: users.avatarKey,
-          })
-          .from(users)
-          .where(eq(users.id, normalizedUserId))
-          .limit(1)
-          .then((res) => res[0]),
-
+        getUserSummaryById(normalizedUserId, tx),
         getNickname(postInfo.authorId, normalizedUserId, tx),
       ]);
 

@@ -4,7 +4,7 @@ import { withTx } from "../../db/client.ts";
 import { friendRequests, friendships, users } from "../../db/schema.ts";
 import { enqueuePushNotification, publishWebSocketEvent } from "../../jobs/queue.ts";
 import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
-import { hasBlockingRelationship } from "../common_queries.ts";
+import { getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
 
 export type FriendRequestResult = {
   id: string;
@@ -71,15 +71,7 @@ export async function sendFriendRequest(
 
   try {
     const { requestResult, pushData } = await withTx(async (tx) => {
-      const [requester] = await tx
-        .select({
-          username: users.username,
-          displayName: users.displayName,
-          avatarKey: users.avatarKey,
-        })
-        .from(users)
-        .where(eq(users.id, normalizedRequesterId))
-        .limit(1);
+      const requester = await getUserSummaryById(normalizedRequesterId, tx);
 
       if (!requester) {
         throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);

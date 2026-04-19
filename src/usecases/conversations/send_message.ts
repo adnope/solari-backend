@@ -7,9 +7,8 @@ import {
   messages,
   mutedConversations,
   posts,
-  users,
 } from "../../db/schema.ts";
-import { hasBlockingRelationship, getNickname } from "../common_queries.ts";
+import { hasBlockingRelationship, getNickname, getUserSummaryById } from "../common_queries.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { enqueuePushNotification, publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 
@@ -245,16 +244,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
         if (isMuted) return;
 
         const [sender, nickname] = await Promise.all([
-          db
-            .select({
-              username: users.username,
-              displayName: users.displayName,
-              avatarKey: users.avatarKey,
-            })
-            .from(users)
-            .where(eq(users.id, normalizedSenderId))
-            .limit(1)
-            .then((res) => res[0]),
+          getUserSummaryById(normalizedSenderId),
           getNickname(receiverId, normalizedSenderId),
         ]);
 

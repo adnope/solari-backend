@@ -5,6 +5,7 @@ import { friendships, friendNicknames } from "../../db/schema.ts";
 import { publishWebSocketEvent } from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { deleteCachedNicknamePair } from "../../cache/nickname_cache.ts";
+import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
 
 export type UnfriendErrorType =
   | "MISSING_INPUT"
@@ -72,7 +73,10 @@ export async function unfriend(userId: string, otherUserId: string): Promise<voi
         );
     });
 
-    await deleteCachedNicknamePair(normalizedUserId, normalizedOtherUserId);
+    await Promise.all([
+      deleteCachedFriendIdsForUsers([normalizedUserId, normalizedOtherUserId]),
+      deleteCachedNicknamePair(normalizedUserId, normalizedOtherUserId),
+    ]);
 
     const unfriendPayload = {
       type: "FRIENDSHIP_STATUS_CHANGED" as const,

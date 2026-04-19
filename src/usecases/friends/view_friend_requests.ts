@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, asc, desc, eq, gt, inArray, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, friendRequests, users } from "../../db/schema.ts";
+import { getUserSummariesByIds } from "../common_queries.ts";
 
 export type FriendRequestUser = {
   id: string;
@@ -173,35 +174,26 @@ export async function viewFriendRequests(
       ...new Set(requestRows.flatMap((row) => [row.requesterId, row.receiverId])),
     ];
 
-    const userRows = await db
-      .select({
-        id: users.id,
-        username: users.username,
-        email: users.email,
-        displayName: users.displayName,
-        avatarKey: users.avatarKey,
-      })
-      .from(users)
-      .where(inArray(users.id, relatedUserIds));
+    const [emailRows, userSummaryMap] = await Promise.all([
+      db
+        .select({
+          id: users.id,
+          email: users.email,
+        })
+        .from(users)
+        .where(inArray(users.id, relatedUserIds)),
+      getUserSummariesByIds(relatedUserIds),
+    ]);
 
-    const userMap = new Map(
-      userRows.map((user) => [
-        user.id,
-        {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          displayName: user.displayName,
-          avatarKey: user.avatarKey,
-        },
-      ]),
-    );
+    const emailMap = new Map(emailRows.map((user) => [user.id, user.email]));
 
     const items: FriendRequestListItem[] = requestRows.map((row) => {
-      const requester = userMap.get(row.requesterId);
-      const receiver = userMap.get(row.receiverId);
+      const requester = userSummaryMap.get(row.requesterId);
+      const receiver = userSummaryMap.get(row.receiverId);
+      const requesterEmail = emailMap.get(row.requesterId);
+      const receiverEmail = emailMap.get(row.receiverId);
 
-      if (!requester || !receiver) {
+      if (!requester || !receiver || requesterEmail === undefined || receiverEmail === undefined) {
         throw new ViewFriendRequestsError("INTERNAL_ERROR", "Internal server error.", 500);
       }
 
@@ -209,8 +201,14 @@ export async function viewFriendRequests(
         id: row.id,
         createdAt: row.createdAt,
         direction: row.receiverId === normalizedUserId ? "incoming" : "outgoing",
-        requester,
-        receiver,
+        requester: {
+          ...requester,
+          email: requesterEmail,
+        },
+        receiver: {
+          ...receiver,
+          email: receiverEmail,
+        },
       };
     });
 

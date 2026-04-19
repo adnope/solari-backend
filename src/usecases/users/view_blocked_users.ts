@@ -1,7 +1,8 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { and, asc, desc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { blockedUsers, users } from "../../db/schema.ts";
+import { blockedUsers } from "../../db/schema.ts";
+import { getUserSummariesByIds } from "../common_queries.ts";
 
 export type ViewBlockedUsersErrorType =
   | "MISSING_USER_ID"
@@ -107,27 +108,7 @@ export async function viewBlockedUsers(
     const blockedIds = blockedRows.map((row) => row.blockedId);
     const uniqueBlockedIds = [...new Set(blockedIds)];
 
-    const userRows = await db
-      .select({
-        id: users.id,
-        username: users.username,
-        displayName: users.displayName,
-        avatarKey: users.avatarKey,
-      })
-      .from(users)
-      .where(inArray(users.id, uniqueBlockedIds));
-
-    const userMap = new Map(
-      userRows.map((user) => [
-        user.id,
-        {
-          id: user.id,
-          username: user.username,
-          displayName: user.displayName,
-          avatarKey: user.avatarKey,
-        },
-      ]),
-    );
+    const userMap = await getUserSummariesByIds(uniqueBlockedIds);
 
     const items: BlockedUser[] = blockedRows.map((row) => {
       const blockedUser = userMap.get(row.blockedId);

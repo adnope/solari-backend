@@ -1,8 +1,8 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { blockedUsers, conversations, friendships, messages, users } from "../../db/schema.ts";
-import { getNicknameMap } from "../common_queries.ts";
+import { blockedUsers, conversations, friendships, messages } from "../../db/schema.ts";
+import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type ConversationPartner = {
   id: string;
@@ -122,17 +122,8 @@ export async function getConversations(
       ),
     ];
 
-    const [partnerRows, friendshipRows, blockedByRows, nicknamesMap] = await Promise.all([
-      db
-        .select({
-          id: users.id,
-          username: users.username,
-          displayName: users.displayName,
-          avatarKey: users.avatarKey,
-        })
-        .from(users)
-        .where(inArray(users.id, partnerIds)),
-
+    const [partnerMap, friendshipRows, blockedByRows, nicknamesMap] = await Promise.all([
+      getUserSummariesByIds(partnerIds),
       db
         .select({ userLow: friendships.userLow, userHigh: friendships.userHigh })
         .from(friendships)
@@ -162,7 +153,6 @@ export async function getConversations(
       getNicknameMap(normalizedUserId, partnerIds),
     ]);
 
-    const partnerMap = new Map(partnerRows.map((p) => [p.id, p]));
     const activeFriendsSet = new Set(
       friendshipRows.map((f) => (f.userLow === normalizedUserId ? f.userHigh : f.userLow)),
     );

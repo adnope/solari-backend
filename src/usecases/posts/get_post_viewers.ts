@@ -1,7 +1,8 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { blockedUsers, postViews, posts, users } from "../../db/schema.ts";
+import { blockedUsers, postViews, posts } from "../../db/schema.ts";
+import { getUserSummariesByIds } from "../common_queries.ts";
 
 export type PostViewerUser = {
   id: string;
@@ -84,14 +85,10 @@ export async function getPostViewers(
 
     const rows = await db
       .select({
-        id: users.id,
-        username: users.username,
-        displayName: users.displayName,
-        avatarKey: users.avatarKey,
+        userId: postViews.userId,
         viewedAt: postViews.viewedAt,
       })
       .from(postViews)
-      .innerJoin(users, eq(users.id, postViews.userId))
       .where(
         and(
           eq(postViews.postId, normalizedPostId),
@@ -118,13 +115,23 @@ export async function getPostViewers(
       .orderBy(desc(postViews.viewedAt))
       .limit(normalizedLimit);
 
-    const items: PostViewerUser[] = rows.map((row) => ({
-      id: row.id,
-      username: row.username,
-      displayName: row.displayName,
-      avatarKey: row.avatarKey,
-      viewedAt: row.viewedAt,
-    }));
+    const userMap = await getUserSummariesByIds(rows.map((row) => row.userId));
+
+    const items: PostViewerUser[] = rows.map((row) => {
+      const user = userMap.get(row.userId);
+
+      if (!user) {
+        throw new GetPostViewersError("INTERNAL_ERROR", "Internal server error.", 500);
+      }
+
+      return {
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        avatarKey: user.avatarKey,
+        viewedAt: row.viewedAt,
+      };
+    });
 
     return {
       items,

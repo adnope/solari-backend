@@ -1,9 +1,11 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendNicknames, postMedia, posts, users } from "../../db/schema.ts";
+import { friendNicknames, friendships, postMedia, posts, users } from "../../db/schema.ts";
 import { deleteFile } from "../../storage/s3.ts";
 import { deleteCachedNicknames } from "../../cache/nickname_cache.ts";
+import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
+import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
 
 export type DeleteAccountErrorType = "USER_NOT_FOUND" | "INTERNAL_ERROR";
 
@@ -23,6 +25,7 @@ export async function deleteAccount(userId: string): Promise<void> {
   const normalizedUserId = userId.trim();
   const keysToDelete: string[] = [];
   const nicknamePairsToInvalidate: Array<{ setterId: string; targetId: string }> = [];
+  const friendIdsToInvalidate: string[] = [normalizedUserId];
 
   if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
     throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
@@ -45,6 +48,22 @@ export async function deleteAccount(userId: string): Promise<void> {
       if (userRow.avatarKey) {
         keysToDelete.push(userRow.avatarKey);
       }
+
+      const friendshipRows = await tx
+        .select({
+          userLow: friendships.userLow,
+          userHigh: friendships.userHigh,
+        })
+        .from(friendships)
+        .where(
+          or(eq(friendships.userLow, normalizedUserId), eq(friendships.userHigh, normalizedUserId)),
+        );
+
+      friendIdsToInvalidate.push(
+        ...friendshipRows.map((row) =>
+          row.userLow === normalizedUserId ? row.userHigh : row.userLow,
+        ),
+      );
 
       const nicknameRows = await tx
         .select({
@@ -80,7 +99,11 @@ export async function deleteAccount(userId: string): Promise<void> {
       await tx.delete(users).where(eq(users.id, normalizedUserId));
     });
 
-    await deleteCachedNicknames(nicknamePairsToInvalidate);
+    await Promise.all([
+      deleteCachedFriendIdsForUsers(friendIdsToInvalidate),
+      deleteCachedNicknames(nicknamePairsToInvalidate),
+      deleteCachedUserSummary(normalizedUserId),
+    ]);
 
     if (keysToDelete.length > 0) {
       await Promise.allSettled(

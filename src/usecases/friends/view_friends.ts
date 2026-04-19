@@ -1,8 +1,8 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { friendships, users } from "../../db/schema.ts";
-import { getNicknameMap } from "../common_queries.ts";
+import { friendships } from "../../db/schema.ts";
+import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type ViewFriendsErrorType =
   | "MISSING_USER_ID"
@@ -110,31 +110,10 @@ export async function viewFriends(
     );
     const uniqueFriendIds = [...new Set(friendIds)];
 
-    const [userRows, nicknames] = await Promise.all([
-      db
-        .select({
-          id: users.id,
-          username: users.username,
-          displayName: users.displayName,
-          avatarKey: users.avatarKey,
-        })
-        .from(users)
-        .where(inArray(users.id, uniqueFriendIds)),
-
+    const [userMap, nicknames] = await Promise.all([
+      getUserSummariesByIds(uniqueFriendIds),
       getNicknameMap(normalizedUserId, uniqueFriendIds),
     ]);
-
-    const userMap = new Map(
-      userRows.map((user) => [
-        user.id,
-        {
-          id: user.id,
-          username: user.username,
-          displayName: user.displayName,
-          avatarKey: user.avatarKey,
-        },
-      ]),
-    );
 
     const items: Friend[] = friendshipRows.map((row) => {
       const friendId = row.userLow === normalizedUserId ? row.userHigh : row.userLow;

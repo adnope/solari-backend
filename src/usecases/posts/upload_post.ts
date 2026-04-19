@@ -1,7 +1,7 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { eq, or } from "drizzle-orm";
-import { db, withTx } from "../../db/client.ts";
-import { friendships, userStreaks } from "../../db/schema.ts";
+import { eq } from "drizzle-orm";
+import { withTx } from "../../db/client.ts";
+import { userStreaks } from "../../db/schema.ts";
 import { getUploadPresignedUrl } from "../../storage/s3.ts";
 import {
   enqueuePostUploadProcessing,
@@ -10,6 +10,7 @@ import {
 } from "../../jobs/queue.ts";
 import type { UploadPostJobPayload } from "../../jobs/types.ts";
 import { calculateNewStreak } from "../../utils/streak.ts";
+import { getFriendIds } from "../common_queries.ts";
 
 export type UploadPostErrorType =
   | "MISSING_INPUT"
@@ -122,24 +123,7 @@ export async function initiatePostUpload(
   if (input.audienceType === "selected" && input.viewerIds) {
     uniqueViewerIds = [...new Set(input.viewerIds.map((id) => id.trim()))];
 
-    const friendshipRows = await db
-      .select({
-        userLow: friendships.userLow,
-        userHigh: friendships.userHigh,
-      })
-      .from(friendships)
-      .where(
-        or(
-          eq(friendships.userLow, normalizedAuthorId),
-          eq(friendships.userHigh, normalizedAuthorId),
-        ),
-      );
-
-    const friendIds = new Set(
-      friendshipRows.map((row) =>
-        row.userLow === normalizedAuthorId ? row.userHigh : row.userLow,
-      ),
-    );
+    const friendIds = new Set(await getFriendIds(normalizedAuthorId));
 
     const allValid = uniqueViewerIds.every((viewerId) => friendIds.has(viewerId));
     if (!allValid) {

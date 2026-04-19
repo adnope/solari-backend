@@ -1,8 +1,8 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { blockedUsers, conversations, friendships, messages, users } from "../../db/schema.ts";
-import { getNickname } from "../common_queries.ts";
+import { blockedUsers, conversations, friendships, messages } from "../../db/schema.ts";
+import { getNickname, getUserSummaryById } from "../common_queries.ts";
 import type { ConversationItem, ConversationPartner } from "./get_conversations.ts";
 
 export type GetConversationErrorType =
@@ -72,17 +72,7 @@ export async function getConversation(
       conversation.userLow === normalizedUserId ? conversation.userHigh : conversation.userLow;
 
     const [partner, friendship, blockedByPartner, nickname, lastMessage] = await Promise.all([
-      db
-        .select({
-          id: users.id,
-          username: users.username,
-          displayName: users.displayName,
-          avatarKey: users.avatarKey,
-        })
-        .from(users)
-        .where(eq(users.id, partnerId))
-        .limit(1)
-        .then((rows) => rows[0]),
+      getUserSummaryById(partnerId),
 
       db
         .select({ userLow: friendships.userLow })

@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, postMedia, postVisibility, posts, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
-import { getNicknameMap } from "../common_queries.ts";
+import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type FeedAuthor = {
   id: string;
@@ -116,10 +116,7 @@ export async function getFeed(
         id: posts.id,
         createdAt: posts.createdAt,
         caption: posts.caption,
-        authorId: users.id,
-        authorUsername: users.username,
-        authorDisplayName: users.displayName,
-        authorAvatarKey: users.avatarKey,
+        authorId: posts.authorId,
         mediaType: postMedia.mediaType,
         objectKey: postMedia.objectKey,
         thumbnailKey: postMedia.thumbnailKey,
@@ -128,7 +125,6 @@ export async function getFeed(
         durationMs: postMedia.durationMs,
       })
       .from(posts)
-      .innerJoin(users, eq(users.id, posts.authorId))
       .innerJoin(postMedia, eq(postMedia.postId, posts.id))
       .where(
         and(
@@ -167,14 +163,21 @@ export async function getFeed(
       .orderBy(desc(posts.createdAt))
       .limit(normalizedLimit);
 
-    // 1. Extract unique author IDs from the result set
     const authorIdsFromResult = rows.map((row) => row.authorId);
 
-    // 2. Fetch the nicknames for all these authors in a single batch
-    const nicknames = await getNicknameMap(normalizedViewerId, authorIdsFromResult);
+    const [authorMap, nicknames] = await Promise.all([
+      getUserSummariesByIds(authorIdsFromResult),
+      getNicknameMap(normalizedViewerId, authorIdsFromResult),
+    ]);
 
     const items: FeedPost[] = await Promise.all(
       rows.map(async (row) => {
+        const author = authorMap.get(row.authorId);
+
+        if (!author) {
+          throw new GetFeedError("INTERNAL_ERROR", "Internal server error fetching feed.", 500);
+        }
+
         const [url, thumbnailUrl] = await Promise.all([
           getFileUrl(row.objectKey),
           row.thumbnailKey ? getFileUrl(row.thumbnailKey) : Promise.resolve<string | null>(null),
@@ -185,10 +188,10 @@ export async function getFeed(
           caption: row.caption,
           createdAt: row.createdAt,
           author: {
-            id: row.authorId,
-            username: row.authorUsername,
-            displayName: nicknames.get(row.authorId) ?? row.authorDisplayName,
-            avatarKey: row.authorAvatarKey,
+            id: author.id,
+            username: author.username,
+            displayName: nicknames.get(row.authorId) ?? author.displayName,
+            avatarKey: author.avatarKey,
           },
           media: {
             url,

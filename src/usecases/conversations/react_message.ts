@@ -1,8 +1,8 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { conversations, messageReactions, messages, users } from "../../db/schema.ts";
-import { getNickname, hasBlockingRelationship } from "../common_queries.ts";
+import { conversations, messageReactions, messages } from "../../db/schema.ts";
+import { getNickname, getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
 import { enqueuePushNotification, publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
@@ -158,17 +158,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
         const recipientId = messageRow.senderId;
 
         const [reactor, nickname] = await Promise.all([
-          tx
-            .select({
-              username: users.username,
-              displayName: users.displayName,
-              avatarKey: users.avatarKey,
-            })
-            .from(users)
-            .where(eq(users.id, normalizedUserId))
-            .limit(1)
-            .then((rows) => rows[0]),
-
+          getUserSummaryById(normalizedUserId, tx),
           getNickname(recipientId, normalizedUserId, tx),
         ]);
 
