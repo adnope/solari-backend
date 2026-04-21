@@ -228,6 +228,7 @@ const protectedConversationsRouter = new Elysia()
           current_user_last_read_at: conv.currentUserLastReadAt,
           partner_last_read_at: conv.partnerLastReadAt,
           is_readonly: conv.isReadOnly,
+          is_muted: conv.isMuted,
         })),
         next_cursor: result.nextCursor,
       };
@@ -272,6 +273,7 @@ const protectedConversationsRouter = new Elysia()
           current_user_last_read_at: conv.currentUserLastReadAt,
           partner_last_read_at: conv.partnerLastReadAt,
           is_readonly: conv.isReadOnly,
+          is_muted: conv.isMuted,
         },
       };
     },

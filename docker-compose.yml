@@ -1,19 +1,19 @@
 services:
-  db-init:
-    container_name: solari-db-init
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: ${SERVER_ENV:-dev}
-    env_file:
-      - .env
-    command: bunx drizzle-kit migrate
-    volumes:
-      - .:/app
-      - /app/node_modules
-    depends_on:
-      db:
-        condition: service_healthy
+  # db-init:
+  #   container_name: solari-db-init
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #     target: ${SERVER_ENV:-dev}
+  #   env_file:
+  #     - .env
+  #   command: bunx drizzle-kit migrate
+  #   volumes:
+  #     - .:/app
+  #     - /app/node_modules
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
 
   api:
     restart: unless-stopped
@@ -24,10 +24,10 @@ services:
       dockerfile: Dockerfile
       target: ${SERVER_ENV:-dev}
     depends_on:
-      db:
-        condition: service_healthy
-      s3:
-        condition: service_healthy
+      # db:
+      #   condition: service_healthy
+      # s3:
+      #   condition: service_healthy
       redis:
         condition: service_healthy
     expose:
@@ -60,10 +60,10 @@ services:
         fi
         exec bun run worker
     depends_on:
-      db:
-        condition: service_healthy
-      s3:
-        condition: service_healthy
+      # db:
+      #   condition: service_healthy
+      # s3:
+      #   condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
@@ -79,49 +79,49 @@ services:
     depends_on:
       - api
 
-  db:
-    image: postgres:16.13-alpine
-    container_name: solari-postgres
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:${POSTGRES_PORT:-5432}"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 3s
+  # db:
+  #   image: postgres:16.13-alpine
+  #   container_name: solari-postgres
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     POSTGRES_DB: ${POSTGRES_DB}
+  #   ports:
+  #     - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:${POSTGRES_PORT:-5432}"
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #     - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 3s
 
-  s3:
-    image: minio/minio:latest
-    container_name: solari-storage
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
-    command: server /data --address ":9000" --console-address ":9001"
-    ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
-    volumes:
-      - s3data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 3s
+  # s3:
+  #   image: minio/minio:latest
+  #   container_name: solari-storage
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
+  #     MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
+  #   command: server /data --address ":9000" --console-address ":9001"
+  #   ports:
+  #     - "127.0.0.1:9000:9000"
+  #     - "127.0.0.1:9001:9001"
+  #   volumes:
+  #     - s3data:/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 3s
 
   redis:
     image: redis:8.6-alpine
@@ -141,6 +141,6 @@ services:
       start_period: 3s
 
 volumes:
-  pgdata:
-  s3data:
+  # pgdata:
+  # s3data:
   redisdata:

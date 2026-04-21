@@ -564,7 +564,7 @@ POST /conversations/:conversationId/read
 GET /conversations
 ```
 
-- Description: Retrieves a paginated list of conversations for the authenticated user, ordered by the most recently updated. Includes the partner's profile (respecting custom nicknames and privacy blocks), the latest message, read receipts, and an `is_readonly` flag if the users are no longer friends. If the current user is blocked by the partner, the partner's profile is anonymized as "Someone".
+- Description: Retrieves a paginated list of conversations for the authenticated user, ordered by the most recently updated. Includes the partner's profile (respecting custom nicknames and privacy blocks), the latest message, read receipts, an `is_readonly` flag if the users are no longer friends, and an `is_muted` flag for the current user's mute state. If the current user is blocked by the partner, the partner's profile is anonymized as "Someone".
 - Auth required: Yes
 
 ### Request parameters:
@@ -605,7 +605,8 @@ GET /conversations?limit=20&cursor=2026-04-08T12:45:10.000Z
       },
       "current_user_last_read_at": "2026-04-08T12:45:10.000Z",
       "partner_last_read_at": "2026-04-08T12:40:00.000Z",
-      "is_readonly": false
+      "is_readonly": false,
+      "is_muted": false
     }
   ],
   "next_cursor": "2026-04-07T09:15:00.000Z"
@@ -622,7 +623,7 @@ GET /conversations?limit=20&cursor=2026-04-08T12:45:10.000Z
 GET /conversations/:conversationId
 ```
 
-- Description: Retrieves one conversation for the authenticated user. Includes the partner's profile (respecting custom nicknames and privacy blocks), the latest message, read receipts, and an `is_readonly` flag if the users are no longer friends. If the current user is blocked by the partner, the partner's profile is anonymized as "Someone".
+- Description: Retrieves one conversation for the authenticated user. Includes the partner's profile (respecting custom nicknames and privacy blocks), the latest message, read receipts, an `is_readonly` flag if the users are no longer friends, and an `is_muted` flag for the current user's mute state. If the current user is blocked by the partner, the partner's profile is anonymized as "Someone".
 - Auth required: Yes
 
 ### Request parameters:
@@ -665,7 +666,8 @@ GET /conversations/123e4567-e89b-12d3-a456-426614174000
     },
     "current_user_last_read_at": "2026-04-08T12:45:10.000Z",
     "partner_last_read_at": "2026-04-08T12:40:00.000Z",
-    "is_readonly": false
+    "is_readonly": false,
+    "is_muted": false
   }
 }
 ```

@@ -1,7 +1,13 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { blockedUsers, conversations, friendships, messages } from "../../db/schema.ts";
+import {
+  blockedUsers,
+  conversations,
+  friendships,
+  messages,
+  mutedConversations,
+} from "../../db/schema.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type ConversationPartner = {
@@ -30,6 +36,7 @@ export type ConversationItem = {
   currentUserLastReadAt: string | null;
   partnerLastReadAt: string | null;
   isReadOnly: boolean;
+  isMuted: boolean;
 };
 
 export type GetConversationsResult = {
@@ -122,7 +129,7 @@ export async function getConversations(
       ),
     ];
 
-    const [partnerMap, friendshipRows, blockedByRows, nicknamesMap] = await Promise.all([
+    const [partnerMap, friendshipRows, blockedByRows, nicknamesMap, mutedRows] = await Promise.all([
       getUserSummariesByIds(partnerIds),
       db
         .select({ userLow: friendships.userLow, userHigh: friendships.userHigh })
@@ -151,12 +158,23 @@ export async function getConversations(
         ),
 
       getNicknameMap(normalizedUserId, partnerIds),
+
+      db
+        .select({ conversationId: mutedConversations.conversationId })
+        .from(mutedConversations)
+        .where(
+          and(
+            eq(mutedConversations.userId, normalizedUserId),
+            inArray(mutedConversations.conversationId, conversationIds),
+          ),
+        ),
     ]);
 
     const activeFriendsSet = new Set(
       friendshipRows.map((f) => (f.userLow === normalizedUserId ? f.userHigh : f.userLow)),
     );
     const blockedByPartnerSet = new Set(blockedByRows.map((b) => b.blockerId));
+    const mutedConversationSet = new Set(mutedRows.map((row) => row.conversationId));
 
     const lastMessageRows = await db
       .selectDistinctOn([messages.conversationId], {
@@ -210,6 +228,7 @@ export async function getConversations(
         currentUserLastReadAt: isViewerLow ? row.userLowLastReadAt : row.userHighLastReadAt,
         partnerLastReadAt: isViewerLow ? row.userHighLastReadAt : row.userLowLastReadAt,
         isReadOnly: !isFriend,
+        isMuted: mutedConversationSet.has(row.id),
       };
     });
 

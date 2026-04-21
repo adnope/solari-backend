@@ -1,7 +1,13 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { blockedUsers, conversations, friendships, messages } from "../../db/schema.ts";
+import {
+  blockedUsers,
+  conversations,
+  friendships,
+  messages,
+  mutedConversations,
+} from "../../db/schema.ts";
 import { getNickname, getUserSummaryById } from "../common_queries.ts";
 import type { ConversationItem, ConversationPartner } from "./get_conversations.ts";
 
@@ -71,46 +77,62 @@ export async function getConversation(
     const partnerId =
       conversation.userLow === normalizedUserId ? conversation.userHigh : conversation.userLow;
 
-    const [partner, friendship, blockedByPartner, nickname, lastMessage] = await Promise.all([
-      getUserSummaryById(partnerId),
+    const [partner, friendship, blockedByPartner, nickname, lastMessage, mutedConversation] =
+      await Promise.all([
+        getUserSummaryById(partnerId),
 
-      db
-        .select({ userLow: friendships.userLow })
-        .from(friendships)
-        .where(
-          and(
-            eq(friendships.userLow, conversation.userLow),
-            eq(friendships.userHigh, conversation.userHigh),
-          ),
-        )
-        .limit(1)
-        .then((rows) => rows[0]),
+        db
+          .select({ userLow: friendships.userLow })
+          .from(friendships)
+          .where(
+            and(
+              eq(friendships.userLow, conversation.userLow),
+              eq(friendships.userHigh, conversation.userHigh),
+            ),
+          )
+          .limit(1)
+          .then((rows) => rows[0]),
 
-      db
-        .select({ blockerId: blockedUsers.blockerId })
-        .from(blockedUsers)
-        .where(
-          and(eq(blockedUsers.blockerId, partnerId), eq(blockedUsers.blockedId, normalizedUserId)),
-        )
-        .limit(1)
-        .then((rows) => rows[0]),
+        db
+          .select({ blockerId: blockedUsers.blockerId })
+          .from(blockedUsers)
+          .where(
+            and(
+              eq(blockedUsers.blockerId, partnerId),
+              eq(blockedUsers.blockedId, normalizedUserId),
+            ),
+          )
+          .limit(1)
+          .then((rows) => rows[0]),
 
-      getNickname(normalizedUserId, partnerId),
+        getNickname(normalizedUserId, partnerId),
 
-      db
-        .select({
-          id: messages.id,
-          senderId: messages.senderId,
-          content: messages.content,
-          isDeleted: messages.isDeleted,
-          createdAt: messages.createdAt,
-        })
-        .from(messages)
-        .where(eq(messages.conversationId, normalizedConversationId))
-        .orderBy(desc(messages.createdAt))
-        .limit(1)
-        .then((rows) => rows[0] ?? null),
-    ]);
+        db
+          .select({
+            id: messages.id,
+            senderId: messages.senderId,
+            content: messages.content,
+            isDeleted: messages.isDeleted,
+            createdAt: messages.createdAt,
+          })
+          .from(messages)
+          .where(eq(messages.conversationId, normalizedConversationId))
+          .orderBy(desc(messages.createdAt))
+          .limit(1)
+          .then((rows) => rows[0] ?? null),
+
+        db
+          .select({ conversationId: mutedConversations.conversationId })
+          .from(mutedConversations)
+          .where(
+            and(
+              eq(mutedConversations.userId, normalizedUserId),
+              eq(mutedConversations.conversationId, normalizedConversationId),
+            ),
+          )
+          .limit(1)
+          .then((rows) => rows[0] ?? null),
+      ]);
 
     if (!partner) {
       throw new GetConversationError("INTERNAL_ERROR", "Partner not found.", 500);
@@ -147,6 +169,7 @@ export async function getConversation(
         ? conversation.userHighLastReadAt
         : conversation.userLowLastReadAt,
       isReadOnly: !friendship,
+      isMuted: Boolean(mutedConversation),
     };
   } catch (error) {
     if (error instanceof GetConversationError) throw error;
