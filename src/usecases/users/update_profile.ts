@@ -3,7 +3,7 @@ import { eq, or } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { friendships, users } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
-import { deleteFile, uploadFile } from "../../storage/s3.ts";
+import { deleteFile, getFileUrl, uploadFile } from "../../storage/s3.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
 
@@ -26,7 +26,7 @@ export type UpdateProfileResult = {
   username: string;
   email: string;
   display_name: string | null;
-  avatar_key: string | null;
+  avatar_url: string | null;
   updated_at: string;
 };
 
@@ -66,7 +66,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
   let newAvatarKey: string | undefined;
 
   try {
-    const { finalUser: updatedProfile, hasVisualChanges } = await withTx(async (tx) => {
+    const { finalUser: updatedProfile, finalAvatarKey, hasVisualChanges } = await withTx(async (tx) => {
       const [currentUser] = await tx
         .select({
           avatarKey: users.avatarKey,
@@ -139,7 +139,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
         updateData.avatarKey = newAvatarKey;
       }
 
-      let finalUser: UpdateProfileResult;
+      let rawUser: { id: string; username: string; email: string; display_name: string | null; avatar_key: string | null; updated_at: string; };
 
       if (Object.keys(updateData).length > 0) {
         updateData.updatedAt = new Date().toISOString();
@@ -161,7 +161,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
           throw new UpdateProfileError("MISSING_USER", "User not found.", 404);
         }
 
-        finalUser = updatedUser;
+        rawUser = updatedUser;
 
         if (currentAvatarKey && (newAvatarKey || input.removeAvatar)) {
           void deleteFile(currentAvatarKey).catch((err) =>
@@ -186,14 +186,25 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
           throw new UpdateProfileError("MISSING_USER", "User not found.", 404);
         }
 
-        finalUser = existingUser;
+        rawUser = existingUser;
       }
 
       const visualDataChanged =
-        currentUser.avatarKey !== finalUser.avatar_key ||
-        currentUser.displayName !== finalUser.display_name;
+        currentUser.avatarKey !== rawUser.avatar_key ||
+        currentUser.displayName !== rawUser.display_name;
 
-      return { finalUser, hasVisualChanges: visualDataChanged };
+      const avatarUrl = rawUser.avatar_key ? await getFileUrl(rawUser.avatar_key) : null;
+
+      const finalUser: UpdateProfileResult = {
+        id: rawUser.id,
+        username: rawUser.username,
+        email: rawUser.email,
+        display_name: rawUser.display_name,
+        avatar_url: avatarUrl,
+        updated_at: rawUser.updated_at,
+      };
+
+      return { finalUser, finalAvatarKey: rawUser.avatar_key, hasVisualChanges: visualDataChanged };
     });
 
     await deleteCachedUserSummary(normalizedUserId);
@@ -213,13 +224,15 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
 
           if (friends.length === 0) return;
 
+          const avatarUrl = updatedProfile.avatar_url;
+
           const eventPayload = {
             type: "FRIEND_PROFILE_UPDATED" as const,
             payload: {
               userId: updatedProfile.id,
               username: updatedProfile.username,
               displayName: updatedProfile.display_name,
-              avatarKey: updatedProfile.avatar_key,
+              avatarUrl: avatarUrl,
             },
           };
 

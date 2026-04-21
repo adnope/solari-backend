@@ -1860,7 +1860,7 @@ PATCH /users/me
     "username": "johndoe",
     "email": "newemail@example.com",
     "display_name": "John Doe",
-    "avatar_key": "avatars/123e4567...jpeg",
+    "avatar_url": "https://s3.amazonaws.com/bucket/avatars/123e4567...jpeg",
     "updated_at": "2026-04-08T20:15:05.000Z"
   }
 }

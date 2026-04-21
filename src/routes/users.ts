@@ -50,7 +50,7 @@ const protectedUsersRouter = new Elysia()
           username: result.username,
           email: result.email,
           display_name: result.display_name,
-          avatar_key: result.avatar_key,
+          avatar_url: result.avatar_url,
           updated_at: result.updated_at,
         },
       };

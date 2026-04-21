@@ -105,7 +105,7 @@ export type WsFriendProfileUpdatedEvent = {
     userId: string;
     username: string;
     displayName: string | null;
-    avatarKey: string | null;
+    avatarUrl: string | null;
   };
 };
 
