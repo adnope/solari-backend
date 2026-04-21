@@ -68,14 +68,25 @@ const protectedUsersRouter = new Elysia()
   )
 
   // Delete account
-  .delete("/users/me", async ({ authUserId, set }) => {
-    await deleteAccount(authUserId);
+  .delete(
+    "/users/me",
+    async ({ authUserId, body, set }) => {
+      await deleteAccount({
+        userId: authUserId,
+        password: body?.password ?? "",
+      });
 
-    set.status = 200;
-    return {
-      message: "Account deleted successfully.",
-    };
-  })
+      set.status = 200;
+      return {
+        message: "Account deleted successfully.",
+      };
+    },
+    {
+      body: t.Object({
+        password: t.String(),
+      }),
+    },
+  )
 
   // Register a device for push notifications
   .post(

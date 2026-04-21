@@ -1,13 +1,30 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendNicknames, friendships, postMedia, posts, users } from "../../db/schema.ts";
+import {
+  friendNicknames,
+  friendships,
+  postMedia,
+  posts,
+  userPasswords,
+  users,
+} from "../../db/schema.ts";
 import { deleteFile } from "../../storage/s3.ts";
 import { deleteCachedNicknames } from "../../cache/nickname_cache.ts";
 import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
 import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
 
-export type DeleteAccountErrorType = "USER_NOT_FOUND" | "INTERNAL_ERROR";
+export type DeleteAccountInput = {
+  userId: string;
+  password: string;
+};
+
+export type DeleteAccountErrorType =
+  | "MISSING_PASSWORD"
+  | "USER_NOT_FOUND"
+  | "INVALID_CREDENTIALS"
+  | "LINKED_THIRD_PARTY_ACCOUNT"
+  | "INTERNAL_ERROR";
 
 export class DeleteAccountError extends Error {
   readonly type: DeleteAccountErrorType;
@@ -21,8 +38,9 @@ export class DeleteAccountError extends Error {
   }
 }
 
-export async function deleteAccount(userId: string): Promise<void> {
-  const normalizedUserId = userId.trim();
+export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
+  const normalizedUserId = input.userId.trim();
+  const password = input.password;
   const keysToDelete: string[] = [];
   const nicknamePairsToInvalidate: Array<{ setterId: string; targetId: string }> = [];
   const friendIdsToInvalidate: string[] = [normalizedUserId];
@@ -31,18 +49,37 @@ export async function deleteAccount(userId: string): Promise<void> {
     throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
   }
 
+  if (password.length === 0) {
+    throw new DeleteAccountError("MISSING_PASSWORD", "Password is required.", 400);
+  }
+
   try {
     await withTx(async (tx) => {
       const [userRow] = await tx
         .select({
           avatarKey: users.avatarKey,
+          passwordHash: userPasswords.passwordHash,
         })
         .from(users)
+        .leftJoin(userPasswords, eq(userPasswords.userId, users.id))
         .where(eq(users.id, normalizedUserId))
         .limit(1);
 
       if (!userRow) {
         throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
+      }
+
+      if (!userRow.passwordHash) {
+        throw new DeleteAccountError(
+          "LINKED_THIRD_PARTY_ACCOUNT",
+          "Please sign in using your linked third-party account.",
+          401,
+        );
+      }
+
+      const isPasswordValid = await Bun.password.verify(password, userRow.passwordHash);
+      if (!isPasswordValid) {
+        throw new DeleteAccountError("INVALID_CREDENTIALS", "Invalid password.", 401);
       }
 
       if (userRow.avatarKey) {

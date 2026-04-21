@@ -1879,7 +1879,7 @@ PATCH /users/me
 DELETE /users/me
 ```
 
-- Description: Permanently deletes the authenticated user's account and all associated data. This is a destructive operation that removes the user's record from the database and triggers a cleanup of all storage assets, including the user's avatar and all media/thumbnails associated with their posts.
+- Description: Permanently deletes the authenticated user's account and all associated data after verifying the user's password. This is a destructive operation that removes the user's record from the database and triggers a cleanup of all storage assets, including the user's avatar and all media/thumbnails associated with their posts.
 - Auth required: Yes
 
 ### Request parameters:
@@ -1893,7 +1893,11 @@ DELETE /users/me
 
 ### Request body:
 
-- None
+```json
+{
+  "password": "userpassword"
+}
+```
 
 ### Responses:
 
@@ -1905,6 +1909,8 @@ DELETE /users/me
 }
 ```
 
+- [400 Bad Request] - Possible 'type' values: MISSING_PASSWORD.
+- [401 Unauthorized] - Possible 'type' values: INVALID_CREDENTIALS, LINKED_THIRD_PARTY_ACCOUNT.
 - [404 Not Found] - Possible 'type' values: USER_NOT_FOUND.
 
 ## Register a device
