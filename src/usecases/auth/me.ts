@@ -1,10 +1,19 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { users } from "../../db/schema.ts";
+import { getFileUrl } from "../../storage/s3.ts";
 import { AuthError } from "./error_type.ts";
-import type { PublicUser } from "./sign_up.ts";
 
-export async function me(userId: string): Promise<PublicUser> {
+export type MeResult = {
+  id: string;
+  username: string;
+  email: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  createdAt: string;
+};
+
+export async function me(userId: string): Promise<MeResult> {
   const normalizedUserId = userId.trim();
 
   if (!normalizedUserId) {
@@ -29,12 +38,14 @@ export async function me(userId: string): Promise<PublicUser> {
       throw new AuthError("USER_NOT_FOUND", "User not found.", 404);
     }
 
+    const avatarUrl = user.avatarKey ? await getFileUrl(user.avatarKey) : null;
+
     return {
       id: user.id,
       username: user.username,
       email: user.email,
       displayName: user.displayName,
-      avatarKey: user.avatarKey,
+      avatarUrl,
       createdAt: user.createdAt,
     };
   } catch (error) {

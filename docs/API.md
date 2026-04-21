@@ -331,7 +331,7 @@ GET /me
     "username": "johndoe",
     "email": "john@example.com",
     "display_name": null,
-    "avatar_key": null,
+    "avatar_url": null,
     "created_at": "2026-04-08T11:49:14.000Z"
   }
 }

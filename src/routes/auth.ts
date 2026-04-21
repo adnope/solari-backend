@@ -54,7 +54,7 @@ const protectedAuthRouter = new Elysia()
         username: result.username,
         email: result.email,
         display_name: result.displayName,
-        avatar_key: result.avatarKey,
+        avatar_url: result.avatarUrl,
         created_at: result.createdAt,
       },
     };
