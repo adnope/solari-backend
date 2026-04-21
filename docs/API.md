@@ -1777,7 +1777,7 @@ POST /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/views
 GET /posts/:postId/viewers
 ```
 
-- Description: Retrieves a paginated list of users who have viewed a specific post. Access to this information is restricted exclusively to the original author of the post. The results automatically exclude any users who have a blocking relationship with the author.
+- Description: Retrieves a paginated list of users who have viewed a specific post. Access to this information is restricted exclusively to the original author of the post. The results automatically exclude any users who have a blocking relationship with the author, and each viewer's `display_name` resolves in priority order: custom nickname, display name, username.
 - Auth required: Yes
 
 ### Request parameters:

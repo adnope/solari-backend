@@ -2,12 +2,12 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, postViews, posts } from "../../db/schema.ts";
-import { getUserSummariesByIds } from "../common_queries.ts";
+import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type PostViewerUser = {
   id: string;
   username: string;
-  displayName: string | null;
+  displayName: string;
   avatarKey: string | null;
   viewedAt: string;
 };
@@ -115,7 +115,12 @@ export async function getPostViewers(
       .orderBy(desc(postViews.viewedAt))
       .limit(normalizedLimit);
 
-    const userMap = await getUserSummariesByIds(rows.map((row) => row.userId));
+    const viewerIds = rows.map((row) => row.userId);
+
+    const [userMap, nicknames] = await Promise.all([
+      getUserSummariesByIds(viewerIds),
+      getNicknameMap(normalizedAuthorId, viewerIds),
+    ]);
 
     const items: PostViewerUser[] = rows.map((row) => {
       const user = userMap.get(row.userId);
@@ -127,7 +132,7 @@ export async function getPostViewers(
       return {
         id: user.id,
         username: user.username,
-        displayName: user.displayName,
+        displayName: nicknames.get(row.userId) ?? user.displayName ?? user.username,
         avatarKey: user.avatarKey,
         viewedAt: row.viewedAt,
       };
