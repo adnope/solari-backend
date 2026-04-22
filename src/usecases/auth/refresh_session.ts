@@ -4,7 +4,6 @@ import { sessions } from "../../db/schema.ts";
 import { createAccessToken } from "../../utils/jwt.ts";
 import { AuthError } from "./error_type.ts";
 import { createHash, randomBytes } from "node:crypto";
-import type { SigninResult } from "./sign_in.ts";
 import { deleteCachedAuthSession } from "../../cache/auth_session_cache.ts";
 
 const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
@@ -21,7 +20,14 @@ export type RefreshSessionInput = {
   refreshToken: string;
 };
 
-export async function refreshSession(input: RefreshSessionInput): Promise<SigninResult> {
+export type RefreshSessionResult = {
+  sessionId: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: string;
+};
+
+export async function refreshSession(input: RefreshSessionInput): Promise<RefreshSessionResult> {
   const { refreshToken } = input;
 
   if (!refreshToken.trim()) {

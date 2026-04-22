@@ -1,11 +1,12 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { eq, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import {
   friendNicknames,
   friendships,
   postMedia,
   posts,
+  userOauthAccounts,
   userPasswords,
   users,
 } from "../../db/schema.ts";
@@ -16,14 +17,16 @@ import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
 
 export type DeleteAccountInput = {
   userId: string;
-  password: string;
+  password?: string;
+  googleIdToken?: string;
 };
 
 export type DeleteAccountErrorType =
-  | "MISSING_PASSWORD"
+  | "MISSING_VERIFICATION"
   | "USER_NOT_FOUND"
   | "INVALID_CREDENTIALS"
   | "LINKED_THIRD_PARTY_ACCOUNT"
+  | "GOOGLE_ACCOUNT_NOT_LINKED"
   | "INTERNAL_ERROR";
 
 export class DeleteAccountError extends Error {
@@ -38,9 +41,40 @@ export class DeleteAccountError extends Error {
   }
 }
 
+type GoogleTokenPayload = {
+  sub?: string;
+  email?: string;
+  aud?: string;
+};
+
+async function verifyGoogleIdToken(idToken: string): Promise<GoogleTokenPayload> {
+  const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
+  if (!verifyRes.ok) {
+    throw new DeleteAccountError("INVALID_CREDENTIALS", "Invalid or expired Google token.", 401);
+  }
+
+  const payload = (await verifyRes.json()) as GoogleTokenPayload;
+
+  const googleClientId = process.env["GOOGLE_CLIENT_ID"];
+  if (googleClientId && payload.aud !== googleClientId) {
+    throw new DeleteAccountError(
+      "INVALID_CREDENTIALS",
+      "Token was not issued for this application.",
+      401,
+    );
+  }
+
+  if (!payload.sub) {
+    throw new DeleteAccountError("INVALID_CREDENTIALS", "Invalid Google token payload.", 401);
+  }
+
+  return payload;
+}
+
 export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
   const normalizedUserId = input.userId.trim();
-  const password = input.password;
+  const password = input.password ?? "";
+  const googleIdToken = input.googleIdToken?.trim() ?? "";
   const keysToDelete: string[] = [];
   const nicknamePairsToInvalidate: Array<{ setterId: string; targetId: string }> = [];
   const friendIdsToInvalidate: string[] = [normalizedUserId];
@@ -49,11 +83,17 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
     throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
   }
 
-  if (password.length === 0) {
-    throw new DeleteAccountError("MISSING_PASSWORD", "Password is required.", 400);
+  if (!password && !googleIdToken) {
+    throw new DeleteAccountError(
+      "MISSING_VERIFICATION",
+      "Password or Google ID token is required.",
+      400,
+    );
   }
 
   try {
+    const googlePayload = googleIdToken ? await verifyGoogleIdToken(googleIdToken) : null;
+
     await withTx(async (tx) => {
       const [userRow] = await tx
         .select({
@@ -69,17 +109,46 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
         throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
       }
 
-      if (!userRow.passwordHash) {
-        throw new DeleteAccountError(
-          "LINKED_THIRD_PARTY_ACCOUNT",
-          "Please sign in using your linked third-party account.",
-          401,
-        );
-      }
+      if (password) {
+        if (!userRow.passwordHash) {
+          throw new DeleteAccountError(
+            "LINKED_THIRD_PARTY_ACCOUNT",
+            "Please verify with your linked third-party account.",
+            401,
+          );
+        }
 
-      const isPasswordValid = await Bun.password.verify(password, userRow.passwordHash);
-      if (!isPasswordValid) {
-        throw new DeleteAccountError("INVALID_CREDENTIALS", "Invalid password.", 401);
+        const isPasswordValid = await Bun.password.verify(password, userRow.passwordHash);
+        if (!isPasswordValid) {
+          throw new DeleteAccountError("INVALID_CREDENTIALS", "Invalid password.", 401);
+        }
+      } else if (googlePayload) {
+        const [googleAccount] = await tx
+          .select({ providerUserId: userOauthAccounts.providerUserId })
+          .from(userOauthAccounts)
+          .where(
+            and(
+              eq(userOauthAccounts.userId, normalizedUserId),
+              eq(userOauthAccounts.provider, "google"),
+            ),
+          )
+          .limit(1);
+
+        if (!googleAccount) {
+          throw new DeleteAccountError(
+            "GOOGLE_ACCOUNT_NOT_LINKED",
+            "Google account is not linked to this user.",
+            401,
+          );
+        }
+
+        if (googleAccount.providerUserId !== googlePayload.sub) {
+          throw new DeleteAccountError(
+            "INVALID_CREDENTIALS",
+            "Google token does not match the linked account.",
+            401,
+          );
+        }
       }
 
       if (userRow.avatarKey) {

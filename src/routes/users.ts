@@ -73,7 +73,8 @@ const protectedUsersRouter = new Elysia()
     async ({ authUserId, body, set }) => {
       await deleteAccount({
         userId: authUserId,
-        password: body?.password ?? "",
+        ...(body?.password !== undefined && { password: body.password }),
+        ...(body?.google_id_token !== undefined && { googleIdToken: body.google_id_token }),
       });
 
       set.status = 200;
@@ -82,9 +83,12 @@ const protectedUsersRouter = new Elysia()
       };
     },
     {
-      body: t.Object({
-        password: t.String(),
-      }),
+      body: t.Optional(
+        t.Object({
+          password: t.Optional(t.String()),
+          google_id_token: t.Optional(t.String()),
+        }),
+      ),
     },
   )
 

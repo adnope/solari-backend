@@ -1,7 +1,7 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { eq, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
-import { friendships, users } from "../../db/schema.ts";
+import { friendships, userOauthAccounts, users } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { deleteFile, getFileUrl, uploadFile } from "../../storage/s3.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
@@ -34,6 +34,7 @@ export type UpdateProfileErrorType =
   | "MISSING_USER"
   | "EMAIL_TAKEN"
   | "INVALID_EMAIL"
+  | "LINKED_GOOGLE_ACCOUNT"
   | "STORAGE_ERROR"
   | "INTERNAL_ERROR";
 
@@ -71,8 +72,13 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
         .select({
           avatarKey: users.avatarKey,
           displayName: users.displayName,
+          googleProviderUserId: userOauthAccounts.providerUserId,
         })
         .from(users)
+        .leftJoin(
+          userOauthAccounts,
+          and(eq(userOauthAccounts.userId, users.id), eq(userOauthAccounts.provider, "google")),
+        )
         .where(eq(users.id, normalizedUserId))
         .limit(1);
 
@@ -117,6 +123,14 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
       if (input.email !== undefined) {
         const trimmedEmail = input.email.trim();
         if (trimmedEmail !== "") {
+          if (currentUser.googleProviderUserId) {
+            throw new UpdateProfileError(
+              "LINKED_GOOGLE_ACCOUNT",
+              "Google-linked accounts cannot update their email address.",
+              400,
+            );
+          }
+
           if (!isValidEmail(trimmedEmail)) {
             throw new UpdateProfileError("INVALID_EMAIL", "Invalid email address format.", 400);
           }
@@ -139,7 +153,14 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
         updateData.avatarKey = newAvatarKey;
       }
 
-      let rawUser: { id: string; username: string; email: string; display_name: string | null; avatar_key: string | null; updated_at: string; };
+      let rawUser: {
+        id: string;
+        username: string;
+        email: string;
+        display_name: string | null;
+        avatar_key: string | null;
+        updated_at: string;
+      };
 
       if (Object.keys(updateData).length > 0) {
         updateData.updatedAt = new Date().toISOString();

@@ -116,7 +116,8 @@ POST /signin
   "session_id": "018f9e...",
   "access_token": "eyJhbGciOiJIUzI1NiIsInR...",
   "refresh_token": "a1b2c3d4e5f6...",
-  "expires_at": "2026-04-22T11:49:14.000Z"
+  "expires_at": "2026-04-22T11:49:14.000Z",
+  "sign_in_method": "password"
 }
 ```
 
@@ -155,7 +156,8 @@ POST /signin/google
   "session_id": "018f9e...",
   "access_token": "eyJhbGciOiJIUzI1NiIsInR...",
   "refresh_token": "a1b2c3d4e5f6...",
-  "expires_at": "2026-04-22T11:49:14.000Z"
+  "expires_at": "2026-04-22T11:49:14.000Z",
+  "sign_in_method": "google"
 }
 ```
 
@@ -205,7 +207,7 @@ POST /signout
 POST /password-resets
 ```
 
-- Description: Requests a 6-digit password reset code to be sent to the provided email address. To prevent email enumeration attacks, this endpoint always returns a 200 success message regardless of whether the account actually exists in the database.
+- Description: Requests a 6-digit password reset code to be sent to the provided email address. To prevent email enumeration attacks, this endpoint returns a 200 success message when the email does not exist. OAuth-only Google accounts are rejected because they do not have a password to reset.
 - Auth required: No
 
 ### Request body (application/json):
@@ -229,7 +231,7 @@ POST /password-resets
 }
 ```
 
-- [400 Bad Request] - Possible 'type' values: MISSING_EMAIL, INVALID_EMAIL.
+- [400 Bad Request] - Possible 'type' values: MISSING_EMAIL, INVALID_EMAIL, LINKED_GOOGLE_ACCOUNT.
 
 ## Verify password reset code
 
@@ -1868,12 +1870,12 @@ GET /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/viewers?limit=20&cursor=2026-04-
 PATCH /users/me
 ```
 
-- Description: Updates the authenticated user's profile information. This endpoint handles multipart/form-data to support file uploads for avatars. It supports updating the email and display name, as well as explicitly removing the avatar or display name. Upon success, old avatar files are cleaned up from storage and a real-time WebSocket update is broadcasted to the user and all their friends to ensure UI consistency across the network.
+- Description: Updates the authenticated user's profile information. This endpoint handles multipart/form-data to support file uploads for avatars. It supports updating the email and display name, as well as explicitly removing the avatar or display name. Google-linked accounts cannot update their email address because the email is owned by the Google identity. Upon success, old avatar files are cleaned up from storage and a real-time WebSocket update is broadcasted to the user and all their friends to ensure UI consistency across the network.
 - Auth required: Yes
 
 ### Request body (multipart/form-data):
 
-- email (string, Optional): A new valid email address for the account.
+- email (string, Optional): A new valid email address for the account. Not accepted for Google-linked accounts.
 - display_name (string, Optional): A new display name.
 - avatar (file, Optional): An image file (JPEG, PNG, WebP, GIF, AVIF, HEIF/HEIC) to be used as the new profile picture.
 - remove_display_name (string, Optional): Set to "true" to clear the current display name.
@@ -1906,7 +1908,7 @@ PATCH /users/me
 }
 ```
 
-- [400 Bad Request] - Possible 'type' values: INVALID_EMAIL, STORAGE_ERROR (Invalid image format).
+- [400 Bad Request] - Possible 'type' values: INVALID_EMAIL, LINKED_GOOGLE_ACCOUNT, STORAGE_ERROR (Invalid image format).
 - [404 Not Found] - Possible 'type' values: MISSING_USER.
 - [409 Conflict] - Possible 'type' values: EMAIL_TAKEN.
 - [502 Bad Gateway] - Possible 'type' values: STORAGE_ERROR (Failed to upload to S3).
@@ -1919,7 +1921,7 @@ PATCH /users/me
 DELETE /users/me
 ```
 
-- Description: Permanently deletes the authenticated user's account and all associated data after verifying the user's password. This is a destructive operation that removes the user's record from the database and triggers a cleanup of all storage assets, including the user's avatar and all media/thumbnails associated with their posts.
+- Description: Permanently deletes the authenticated user's account and all associated data after verifying the user with either their password or a fresh Google ID token from a linked Google account. This is a destructive operation that removes the user's record from the database and triggers a cleanup of all storage assets, including the user's avatar and all media/thumbnails associated with their posts.
 - Auth required: Yes
 
 ### Request parameters:
@@ -1933,9 +1935,19 @@ DELETE /users/me
 
 ### Request body:
 
+For password accounts:
+
 ```json
 {
   "password": "userpassword"
+}
+```
+
+For Google-linked accounts:
+
+```json
+{
+  "google_id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6..."
 }
 ```
 
@@ -1949,8 +1961,8 @@ DELETE /users/me
 }
 ```
 
-- [400 Bad Request] - Possible 'type' values: MISSING_PASSWORD.
-- [401 Unauthorized] - Possible 'type' values: INVALID_CREDENTIALS, LINKED_THIRD_PARTY_ACCOUNT.
+- [400 Bad Request] - Possible 'type' values: MISSING_VERIFICATION.
+- [401 Unauthorized] - Possible 'type' values: INVALID_CREDENTIALS, LINKED_THIRD_PARTY_ACCOUNT, GOOGLE_ACCOUNT_NOT_LINKED.
 - [404 Not Found] - Possible 'type' values: USER_NOT_FOUND.
 
 ## Register a device

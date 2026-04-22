@@ -169,6 +169,7 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
         accessToken,
         refreshToken,
         expiresAt,
+        signInMethod: "google",
       };
     });
   } catch (error) {

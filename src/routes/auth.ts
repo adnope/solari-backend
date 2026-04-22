@@ -142,6 +142,7 @@ const authRouter = withApiErrorHandler(
         access_token: result.accessToken,
         refresh_token: result.refreshToken,
         expires_at: result.expiresAt,
+        sign_in_method: result.signInMethod,
       };
     },
     {
@@ -165,6 +166,7 @@ const authRouter = withApiErrorHandler(
         access_token: result.accessToken,
         refresh_token: result.refreshToken,
         expires_at: result.expiresAt,
+        sign_in_method: result.signInMethod,
       };
     },
     {

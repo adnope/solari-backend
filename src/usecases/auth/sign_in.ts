@@ -9,11 +9,13 @@ export type SigninInput = {
   identifier: string; // username or email
   password: string;
 };
+export type SigninMethod = "password" | "google";
 export type SigninResult = {
   sessionId: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: string;
+  signInMethod: SigninMethod;
 };
 
 const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
@@ -113,6 +115,7 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
       accessToken,
       refreshToken,
       expiresAt,
+      signInMethod: "password",
     };
   } catch (error) {
     if (error instanceof AuthError) {

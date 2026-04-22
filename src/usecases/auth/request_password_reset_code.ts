@@ -1,12 +1,13 @@
 import { randomInt } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
-import { passwordResetCodes, users } from "../../db/schema.ts";
+import { passwordResetCodes, userOauthAccounts, userPasswords, users } from "../../db/schema.ts";
 import { enqueueSendEmail } from "../../jobs/queue.ts";
 
 export type RequestPasswordResetCodeErrorType =
   | "MISSING_EMAIL"
   | "INVALID_EMAIL"
+  | "LINKED_GOOGLE_ACCOUNT"
   | "INTERNAL_ERROR";
 
 export class RequestPasswordResetCodeError extends Error {
@@ -54,13 +55,28 @@ export async function requestPasswordResetCode(email: string): Promise<void> {
         email: users.email,
         username: users.username,
         displayName: users.displayName,
+        passwordHash: userPasswords.passwordHash,
+        googleProviderUserId: userOauthAccounts.providerUserId,
       })
       .from(users)
+      .leftJoin(userPasswords, eq(userPasswords.userId, users.id))
+      .leftJoin(
+        userOauthAccounts,
+        and(eq(userOauthAccounts.userId, users.id), eq(userOauthAccounts.provider, "google")),
+      )
       .where(eq(users.email, email))
       .limit(1);
 
     if (!user) {
       return;
+    }
+
+    if (user.googleProviderUserId) {
+      throw new RequestPasswordResetCodeError(
+        "LINKED_GOOGLE_ACCOUNT",
+        "This account uses Google sign-in and does not have a password to reset.",
+        400,
+      );
     }
 
     const rawCode = generateSixDigitCode();
