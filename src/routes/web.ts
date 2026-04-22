@@ -20,32 +20,47 @@ const htmlResponse = (html: string, status = 200) =>
     },
   });
 
-export const webRouter = new Elysia().get(
-  "/u/:username",
-  async ({ params }) => {
-    try {
-      const profile = await getPublicWebProfile(params.username);
+const solariLogoPath = "/assets/favicon.ico";
+const solariLogoFile = Bun.file(new URL("./assets/favicon.ico", import.meta.url));
 
-      const displayNameRaw = profile.displayName || profile.username;
-      const displayName = escapeHtml(displayNameRaw);
-      const username = encodeURIComponent(profile.username);
-      const initial = escapeHtml(displayNameRaw.charAt(0).toUpperCase());
+export const webRouter = new Elysia()
+  .get(solariLogoPath, () => {
+    return new Response(solariLogoFile, {
+      headers: {
+        "cache-control": "public, max-age=86400",
+        "content-type": "image/webp",
+      },
+    });
+  })
+  .get(
+    "/u/:username",
+    async ({ params, query }) => {
+      try {
+        const profile = await getPublicWebProfile(params.username);
 
-      const imageUrl = profile.avatarUrl;
-      const ogImageUrl = imageUrl || "https://cloudreve.adnope.io.vn/f/Z7I7/solari-icon.png";
+        const displayNameRaw = profile.displayName || profile.username;
+        const displayName = escapeHtml(displayNameRaw);
+        const username = encodeURIComponent(profile.username);
+        const initial = escapeHtml(displayNameRaw.charAt(0).toUpperCase());
+        const isAppNotInstalledFallback = query.app_not_installed === "1";
 
-      const appUrl = `https://solari.com/u/${username}`;
-      const androidPackage = "com.solari.app";
-      const intentUrl = `intent://solari.com/u/${username}#Intent;scheme=https;package=${androidPackage};end`;
+        const imageUrl = profile.avatarUrl;
 
-      const html = `
+        const appUrl = `https://solari.com/u/${username}`;
+        const solariLogoUrl = `https://solari.com${solariLogoPath}`;
+        const ogImageUrl = imageUrl || solariLogoUrl;
+        const androidPackage = "com.solari.app";
+        const fallbackUrl = encodeURIComponent(`${appUrl}?app_not_installed=1`);
+        const intentUrl = `intent://solari.com/u/${username}#Intent;scheme=https;package=${androidPackage};S.browser_fallback_url=${fallbackUrl};end`;
+
+        const html = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Add ${displayName} on Solari</title>
-            <link rel="icon" type="image/x-icon" href="https://cloudreve.adnope.io.vn/f/Z7I7/solari-icon.png">
+            <link rel="icon" type="image/webp" href="${solariLogoPath}">
 
             <meta name="description" content="See photos of your best friends on your Home Screen">
 
@@ -64,20 +79,30 @@ export const webRouter = new Elysia().get(
 
             <style>
               :root {
-                --solari-blue: #1e81b0;
+                --solari-orange: #FA8128;
                 --bg-dark: #12100B;
                 --bg-letter: #2A2824;
                 --text-main: #FFFFFF;
                 --text-sub: #A09E99;
               }
+              * {
+                box-sizing: border-box;
+              }
+              html {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+              }
               body {
                 margin: 0;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                width: 100vw;
+                height: 100dvh;
+                overflow: hidden;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
-                min-height: 100vh;
                 background-color: var(--bg-dark);
                 color: var(--text-main);
                 text-align: center;
@@ -87,7 +112,7 @@ export const webRouter = new Elysia().get(
                 width: 140px;
                 height: 140px;
                 border-radius: 50%;
-                border: 4px solid var(--solari-blue);
+                border: 4px solid var(--solari-orange);
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -120,7 +145,7 @@ export const webRouter = new Elysia().get(
                 max-width: 280px;
               }
               .btn {
-                background-color: var(--solari-blue);
+                background-color: var(--solari-orange);
                 color: #000000;
                 padding: 16px 32px;
                 text-decoration: none;
@@ -146,37 +171,49 @@ export const webRouter = new Elysia().get(
               }
             </div>
 
-            <h1>Add ${displayName} on Solari</h1>
-            <p>See photos of your best friends on<br>your Home Screen</p>
+            ${
+              isAppNotInstalledFallback
+                ? `
+                  <h1>Solari is not installed!</h1>
+                  <p>Install Solari to add ${displayName} as a friend.</p>
+                `
+                : `
+                  <h1>Add ${displayName} on Solari</h1>
+                  <p>See photos of your best friends on<br>your Home Screen</p>
 
-            <a class="btn" href="${intentUrl}">
-              Open Solari
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
-            </a>
+                  <a class="btn" href="${intentUrl}">
+                    Open Solari
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                  </a>
+                `
+            }
         </body>
         </html>
       `;
 
-      return htmlResponse(html, 200);
-    } catch (error) {
-      const errorBg = "background-color: #12100B; margin: 0;";
+        return htmlResponse(html, 200);
+      } catch (error) {
+        const errorBg = "background-color: #12100B; margin: 0;";
 
-      if (error instanceof GetPublicWebProfileError && error.statusCode === 404) {
+        if (error instanceof GetPublicWebProfileError && error.statusCode === 404) {
+          return htmlResponse(
+            `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">User not found</h1></body>`,
+            404,
+          );
+        }
+
         return htmlResponse(
-          `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">User not found</h1></body>`,
-          404,
+          `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">Internal Server Error</h1></body>`,
+          500,
         );
       }
-
-      return htmlResponse(
-        `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">Internal Server Error</h1></body>`,
-        500,
-      );
-    }
-  },
-  {
-    params: t.Object({
-      username: t.String(),
-    }),
-  },
-);
+    },
+    {
+      params: t.Object({
+        username: t.String(),
+      }),
+      query: t.Object({
+        app_not_installed: t.Optional(t.String()),
+      }),
+    },
+  );
