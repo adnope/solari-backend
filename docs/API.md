@@ -123,6 +123,46 @@ POST /signin
 - [400 Bad Request] - Possible 'type' values: MISSING_IDENTIFIER, MISSING_PASSWORD.
 - [401 Unauthorized] - Possible 'type' values: INVALID_CREDENTIALS, LINKED_THIRD_PARTY_ACCOUNT.
 
+## Sign in with Google
+
+- Endpoint:
+
+```
+POST /signin/google
+```
+
+- Description: Authenticates a user with a Google ID token. If the Google account is new, the backend creates a user account, links it to the Google provider, optionally imports the Google profile image as the user's avatar, and creates a new session. If an existing user has the same email, the Google account is linked to that user.
+- Auth required: No
+
+### Request body (application/json):
+
+- id_token (string, Required): The Google ID token returned by Google Sign-In.
+- Example:
+
+```json
+{
+  "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6..."
+}
+```
+
+### Responses:
+
+- [200 OK] - Signed in with Google successfully.
+
+```json
+{
+  "message": "Signed in with Google successfully.",
+  "session_id": "018f9e...",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR...",
+  "refresh_token": "a1b2c3d4e5f6...",
+  "expires_at": "2026-04-22T11:49:14.000Z"
+}
+```
+
+- [400 Bad Request] - Possible 'type' values: INVALID_CREDENTIALS.
+- [401 Unauthorized] - Possible 'type' values: INVALID_CREDENTIALS.
+- [500 Internal Server Error] - Possible 'type' values: INTERNAL_ERROR.
+
 ## Sign out
 
 - Endpoint:

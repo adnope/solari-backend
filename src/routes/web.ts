@@ -21,39 +21,27 @@ const htmlResponse = (html: string, status = 200) =>
   });
 
 const solariLogoPath = "/assets/favicon.ico";
-const solariLogoFile = Bun.file(new URL("./assets/favicon.ico", import.meta.url));
 
-export const webRouter = new Elysia()
-  .get(solariLogoPath, () => {
-    return new Response(solariLogoFile, {
-      headers: {
-        "cache-control": "public, max-age=86400",
-        "content-type": "image/webp",
-      },
-    });
-  })
-  .get(
-    "/u/:username",
-    async ({ params, query }) => {
-      try {
-        const profile = await getPublicWebProfile(params.username);
+export const webRouter = new Elysia().get(
+  "/u/:username",
+  async ({ params }) => {
+    try {
+      const profile = await getPublicWebProfile(params.username);
 
-        const displayNameRaw = profile.displayName || profile.username;
-        const displayName = escapeHtml(displayNameRaw);
-        const username = encodeURIComponent(profile.username);
-        const initial = escapeHtml(displayNameRaw.charAt(0).toUpperCase());
-        const isAppNotInstalledFallback = query.app_not_installed === "1";
+      const displayNameRaw = profile.displayName || profile.username;
+      const displayName = escapeHtml(displayNameRaw);
+      const username = encodeURIComponent(profile.username);
+      const initial = escapeHtml(displayNameRaw.charAt(0).toUpperCase());
 
-        const imageUrl = profile.avatarUrl;
+      const imageUrl = profile.avatarUrl;
 
-        const appUrl = `https://solari.com/u/${username}`;
-        const solariLogoUrl = `https://solari.com${solariLogoPath}`;
-        const ogImageUrl = imageUrl || solariLogoUrl;
-        const androidPackage = "com.solari.app";
-        const fallbackUrl = encodeURIComponent(`${appUrl}?app_not_installed=1`);
-        const intentUrl = `intent://solari.com/u/${username}#Intent;scheme=https;package=${androidPackage};S.browser_fallback_url=${fallbackUrl};end`;
+      const appUrl = `https://solari.adnope.io.vn/u/${username}`;
+      const solariLogoUrl = `https://solari.adnope.io.vn${solariLogoPath}`;
+      const ogImageUrl = imageUrl || solariLogoUrl;
+      const androidPackage = "com.solari.app";
+      const intentUrl = `intent://solari.adnope.io.vn/u/${username}#Intent;scheme=https;package=${androidPackage};end`;
 
-        const html = `
+      const html = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -155,10 +143,56 @@ export const webRouter = new Elysia()
                 display: inline-flex;
                 align-items: center;
                 gap: 8px;
+                overflow: hidden;
+                position: relative;
+                touch-action: manipulation;
                 transition: transform 0.2s ease;
+                user-select: none;
+                -webkit-tap-highlight-color: transparent;
               }
               .btn:active {
                 transform: scale(0.96);
+              }
+              .modal-backdrop {
+                position: fixed;
+                inset: 0;
+                z-index: 10;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+                background: rgba(0, 0, 0, 0.58);
+              }
+              .modal-backdrop[hidden] {
+                display: none;
+              }
+              .modal {
+                width: min(320px, 100%);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 16px;
+                background: #1D1A15;
+                padding: 24px;
+                box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+              }
+              .modal h2 {
+                margin: 0 0 10px 0;
+                font-size: 22px;
+                font-weight: 800;
+              }
+              .modal p {
+                margin: 0 0 20px 0;
+                max-width: none;
+              }
+              .modal button {
+                width: 100%;
+                border: 0;
+                border-radius: 12px;
+                background: var(--solari-orange);
+                color: #000000;
+                font: inherit;
+                font-weight: 800;
+                padding: 12px 16px;
+                -webkit-tap-highlight-color: transparent;
               }
             </style>
         </head>
@@ -171,49 +205,77 @@ export const webRouter = new Elysia()
               }
             </div>
 
-            ${
-              isAppNotInstalledFallback
-                ? `
-                  <h1>Solari is not installed!</h1>
-                  <p>Install Solari to add ${displayName} as a friend.</p>
-                `
-                : `
-                  <h1>Add ${displayName} on Solari</h1>
-                  <p>See photos of your best friends on<br>your Home Screen</p>
+            <h1>Add ${displayName} on Solari</h1>
+            <p>See photos of your best friends on<br>your Home Screen</p>
 
-                  <a class="btn" href="${intentUrl}">
-                    Open Solari
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
-                  </a>
-                `
-            }
+            <a class="btn" id="open-solari" href="${intentUrl}">
+              Open Solari
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+            </a>
+
+            <div class="modal-backdrop" id="install-modal" hidden>
+              <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="install-modal-title">
+                <h2 id="install-modal-title">Solari is not installed</h2>
+                <p>Install Solari to add ${displayName} as a friend.</p>
+                <button type="button" id="close-install-modal">OK</button>
+              </div>
+            </div>
+
+            <script>
+              const openButton = document.getElementById("open-solari");
+              const installModal = document.getElementById("install-modal");
+              const closeInstallModalButton = document.getElementById("close-install-modal");
+              let installFallbackTimer = null;
+
+              function clearInstallFallbackTimer() {
+                if (installFallbackTimer !== null) {
+                  window.clearTimeout(installFallbackTimer);
+                  installFallbackTimer = null;
+                }
+              }
+
+              openButton?.addEventListener("click", () => {
+                clearInstallFallbackTimer();
+                installFallbackTimer = window.setTimeout(() => {
+                  installModal.hidden = false;
+                }, 1200);
+              });
+
+              closeInstallModalButton?.addEventListener("click", () => {
+                installModal.hidden = true;
+              });
+
+              window.addEventListener("pagehide", clearInstallFallbackTimer);
+              document.addEventListener("visibilitychange", () => {
+                if (document.hidden) {
+                  clearInstallFallbackTimer();
+                }
+              });
+            </script>
         </body>
         </html>
       `;
 
-        return htmlResponse(html, 200);
-      } catch (error) {
-        const errorBg = "background-color: #12100B; margin: 0;";
+      return htmlResponse(html, 200);
+    } catch (error) {
+      const errorBg = "background-color: #12100B; margin: 0;";
 
-        if (error instanceof GetPublicWebProfileError && error.statusCode === 404) {
-          return htmlResponse(
-            `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">User not found</h1></body>`,
-            404,
-          );
-        }
-
+      if (error instanceof GetPublicWebProfileError && error.statusCode === 404) {
         return htmlResponse(
-          `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">Internal Server Error</h1></body>`,
-          500,
+          `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">User not found</h1></body>`,
+          404,
         );
       }
-    },
-    {
-      params: t.Object({
-        username: t.String(),
-      }),
-      query: t.Object({
-        app_not_installed: t.Optional(t.String()),
-      }),
-    },
-  );
+
+      return htmlResponse(
+        `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">Internal Server Error</h1></body>`,
+        500,
+      );
+    }
+  },
+  {
+    params: t.Object({
+      username: t.String(),
+    }),
+  },
+);
