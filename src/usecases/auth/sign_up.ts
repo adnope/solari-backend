@@ -1,5 +1,6 @@
 import { withTx } from "../../db/client.ts";
 import { userPasswords, users } from "../../db/schema.ts";
+import { getFileUrl } from "../../storage/s3.ts";
 import { AuthError } from "./error_type.ts";
 import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
 
@@ -8,7 +9,7 @@ export type PublicUser = {
   username: string;
   email: string;
   displayName: string | null;
-  avatarKey: string | null;
+  avatarUrl: string | null;
   createdAt: string;
 };
 
@@ -106,12 +107,14 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
         passwordHash,
       });
 
+      const avatarUrl = user.avatarKey ? await getFileUrl(user.avatarKey) : null;
+
       return {
         id: user.id,
         username: user.username,
         email: user.email,
         displayName: user.displayName,
-        avatarKey: user.avatarKey,
+        avatarUrl,
         createdAt: user.createdAt,
       };
     });

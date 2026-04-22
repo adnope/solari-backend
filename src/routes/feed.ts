@@ -30,7 +30,7 @@ const protectedFeedRouter = new Elysia().use(requireAuth).get(
           id: post.author.id,
           username: post.author.username,
           display_name: post.author.displayName,
-          avatar_key: post.author.avatarKey,
+          avatar_url: post.author.avatarUrl,
         },
         media: {
           url: post.media.url,

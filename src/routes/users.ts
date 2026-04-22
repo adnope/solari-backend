@@ -119,7 +119,12 @@ const protectedUsersRouter = new Elysia()
 
       set.status = 200;
       return {
-        profile,
+        profile: {
+          id: profile.id,
+          username: profile.username,
+          display_name: profile.displayName,
+          avatar_url: profile.avatarUrl,
+        },
       };
     },
     {
@@ -205,7 +210,7 @@ const protectedUsersRouter = new Elysia()
           id: blockedUser.id,
           username: blockedUser.username,
           display_name: blockedUser.displayName,
-          avatar_key: blockedUser.avatarKey,
+          avatar_url: blockedUser.avatarUrl,
           blocked_at: blockedUser.blockedAt,
         })),
         next_cursor: result.nextCursor,

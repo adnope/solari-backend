@@ -66,7 +66,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
   let newAvatarKey: string | undefined;
 
   try {
-    const { finalUser: updatedProfile, finalAvatarKey, hasVisualChanges } = await withTx(async (tx) => {
+    const { finalUser: updatedProfile, hasVisualChanges } = await withTx(async (tx) => {
       const [currentUser] = await tx
         .select({
           avatarKey: users.avatarKey,

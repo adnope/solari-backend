@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers } from "../../db/schema.ts";
+import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getUserSummariesByIds } from "../common_queries.ts";
 
 export type ViewBlockedUsersErrorType =
@@ -27,7 +28,7 @@ export type BlockedUser = {
   id: string;
   username: string;
   displayName: string | null;
-  avatarKey: string | null;
+  avatarUrl: string | null;
   blockedAt: string;
 };
 
@@ -109,6 +110,7 @@ export async function viewBlockedUsers(
     const uniqueBlockedIds = [...new Set(blockedIds)];
 
     const userMap = await getUserSummariesByIds(uniqueBlockedIds);
+    const avatarUrlMap = await getAvatarUrlMapByUserId(userMap.values());
 
     const items: BlockedUser[] = blockedRows.map((row) => {
       const blockedUser = userMap.get(row.blockedId);
@@ -118,7 +120,10 @@ export async function viewBlockedUsers(
       }
 
       return {
-        ...blockedUser,
+        id: blockedUser.id,
+        username: blockedUser.username,
+        displayName: blockedUser.displayName,
+        avatarUrl: avatarUrlMap.get(blockedUser.id) ?? null,
         blockedAt: row.createdAt,
       };
     });

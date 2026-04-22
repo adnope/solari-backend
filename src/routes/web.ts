@@ -1,5 +1,8 @@
 import { Elysia, t } from "elysia";
-import { getPublicProfile, GetPublicProfileError } from "../usecases/users/get_public_profile.ts";
+import {
+  getPublicWebProfile,
+  GetPublicWebProfileError,
+} from "../usecases/users/get_public_web_profile.ts";
 
 const escapeHtml = (value: string) =>
   value
@@ -21,7 +24,7 @@ export const webRouter = new Elysia().get(
   "/u/:username",
   async ({ params }) => {
     try {
-      const profile = await getPublicProfile(params.username);
+      const profile = await getPublicWebProfile(params.username);
 
       const displayNameRaw = profile.displayName || profile.username;
       const displayName = escapeHtml(displayNameRaw);
@@ -32,7 +35,7 @@ export const webRouter = new Elysia().get(
       const ogImageUrl = imageUrl || "https://cloudreve.adnope.io.vn/f/Z7I7/solari-icon.png";
 
       const appUrl = `https://solari.com/u/${username}`;
-      const androidPackage = "com.adnope.solari";
+      const androidPackage = "com.solari.app";
       const intentUrl = `intent://solari.com/u/${username}#Intent;scheme=https;package=${androidPackage};end`;
 
       const html = `
@@ -158,7 +161,7 @@ export const webRouter = new Elysia().get(
     } catch (error) {
       const errorBg = "background-color: #12100B; margin: 0;";
 
-      if (error instanceof GetPublicProfileError && error.statusCode === 404) {
+      if (error instanceof GetPublicWebProfileError && error.statusCode === 404) {
         return htmlResponse(
           `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">User not found</h1></body>`,
           404,

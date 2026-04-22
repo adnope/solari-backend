@@ -73,7 +73,7 @@ POST /signup
     "username": "johndoe",
     "email": "john@example.com",
     "display_name": null,
-    "avatar_key": null,
+    "avatar_url": null,
     "created_at": "2026-04-08T11:49:14.000Z"
   }
 }
@@ -594,7 +594,7 @@ GET /conversations?limit=20&cursor=2026-04-08T12:45:10.000Z
         "id": "987f6543-e21b-34c4-b567-513314175000",
         "username": "janesmith",
         "display_name": "Jane (Work)",
-        "avatar_key": "avatars/018fa1..."
+        "avatar_url": "https://s3.amazonaws.com/bucket/avatars/018fa1..."
       },
       "last_message": {
         "id": "018fa2...",
@@ -655,7 +655,7 @@ GET /conversations/123e4567-e89b-12d3-a456-426614174000
       "id": "987f6543-e21b-34c4-b567-513314175000",
       "username": "janesmith",
       "display_name": "Jane (Work)",
-      "avatar_key": "avatars/018fa1..."
+      "avatar_url": "https://s3.amazonaws.com/bucket/avatars/018fa1..."
     },
     "last_message": {
       "id": "018fa2...",
@@ -912,7 +912,7 @@ GET /feed
         "id": "123e4567-e89b-12d3-a456-426614174000",
         "username": "johndoe",
         "display_name": "Johnny (Bestie)",
-        "avatar_key": "avatars/018fa1..."
+        "avatar_url": "https://s3.amazonaws.com/bucket/avatars/018fa1..."
       },
       "media": {
         "url": "https://s3.amazonaws.com/bucket/media_xyz...",
@@ -1015,14 +1015,14 @@ GET /friend-requests
         "username": "janesmith",
         "email": "jane@example.com",
         "display_name": "Jane Smith",
-        "avatar_key": "avatars/018fa1..."
+        "avatar_url": "https://s3.amazonaws.com/bucket/avatars/018fa1..."
       },
       "receiver": {
         "id": "987f6543-e21b-34c4-b567-513314175000",
         "username": "johndoe",
         "email": "john@example.com",
         "display_name": "John Doe",
-        "avatar_key": null
+        "avatar_url": null
       }
     }
   ],
@@ -1185,7 +1185,7 @@ GET /friends?limit=20&sort=newest
       "id": "987f6543-e21b-34c4-b567-513314175000",
       "username": "johndoe",
       "display_name": "Johnny",
-      "avatar_key": "avatars/018fa1...",
+      "avatar_url": "https://s3.amazonaws.com/bucket/avatars/018fa1...",
       "created_at": "2026-04-08T12:51:43.000Z"
     }
   ],
@@ -1719,7 +1719,7 @@ GET /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/reactions?limit=20&cursor=2026-0
         "id": "123e4567-e89b-12d3-a456-426614174000",
         "username": "johndoe",
         "display_name": "Dôn",
-        "avatar_key": "avatars/018fa1..."
+        "avatar_url": "https://s3.amazonaws.com/bucket/avatars/018fa1..."
       }
     }
   ],
@@ -1806,7 +1806,7 @@ GET /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a/viewers?limit=20&cursor=2026-04-
       "id": "123e4567-e89b-12d3-a456-426614174000",
       "username": "janesmith",
       "display_name": "Jane Smith",
-      "avatar_key": "avatars/018fa1...",
+      "avatar_url": "https://s3.amazonaws.com/bucket/avatars/018fa1...",
       "viewed_at": "2026-04-08T12:45:10.000Z"
     }
   ],
@@ -1957,7 +1957,7 @@ POST /users/me/devices
 GET /users/public/:username
 ```
 
-- Description: Retrieves the public profile of a user by their username. The response includes the user's ID, username, and a resolved URL for their avatar. If the authenticated user has assigned a custom nickname to the target user, that nickname will be returned as the `displayName`. To protect user privacy, a 404 error is returned if the target user has blocked the requester or if the account does not exist.
+- Description: Retrieves the public profile of a user by their username. The response includes the user's ID, username, and a resolved URL for their avatar. If the authenticated user has assigned a custom nickname to the target user, that nickname will be returned as the `display_name`. To protect user privacy, a 404 error is returned if the target user has blocked the requester or if the account does not exist.
 - Auth required: Yes
 
 ### Request parameters:
@@ -1982,8 +1982,8 @@ GET /users/public/janesmith
   "profile": {
     "id": "123e4567-e89b-12d3-a456-426614174000",
     "username": "janesmith",
-    "displayName": "Jane (Bestie)",
-    "avatarUrl": "https://s3.amazonaws.com/bucket/avatars/123e4567...jpeg"
+    "display_name": "Jane (Bestie)",
+    "avatar_url": "https://s3.amazonaws.com/bucket/avatars/123e4567...jpeg"
   }
 }
 ```
@@ -2145,7 +2145,7 @@ GET /users/me/blocked?limit=20&sort=newest
       "id": "987f6543-e21b-34c4-b567-513314175000",
       "username": "johndoe",
       "display_name": "John Doe",
-      "avatar_key": "avatars/018fa1...",
+      "avatar_url": "https://s3.amazonaws.com/bucket/avatars/018fa1...",
       "blocked_at": "2026-04-08T12:51:43.000Z"
     }
   ],

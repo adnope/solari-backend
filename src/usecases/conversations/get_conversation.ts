@@ -8,6 +8,7 @@ import {
   messages,
   mutedConversations,
 } from "../../db/schema.ts";
+import { getFileUrl } from "../../storage/s3.ts";
 import { getNickname, getUserSummaryById } from "../common_queries.ts";
 import type { ConversationItem, ConversationPartner } from "./get_conversations.ts";
 
@@ -138,18 +139,21 @@ export async function getConversation(
       throw new GetConversationError("INTERNAL_ERROR", "Partner not found.", 500);
     }
 
+    const avatarUrl =
+      !blockedByPartner && partner.avatarKey ? await getFileUrl(partner.avatarKey) : null;
+
     const finalPartner: ConversationPartner = blockedByPartner
       ? {
           id: partner.id,
           username: "Someone",
           displayName: null,
-          avatarKey: null,
+          avatarUrl: null,
         }
       : {
           id: partner.id,
           username: partner.username,
           displayName: nickname ?? partner.displayName,
-          avatarKey: partner.avatarKey,
+          avatarUrl,
         };
 
     const isViewerLow = conversation.userLow === normalizedUserId;

@@ -2,13 +2,14 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, postViews, posts } from "../../db/schema.ts";
+import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type PostViewerUser = {
   id: string;
   username: string;
   displayName: string;
-  avatarKey: string | null;
+  avatarUrl: string | null;
   viewedAt: string;
 };
 
@@ -121,6 +122,7 @@ export async function getPostViewers(
       getUserSummariesByIds(viewerIds),
       getNicknameMap(normalizedAuthorId, viewerIds),
     ]);
+    const avatarUrlMap = await getAvatarUrlMapByUserId(userMap.values());
 
     const items: PostViewerUser[] = rows.map((row) => {
       const user = userMap.get(row.userId);
@@ -133,7 +135,7 @@ export async function getPostViewers(
         id: user.id,
         username: user.username,
         displayName: nicknames.get(row.userId) ?? user.displayName ?? user.username,
-        avatarKey: user.avatarKey,
+        avatarUrl: avatarUrlMap.get(user.id) ?? null,
         viewedAt: row.viewedAt,
       };
     });

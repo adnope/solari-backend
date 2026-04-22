@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, asc, desc, eq, gt, lt, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { friendships } from "../../db/schema.ts";
+import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type ViewFriendsErrorType =
@@ -28,7 +29,7 @@ export type Friend = {
   id: string;
   username: string;
   displayName: string | null;
-  avatarKey: string | null;
+  avatarUrl: string | null;
   createdAt: string;
 };
 
@@ -114,6 +115,7 @@ export async function viewFriends(
       getUserSummariesByIds(uniqueFriendIds),
       getNicknameMap(normalizedUserId, uniqueFriendIds),
     ]);
+    const avatarUrlMap = await getAvatarUrlMapByUserId(userMap.values());
 
     const items: Friend[] = friendshipRows.map((row) => {
       const friendId = row.userLow === normalizedUserId ? row.userHigh : row.userLow;
@@ -124,8 +126,10 @@ export async function viewFriends(
       }
 
       return {
-        ...friend,
+        id: friend.id,
+        username: friend.username,
         displayName: nicknames.get(friendId) ?? friend.displayName,
+        avatarUrl: avatarUrlMap.get(friend.id) ?? null,
         createdAt: row.createdAt,
       };
     });

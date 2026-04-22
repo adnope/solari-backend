@@ -214,7 +214,7 @@ const protectedConversationsRouter = new Elysia()
             id: conv.partner.id,
             username: conv.partner.username,
             display_name: conv.partner.displayName,
-            avatar_key: conv.partner.avatarKey,
+            avatar_url: conv.partner.avatarUrl,
           },
           last_message: conv.lastMessage
             ? {
@@ -259,7 +259,7 @@ const protectedConversationsRouter = new Elysia()
             id: conv.partner.id,
             username: conv.partner.username,
             display_name: conv.partner.displayName,
-            avatar_key: conv.partner.avatarKey,
+            avatar_url: conv.partner.avatarUrl,
           },
           last_message: conv.lastMessage
             ? {

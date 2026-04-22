@@ -8,13 +8,14 @@ import {
   messages,
   mutedConversations,
 } from "../../db/schema.ts";
+import { getFileUrl } from "../../storage/s3.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type ConversationPartner = {
   id: string;
   username: string;
   displayName: string | null;
-  avatarKey: string | null;
+  avatarUrl: string | null;
 };
 
 export type ConversationLastMessage = {
@@ -175,6 +176,21 @@ export async function getConversations(
     );
     const blockedByPartnerSet = new Set(blockedByRows.map((b) => b.blockerId));
     const mutedConversationSet = new Set(mutedRows.map((row) => row.conversationId));
+    const avatarUrlMap = new Map<string, string>();
+    const avatarKeys = [
+      ...new Set(
+        partnerIds
+          .filter((partnerId) => !blockedByPartnerSet.has(partnerId))
+          .map((partnerId) => partnerMap.get(partnerId)?.avatarKey)
+          .filter((avatarKey): avatarKey is string => Boolean(avatarKey)),
+      ),
+    ];
+
+    await Promise.all(
+      avatarKeys.map(async (avatarKey) => {
+        avatarUrlMap.set(avatarKey, await getFileUrl(avatarKey));
+      }),
+    );
 
     const lastMessageRows = await db
       .selectDistinctOn([messages.conversationId], {
@@ -210,11 +226,13 @@ export async function getConversations(
             id: partner.id,
             username: "Someone",
             displayName: null,
-            avatarKey: null,
+            avatarUrl: null,
           }
         : {
-            ...partner,
+            id: partner.id,
+            username: partner.username,
             displayName: nickname ?? partner.displayName,
+            avatarUrl: partner.avatarKey ? (avatarUrlMap.get(partner.avatarKey) ?? null) : null,
           };
 
       return {

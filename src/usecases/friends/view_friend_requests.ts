@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, asc, desc, eq, gt, inArray, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, friendRequests, users } from "../../db/schema.ts";
+import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getUserSummariesByIds } from "../common_queries.ts";
 
 export type FriendRequestUser = {
@@ -9,7 +10,7 @@ export type FriendRequestUser = {
   username: string;
   email: string;
   displayName: string | null;
-  avatarKey: string | null;
+  avatarUrl: string | null;
 };
 
 export type FriendRequestDirection = "incoming" | "outgoing" | "both";
@@ -186,6 +187,7 @@ export async function viewFriendRequests(
     ]);
 
     const emailMap = new Map(emailRows.map((user) => [user.id, user.email]));
+    const avatarUrlMap = await getAvatarUrlMapByUserId(userSummaryMap.values());
 
     const items: FriendRequestListItem[] = requestRows.map((row) => {
       const requester = userSummaryMap.get(row.requesterId);
@@ -202,11 +204,17 @@ export async function viewFriendRequests(
         createdAt: row.createdAt,
         direction: row.receiverId === normalizedUserId ? "incoming" : "outgoing",
         requester: {
-          ...requester,
+          id: requester.id,
+          username: requester.username,
+          displayName: requester.displayName,
+          avatarUrl: avatarUrlMap.get(requester.id) ?? null,
           email: requesterEmail,
         },
         receiver: {
-          ...receiver,
+          id: receiver.id,
+          username: receiver.username,
+          displayName: receiver.displayName,
+          avatarUrl: avatarUrlMap.get(receiver.id) ?? null,
           email: receiverEmail,
         },
       };

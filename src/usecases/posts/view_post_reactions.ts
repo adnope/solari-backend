@@ -2,13 +2,14 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, lt, notExists, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, postReactions, posts } from "../../db/schema.ts";
+import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type ReactionUser = {
   id: string;
   username: string;
   displayName: string | null;
-  avatarKey: string | null;
+  avatarUrl: string | null;
 };
 
 export type PostReaction = {
@@ -130,6 +131,7 @@ export async function viewPostReactions(
       getUserSummariesByIds(reactorIds),
       getNicknameMap(normalizedViewerId, reactorIds),
     ]);
+    const avatarUrlMap = await getAvatarUrlMapByUserId(userMap.values());
 
     const items: PostReaction[] = rows.map((row) => {
       const user = userMap.get(row.userId);
@@ -147,7 +149,7 @@ export async function viewPostReactions(
           id: user.id,
           username: user.username,
           displayName: nicknames.get(row.userId) ?? user.displayName,
-          avatarKey: user.avatarKey,
+          avatarUrl: avatarUrlMap.get(user.id) ?? null,
         },
       };
     });

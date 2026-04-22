@@ -112,7 +112,7 @@ const authRouter = withApiErrorHandler(
           username: user.username,
           email: user.email,
           display_name: user.displayName,
-          avatar_key: user.avatarKey,
+          avatar_url: user.avatarUrl,
           created_at: user.createdAt,
         },
       };

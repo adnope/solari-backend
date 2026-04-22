@@ -3,13 +3,14 @@ import { and, desc, eq, inArray, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, postMedia, postVisibility, posts, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
+import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 
 export type FeedAuthor = {
   id: string;
   username: string;
   displayName: string | null;
-  avatarKey: string | null;
+  avatarUrl: string | null;
 };
 
 export type FeedMedia = {
@@ -169,6 +170,7 @@ export async function getFeed(
       getUserSummariesByIds(authorIdsFromResult),
       getNicknameMap(normalizedViewerId, authorIdsFromResult),
     ]);
+    const avatarUrlMap = await getAvatarUrlMapByUserId(authorMap.values());
 
     const items: FeedPost[] = await Promise.all(
       rows.map(async (row) => {
@@ -191,7 +193,7 @@ export async function getFeed(
             id: author.id,
             username: author.username,
             displayName: nicknames.get(row.authorId) ?? author.displayName,
-            avatarKey: author.avatarKey,
+            avatarUrl: avatarUrlMap.get(author.id) ?? null,
           },
           media: {
             url,
