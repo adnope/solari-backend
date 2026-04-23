@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { withTx } from "../../db/client.ts";
-import { sessions, userOauthAccounts, users } from "../../db/schema.ts";
+import { sessions, userOauthAccounts, userPasswords, users } from "../../db/schema.ts";
 import { createAccessToken } from "../../utils/jwt.ts";
 import { uploadFile } from "../../storage/s3.ts";
 import { AuthError } from "./error_type.ts";
@@ -90,12 +90,24 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
         targetUserId = existingOauth.userId;
       } else {
         const [existingUser] = await tx
-          .select({ id: users.id })
+          .select({
+            id: users.id,
+            passwordUserId: userPasswords.userId,
+          })
           .from(users)
+          .leftJoin(userPasswords, eq(userPasswords.userId, users.id))
           .where(eq(users.email, payload.email.toLowerCase()))
           .limit(1);
 
         if (existingUser) {
+          if (existingUser.passwordUserId) {
+            throw new AuthError(
+              "EMAIL_TAKEN",
+              "Email is already tied to a password-created account. Please sign in with your password.",
+              409,
+            );
+          }
+
           targetUserId = existingUser.id;
           await tx.insert(userOauthAccounts).values({
             id: Bun.randomUUIDv7(),

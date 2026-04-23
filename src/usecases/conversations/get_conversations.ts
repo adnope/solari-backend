@@ -97,6 +97,8 @@ export async function getConversations(
         userHigh: conversations.userHigh,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
+        userLowClearedAt: conversations.userLowClearedAt,
+        userHighClearedAt: conversations.userHighClearedAt,
         userLowLastReadAt: conversations.userLowLastReadAt,
         userHighLastReadAt: conversations.userHighLastReadAt,
       })
@@ -218,6 +220,12 @@ export async function getConversations(
       const isViewerLow = row.userLow === normalizedUserId;
       const isFriend = activeFriendsSet.has(partnerId);
       const isBlockedByPartner = blockedByPartnerSet.has(partnerId);
+      const lastMessage = lastMessageMap.get(row.id) ?? null;
+      const currentUserClearedAt = isViewerLow ? row.userLowClearedAt : row.userHighClearedAt;
+      const visibleLastMessage =
+        lastMessage && currentUserClearedAt && currentUserClearedAt > lastMessage.createdAt
+          ? null
+          : lastMessage;
 
       const nickname = nicknamesMap.get(partnerId);
 
@@ -242,7 +250,7 @@ export async function getConversations(
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         partner: finalPartner,
-        lastMessage: lastMessageMap.get(row.id) ?? null,
+        lastMessage: visibleLastMessage,
         currentUserLastReadAt: isViewerLow ? row.userLowLastReadAt : row.userHighLastReadAt,
         partnerLastReadAt: isViewerLow ? row.userHighLastReadAt : row.userLowLastReadAt,
         isReadOnly: !isFriend,

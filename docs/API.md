@@ -132,7 +132,7 @@ POST /signin
 POST /signin/google
 ```
 
-- Description: Authenticates a user with a Google ID token. If the Google account is new, the backend creates a user account, links it to the Google provider, optionally imports the Google profile image as the user's avatar, and creates a new session. If an existing user has the same email, the Google account is linked to that user.
+- Description: Authenticates a user with a Google ID token. If the Google account is new, the backend creates a user account, links it to the Google provider, optionally imports the Google profile image as the user's avatar, and creates a new session. If an existing password-created account already uses the same email, the request is rejected instead of linking the Google account.
 - Auth required: No
 
 ### Request body (application/json):
@@ -163,6 +163,7 @@ POST /signin/google
 
 - [400 Bad Request] - Possible 'type' values: INVALID_CREDENTIALS.
 - [401 Unauthorized] - Possible 'type' values: INVALID_CREDENTIALS.
+- [409 Conflict] - Possible 'type' values: EMAIL_TAKEN.
 - [500 Internal Server Error] - Possible 'type' values: INTERNAL_ERROR.
 
 ## Sign out

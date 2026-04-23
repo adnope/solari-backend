@@ -56,6 +56,8 @@ export async function getConversation(
         userHigh: conversations.userHigh,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
+        userLowClearedAt: conversations.userLowClearedAt,
+        userHighClearedAt: conversations.userHighClearedAt,
         userLowLastReadAt: conversations.userLowLastReadAt,
         userHighLastReadAt: conversations.userHighLastReadAt,
       })
@@ -157,6 +159,13 @@ export async function getConversation(
         };
 
     const isViewerLow = conversation.userLow === normalizedUserId;
+    const currentUserClearedAt = isViewerLow
+      ? conversation.userLowClearedAt
+      : conversation.userHighClearedAt;
+    const visibleLastMessage =
+      lastMessage && currentUserClearedAt && currentUserClearedAt > lastMessage.createdAt
+        ? null
+        : lastMessage;
 
     return {
       id: conversation.id,
@@ -165,7 +174,7 @@ export async function getConversation(
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
       partner: finalPartner,
-      lastMessage,
+      lastMessage: visibleLastMessage,
       currentUserLastReadAt: isViewerLow
         ? conversation.userLowLastReadAt
         : conversation.userHighLastReadAt,
