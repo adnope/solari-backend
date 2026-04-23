@@ -18,7 +18,27 @@ export type SigninResult = {
   signInMethod: SigninMethod;
 };
 
-const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+function requirePositiveIntegerMs(name: string): number {
+  const rawValue = process.env[name]?.trim();
+
+  if (!rawValue) {
+    throw new Error(`FATAL: Missing ${name} in environment variables.`);
+  }
+
+  if (!/^\d+$/.test(rawValue)) {
+    throw new Error(`FATAL: ${name} must be a positive integer number of milliseconds.`);
+  }
+
+  const value = Number(rawValue);
+
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`FATAL: ${name} must be a positive safe integer number of milliseconds.`);
+  }
+
+  return value;
+}
+
+export const REFRESH_TOKEN_TTL_MS = requirePositiveIntegerMs("REFRESH_TOKEN_TTL_MS");
 
 function normalizeIdentifier(identifier: string): string {
   const value = identifier.trim();

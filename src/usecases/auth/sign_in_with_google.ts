@@ -6,8 +6,7 @@ import { createAccessToken } from "../../utils/jwt.ts";
 import { uploadFile } from "../../storage/s3.ts";
 import { AuthError } from "./error_type.ts";
 import type { SigninResult } from "./sign_in.ts";
-
-const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+import { REFRESH_TOKEN_TTL_MS } from "./sign_in.ts";
 
 type GoogleTokenPayload = {
   sub: string;

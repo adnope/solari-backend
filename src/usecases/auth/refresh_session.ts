@@ -5,8 +5,7 @@ import { createAccessToken } from "../../utils/jwt.ts";
 import { AuthError } from "./error_type.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { deleteCachedAuthSession } from "../../cache/auth_session_cache.ts";
-
-const REFRESH_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+import { REFRESH_TOKEN_TTL_MS } from "./sign_in.ts";
 
 function generateSecureToken(byteLength = 32): string {
   return randomBytes(byteLength).toString("hex");

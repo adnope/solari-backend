@@ -85,10 +85,11 @@ The current Compose file maps `127.0.0.1:${API_HOST_PORT:-5050}` to container po
 
 ### Authentication
 
-| Variable                  | Description                                                   | Example/default |
-| :------------------------ | :------------------------------------------------------------ | :-------------- |
-| `JWT_SECRET`              | Secret used to sign access tokens. Use a strong random value. | Required        |
-| `ACCESS_TOKEN_EXPIRES_IN` | Access token lifetime, such as `15m`, `30m`, `1h`, or `7d`.   | `30m`           |
+| Variable                  | Description                                                   | Example/default        |
+| :------------------------ | :------------------------------------------------------------ | :--------------------- |
+| `JWT_SECRET`              | Secret used to sign access tokens. Use a strong random value. | Required               |
+| `ACCESS_TOKEN_EXPIRES_IN` | Access token lifetime, such as `15m`, `30m`, `1h`, or `7d`.   | `30m`                  |
+| `REFRESH_TOKEN_TTL_MS`    | Refresh token/session lifetime in milliseconds.               | `1209600000` (14 days) |
 
 ### Firebase Cloud Messaging
 

@@ -33,6 +33,300 @@
 - [410 Gone] - Resource no longer exists
 - [500 Internal Server Error] - Unexpected server error occurred (all errors have this)
 
+# WebSocket API
+
+## Connect
+
+- Endpoint:
+
+```text
+GET /ws
+```
+
+- Auth required: Yes
+
+- Auth mechanism: The WebSocket upgrade request must include the same JWT access token used by authenticated REST endpoints.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+If the token is missing, malformed, or expired, the server sends an error frame and closes the socket:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+## Message format
+
+The server uses JSON for Websockets events:
+
+```json
+{
+  "type": "EVENT_TYPE",
+  "payload": {}
+}
+```
+
+Client events use this format:
+
+```json
+{
+  "action": "ACTION_NAME",
+  "payload": {}
+}
+```
+
+## Server event catalog
+
+### NEW_MESSAGE
+
+Published to both conversation participants when a message is sent.
+
+```json
+{
+  "type": "NEW_MESSAGE",
+  "payload": {
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "message": {
+      "id": "018fa2...",
+      "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+      "senderId": "987f6543-e21b-34c4-b567-513314175000",
+      "content": "Hi",
+      "referencedPostId": null,
+      "repliedMessageId": null,
+      "createdAt": "2026-04-08T12:45:10.000Z"
+    }
+  }
+}
+```
+
+### MESSAGE_UNSENT
+
+Published to both conversation participants when a message is soft-deleted.
+
+```json
+{
+  "type": "MESSAGE_UNSENT",
+  "payload": {
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "messageId": "018fa2...",
+    "isDeleted": true
+  }
+}
+```
+
+### NEW_REACTION
+
+Published to both conversation participants when a reaction is added.
+
+```json
+{
+  "type": "NEW_REACTION",
+  "payload": {
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "reaction": {
+      "id": "018fb1...",
+      "messageId": "018fa2...",
+      "userId": "987f6543-e21b-34c4-b567-513314175000",
+      "emoji": "\uD83D\uDC4D",
+      "createdAt": "2026-04-08T12:46:10.000Z"
+    }
+  }
+}
+```
+
+### REACTION_UPDATED
+
+Published to both conversation participants when an existing reaction changes.
+
+```json
+{
+  "type": "REACTION_UPDATED",
+  "payload": {
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "reaction": {
+      "id": "018fb1...",
+      "messageId": "018fa2...",
+      "userId": "987f6543-e21b-34c4-b567-513314175000",
+      "emoji": "\uD83D\uDC80",
+      "createdAt": "2026-04-08T12:46:10.000Z"
+    }
+  }
+}
+```
+
+### REACTION_REMOVED
+
+Published to both conversation participants when a reaction is removed.
+
+```json
+{
+  "type": "REACTION_REMOVED",
+  "payload": {
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "messageId": "018fa2...",
+    "userId": "987f6543-e21b-34c4-b567-513314175000"
+  }
+}
+```
+
+### TYPING_INDICATOR
+
+Published to the receiver when the other participant sends `SEND_TYPING_STATE`.
+
+```json
+{
+  "type": "TYPING_INDICATOR",
+  "payload": {
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "senderId": "987f6543-e21b-34c4-b567-513314175000",
+    "isTyping": true
+  }
+}
+```
+
+### CONVERSATION_READ
+
+Published to both conversation participants when a user's read marker advances.
+
+```json
+{
+  "type": "CONVERSATION_READ",
+  "payload": {
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "userId": "987f6543-e21b-34c4-b567-513314175000",
+    "lastReadAt": "2026-04-08T12:45:10.000Z"
+  }
+}
+```
+
+### NEW_FRIEND_REQUEST
+
+Published to the receiver when a friend request is created.
+
+```json
+{
+  "type": "NEW_FRIEND_REQUEST",
+  "payload": {
+    "id": "018fc1...",
+    "requesterId": "123e4567-e89b-12d3-a456-426614174000",
+    "receiverId": "987f6543-e21b-34c4-b567-513314175000",
+    "createdAt": "2026-04-08T12:51:43.000Z"
+  }
+}
+```
+
+### FRIEND_REQUEST_ACCEPTED
+
+Published to both users when a friend request is accepted.
+
+```json
+{
+  "type": "FRIEND_REQUEST_ACCEPTED",
+  "payload": {
+    "id": "018fc1...",
+    "requesterId": "123e4567-e89b-12d3-a456-426614174000",
+    "receiverId": "987f6543-e21b-34c4-b567-513314175000",
+    "createdAt": "2026-04-08T12:51:43.000Z"
+  }
+}
+```
+
+### FRIEND_REQUEST_REMOVED
+
+Published to both users when a friend request is canceled or rejected.
+
+```json
+{
+  "type": "FRIEND_REQUEST_REMOVED",
+  "payload": {
+    "requestId": "018fc1...",
+    "requesterId": "123e4567-e89b-12d3-a456-426614174000",
+    "receiverId": "987f6543-e21b-34c4-b567-513314175000"
+  }
+}
+```
+
+### FRIENDSHIP_STATUS_CHANGED
+
+Published to affected users when friendship state changes because of unfriend or block operations.
+
+```json
+{
+  "type": "FRIENDSHIP_STATUS_CHANGED",
+  "payload": {
+    "partnerId": "987f6543-e21b-34c4-b567-513314175000",
+    "isFriend": false
+  }
+}
+```
+
+### FRIEND_PROFILE_UPDATED
+
+Published to the user and their friends when username, display name, or avatar changes.
+
+```json
+{
+  "type": "FRIEND_PROFILE_UPDATED",
+  "payload": {
+    "userId": "987f6543-e21b-34c4-b567-513314175000",
+    "username": "janesmith",
+    "displayName": "Jane Smith",
+    "avatarUrl": "https://s3.amazonaws.com/bucket/avatars/018fa1..."
+  }
+}
+```
+
+### POST_PROCESSED
+
+Published to the post author when asynchronous post media processing completes.
+
+```json
+{
+  "type": "POST_PROCESSED",
+  "payload": {
+    "postId": "018fd1...",
+    "status": "completed"
+  }
+}
+```
+
+### POST_FAILED
+
+Published to the post author when asynchronous post media processing fails.
+
+```json
+{
+  "type": "POST_FAILED",
+  "payload": {
+    "postId": "018fd1...",
+    "error": "Failed to process media."
+  }
+}
+```
+
+## Client event catalog
+
+Currently, clients can send one event type: `SEND_TYPING_STATE`.
+
+```json
+{
+  "action": "SEND_TYPING_STATE",
+  "payload": {
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "receiverId": "987f6543-e21b-34c4-b567-513314175000",
+    "isTyping": true
+  }
+}
+```
+
+- conversationId (string, Required): The UUID of the conversation where typing is happening.
+- receiverId (string, Required): The UUID of the other conversation participant.
+- isTyping (boolean, Required): `true` when the user starts typing, `false` when the user stops typing.
+
 # Auth Endpoints:
 
 ## Sign up
