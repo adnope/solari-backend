@@ -1,6 +1,7 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
+import { deleteCachedPostDetail } from "../../cache/post_detail_cache.ts";
 import { postMedia, posts } from "../../db/schema.ts";
 import { deleteFile } from "../../storage/s3.ts";
 
@@ -67,6 +68,8 @@ export async function deletePost(authorId: string, postId: string): Promise<void
 
       await tx.delete(posts).where(eq(posts.id, normalizedPostId));
     });
+
+    await deleteCachedPostDetail(normalizedPostId);
 
     if (keysToDelete.length > 0) {
       void Promise.allSettled(

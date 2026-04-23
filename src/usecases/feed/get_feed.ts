@@ -1,10 +1,11 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, inArray, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { blockedUsers, postMedia, postVisibility, posts, users } from "../../db/schema.ts";
+import { blockedUsers, postVisibility, posts } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
+import { getPostDetailsByIds } from "../post_details.ts";
 
 export type FeedAuthor = {
   id: string;
@@ -102,31 +103,18 @@ export async function getFeed(
 
   try {
     if (normalizedAuthorIds) {
-      const existingAuthors = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(inArray(users.id, normalizedAuthorIds));
+      const existingAuthors = await getUserSummariesByIds(normalizedAuthorIds);
 
-      if (existingAuthors.length !== normalizedAuthorIds.length) {
+      if (existingAuthors.size !== normalizedAuthorIds.length) {
         throw new GetFeedError("INVALID_AUTHORS", "One or more author IDs do not exist.", 404);
       }
     }
 
-    const rows = await db
+    const candidateRows = await db
       .select({
         id: posts.id,
-        createdAt: posts.createdAt,
-        caption: posts.caption,
-        authorId: posts.authorId,
-        mediaType: postMedia.mediaType,
-        objectKey: postMedia.objectKey,
-        thumbnailKey: postMedia.thumbnailKey,
-        width: postMedia.width,
-        height: postMedia.height,
-        durationMs: postMedia.durationMs,
       })
       .from(posts)
-      .innerJoin(postMedia, eq(postMedia.postId, posts.id))
       .where(
         and(
           or(
@@ -164,7 +152,20 @@ export async function getFeed(
       .orderBy(desc(posts.createdAt))
       .limit(normalizedLimit);
 
-    const authorIdsFromResult = rows.map((row) => row.authorId);
+    const postIds = candidateRows.map((row) => row.id);
+    const postDetailMap = await getPostDetailsByIds(postIds);
+    const orderedPostDetails = postIds.flatMap((postId) => {
+      const detail = postDetailMap.get(postId);
+      return detail ? [detail] : [];
+    });
+
+    if (orderedPostDetails.length !== postIds.length) {
+      console.warn(
+        `[WARN] Missing post details while building feed for viewer '${normalizedViewerId}'.`,
+      );
+    }
+
+    const authorIdsFromResult = orderedPostDetails.map((detail) => detail.authorId);
 
     const [authorMap, nicknames] = await Promise.all([
       getUserSummariesByIds(authorIdsFromResult),
@@ -173,35 +174,37 @@ export async function getFeed(
     const avatarUrlMap = await getAvatarUrlMapByUserId(authorMap.values());
 
     const items: FeedPost[] = await Promise.all(
-      rows.map(async (row) => {
-        const author = authorMap.get(row.authorId);
+      orderedPostDetails.map(async (detail) => {
+        const author = authorMap.get(detail.authorId);
 
         if (!author) {
           throw new GetFeedError("INTERNAL_ERROR", "Internal server error fetching feed.", 500);
         }
 
         const [url, thumbnailUrl] = await Promise.all([
-          getFileUrl(row.objectKey),
-          row.thumbnailKey ? getFileUrl(row.thumbnailKey) : Promise.resolve<string | null>(null),
+          getFileUrl(detail.objectKey),
+          detail.thumbnailKey
+            ? getFileUrl(detail.thumbnailKey)
+            : Promise.resolve<string | null>(null),
         ]);
 
         return {
-          id: row.id,
-          caption: row.caption,
-          createdAt: row.createdAt,
+          id: detail.id,
+          caption: detail.caption,
+          createdAt: detail.createdAt,
           author: {
             id: author.id,
             username: author.username,
-            displayName: nicknames.get(row.authorId) ?? author.displayName,
+            displayName: nicknames.get(detail.authorId) ?? author.displayName,
             avatarUrl: avatarUrlMap.get(author.id) ?? null,
           },
           media: {
             url,
             thumbnailUrl: thumbnailUrl ?? url,
-            mediaType: row.mediaType,
-            width: row.width,
-            height: row.height,
-            durationMs: row.durationMs,
+            mediaType: detail.mediaType,
+            width: detail.width,
+            height: detail.height,
+            durationMs: detail.durationMs,
           },
         };
       }),

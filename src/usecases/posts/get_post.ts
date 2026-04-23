@@ -1,9 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { postMedia, postVisibility, posts } from "../../db/schema.ts";
+import { postVisibility } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { isValidUuid } from "../../utils/uuid.ts";
 import { getNickname, getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
+import { getPostDetailById } from "../post_details.ts";
 
 export type GetPostAuthor = {
   id: string;
@@ -61,24 +62,7 @@ export async function getPost(viewerId: string, postId: string): Promise<GetPost
   }
 
   try {
-    const [post] = await db
-      .select({
-        id: posts.id,
-        authorId: posts.authorId,
-        caption: posts.caption,
-        audienceType: posts.audienceType,
-        createdAt: posts.createdAt,
-        mediaType: postMedia.mediaType,
-        objectKey: postMedia.objectKey,
-        thumbnailKey: postMedia.thumbnailKey,
-        width: postMedia.width,
-        height: postMedia.height,
-        durationMs: postMedia.durationMs,
-      })
-      .from(posts)
-      .innerJoin(postMedia, eq(postMedia.postId, posts.id))
-      .where(eq(posts.id, normalizedPostId))
-      .limit(1);
+    const post = await getPostDetailById(normalizedPostId);
 
     if (!post) {
       throw new GetPostError("POST_NOT_FOUND", "Post not found.", 404);
@@ -126,7 +110,7 @@ export async function getPost(viewerId: string, postId: string): Promise<GetPost
     return {
       id: post.id,
       caption: post.caption,
-      audienceType: post.audienceType as "all" | "selected",
+      audienceType: post.audienceType,
       createdAt: post.createdAt,
       author: {
         id: author.id,

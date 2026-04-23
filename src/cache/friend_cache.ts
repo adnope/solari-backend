@@ -1,6 +1,6 @@
 import { deleteKey, getJson, setJson } from "./json_cache.ts";
 
-const FRIEND_IDS_CACHE_TTL_SECONDS = 300;
+const FRIEND_IDS_CACHE_TTL_SECONDS = 600;
 
 function getFriendIdsCacheKey(userId: string): string {
   return `friend-ids:${userId}`;

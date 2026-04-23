@@ -3,6 +3,7 @@ import { and, eq, or } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { friendships, userOauthAccounts, users } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
+import { deleteCachedPublicProfile } from "../../cache/public_profile_cache.ts";
 import { deleteFile, getFileUrl, uploadFile } from "../../storage/s3.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
@@ -228,7 +229,10 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
       return { finalUser, finalAvatarKey: rawUser.avatar_key, hasVisualChanges: visualDataChanged };
     });
 
-    await deleteCachedUserSummary(normalizedUserId);
+    await Promise.all([
+      deleteCachedUserSummary(normalizedUserId),
+      deleteCachedPublicProfile(updatedProfile.username),
+    ]);
 
     if (hasVisualChanges) {
       void (async () => {

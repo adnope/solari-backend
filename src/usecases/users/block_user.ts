@@ -4,6 +4,7 @@ import { withTx } from "../../db/client.ts";
 import { blockedUsers, friendships, users, friendNicknames } from "../../db/schema.ts";
 import { publishWebSocketEvent } from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
+import { deleteCachedBlockingStateForPair } from "../../cache/block_relationship_cache.ts";
 import { deleteCachedNicknamePair } from "../../cache/nickname_cache.ts";
 import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
 
@@ -88,6 +89,7 @@ export async function blockUser(blockerId: string, targetUserId: string): Promis
     });
 
     await Promise.all([
+      deleteCachedBlockingStateForPair(normalizedBlockerId, normalizedTargetId),
       deleteCachedFriendIdsForUsers([normalizedBlockerId, normalizedTargetId]),
       deleteCachedNicknamePair(normalizedBlockerId, normalizedTargetId),
     ]);

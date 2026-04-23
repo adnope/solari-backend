@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import {
+  blockedUsers,
   friendNicknames,
   friendships,
   postMedia,
@@ -10,7 +11,10 @@ import {
   userPasswords,
   users,
 } from "../../db/schema.ts";
+import { deleteCachedBlockingStateForPair } from "../../cache/block_relationship_cache.ts";
+import { deleteCachedPostDetails } from "../../cache/post_detail_cache.ts";
 import { deleteFile } from "../../storage/s3.ts";
+import { deleteCachedPublicProfile } from "../../cache/public_profile_cache.ts";
 import { deleteCachedNicknames } from "../../cache/nickname_cache.ts";
 import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
 import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
@@ -76,8 +80,11 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
   const password = input.password ?? "";
   const googleIdToken = input.googleIdToken?.trim() ?? "";
   const keysToDelete: string[] = [];
+  let deletedUsername: string | null = null;
+  const blockedPairsToInvalidate: Array<{ userId1: string; userId2: string }> = [];
   const nicknamePairsToInvalidate: Array<{ setterId: string; targetId: string }> = [];
   const friendIdsToInvalidate: string[] = [normalizedUserId];
+  const postIdsToInvalidate: string[] = [];
 
   if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
     throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
@@ -97,6 +104,7 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
     await withTx(async (tx) => {
       const [userRow] = await tx
         .select({
+          username: users.username,
           avatarKey: users.avatarKey,
           passwordHash: userPasswords.passwordHash,
         })
@@ -155,6 +163,8 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
         keysToDelete.push(userRow.avatarKey);
       }
 
+      deletedUsername = userRow.username;
+
       const friendshipRows = await tx
         .select({
           userLow: friendships.userLow,
@@ -186,8 +196,29 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
 
       nicknamePairsToInvalidate.push(...nicknameRows);
 
+      const blockedRows = await tx
+        .select({
+          blockerId: blockedUsers.blockerId,
+          blockedId: blockedUsers.blockedId,
+        })
+        .from(blockedUsers)
+        .where(
+          or(
+            eq(blockedUsers.blockerId, normalizedUserId),
+            eq(blockedUsers.blockedId, normalizedUserId),
+          ),
+        );
+
+      blockedPairsToInvalidate.push(
+        ...blockedRows.map((row) => ({
+          userId1: row.blockerId,
+          userId2: row.blockedId,
+        })),
+      );
+
       const mediaRows = await tx
         .select({
+          postId: posts.id,
           objectKey: postMedia.objectKey,
           thumbnailKey: postMedia.thumbnailKey,
         })
@@ -196,6 +227,7 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
         .where(eq(posts.authorId, normalizedUserId));
 
       for (const row of mediaRows) {
+        postIdsToInvalidate.push(row.postId);
         keysToDelete.push(row.objectKey);
         if (row.thumbnailKey) {
           keysToDelete.push(row.thumbnailKey);
@@ -208,7 +240,12 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
     await Promise.all([
       deleteCachedFriendIdsForUsers(friendIdsToInvalidate),
       deleteCachedNicknames(nicknamePairsToInvalidate),
+      deleteCachedPostDetails(postIdsToInvalidate),
       deleteCachedUserSummary(normalizedUserId),
+      deletedUsername ? deleteCachedPublicProfile(deletedUsername) : Promise.resolve(),
+      ...blockedPairsToInvalidate.map((pair) =>
+        deleteCachedBlockingStateForPair(pair.userId1, pair.userId2),
+      ),
     ]);
 
     if (keysToDelete.length > 0) {

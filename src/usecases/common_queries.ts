@@ -2,6 +2,12 @@ import { and, eq, or, inArray } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { blockedUsers, friendNicknames, friendships, users } from "../db/schema.ts";
 import {
+  cacheBlockedBy,
+  cacheBlockingRelationship,
+  getCachedBlockedBy,
+  getCachedBlockingRelationship,
+} from "../cache/block_relationship_cache.ts";
+import {
   cacheNickname,
   cacheNicknames,
   getCachedNickname,
@@ -26,6 +32,15 @@ export async function hasBlockingRelationship(
   userId2: string,
   executor: DbExecutor = db,
 ): Promise<boolean> {
+  const shouldUseCache = executor === db;
+
+  if (shouldUseCache) {
+    const cached = await getCachedBlockingRelationship(userId1, userId2);
+    if (cached !== null) {
+      return cached;
+    }
+  }
+
   const [blockRecord] = await executor
     .select({ blockerId: blockedUsers.blockerId })
     .from(blockedUsers)
@@ -37,7 +52,13 @@ export async function hasBlockingRelationship(
     )
     .limit(1);
 
-  return !!blockRecord;
+  const hasBlock = !!blockRecord;
+
+  if (shouldUseCache) {
+    await cacheBlockingRelationship(userId1, userId2, hasBlock);
+  }
+
+  return hasBlock;
 }
 
 export async function isBlockedBy(
@@ -45,13 +66,28 @@ export async function isBlockedBy(
   targetId: string,
   executor: DbExecutor = db,
 ): Promise<boolean> {
+  const shouldUseCache = executor === db;
+
+  if (shouldUseCache) {
+    const cached = await getCachedBlockedBy(blockerId, targetId);
+    if (cached !== null) {
+      return cached;
+    }
+  }
+
   const [blockRecord] = await executor
     .select({ blockerId: blockedUsers.blockerId })
     .from(blockedUsers)
     .where(and(eq(blockedUsers.blockerId, blockerId), eq(blockedUsers.blockedId, targetId)))
     .limit(1);
 
-  return !!blockRecord;
+  const isBlocked = !!blockRecord;
+
+  if (shouldUseCache) {
+    await cacheBlockedBy(blockerId, targetId, isBlocked);
+  }
+
+  return isBlocked;
 }
 
 export async function getFriendIds(userId: string, executor: DbExecutor = db): Promise<string[]> {

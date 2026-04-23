@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { users } from "../../db/schema.ts";
+import { cachePublicProfile, getCachedPublicProfile } from "../../cache/public_profile_cache.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 
 export type PublicWebProfileResult = {
@@ -32,6 +33,12 @@ export async function getPublicWebProfile(username: string): Promise<PublicWebPr
   }
 
   try {
+    const cachedProfile = await getCachedPublicProfile(normalizedUsername);
+
+    if (cachedProfile) {
+      return cachedProfile;
+    }
+
     const [user] = await db
       .select({
         id: users.id,
@@ -47,12 +54,16 @@ export async function getPublicWebProfile(username: string): Promise<PublicWebPr
       throw new GetPublicWebProfileError("USER_NOT_FOUND", "User not found.", 404);
     }
 
-    return {
+    const profile = {
       id: user.id,
       username: user.username,
       displayName: user.displayName,
       avatarUrl: user.avatarKey ? await getFileUrl(user.avatarKey) : null,
     };
+
+    await cachePublicProfile(profile);
+
+    return profile;
   } catch (error: unknown) {
     if (error instanceof GetPublicWebProfileError) {
       throw error;

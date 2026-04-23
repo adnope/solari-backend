@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers } from "../../db/schema.ts";
+import { deleteCachedBlockingStateForPair } from "../../cache/block_relationship_cache.ts";
 
 export type UnblockUserErrorType =
   | "MISSING_INPUT"
@@ -53,6 +54,8 @@ export async function unblockUser(blockerId: string, targetUserId: string): Prom
     if (!deletedBlock) {
       throw new UnblockUserError("NOT_BLOCKED", "User is not blocked.", 404);
     }
+
+    await deleteCachedBlockingStateForPair(normalizedBlockerId, normalizedTargetId);
   } catch (error: unknown) {
     if (error instanceof UnblockUserError) {
       throw error;
