@@ -2,9 +2,10 @@ import { Elysia, t } from "elysia";
 import { requireAuth } from "./middleware/require_auth.ts";
 import { deletePost, DeletePostError } from "../usecases/posts/delete_post.ts";
 import { deleteReaction, DeleteReactionError } from "../usecases/posts/delete_reaction.ts";
+import { getPost, GetPostError } from "../usecases/posts/get_post.ts";
 import { getPostViewers, GetPostViewersError } from "../usecases/posts/get_post_viewers.ts";
+import { markPostAsViewed, MarkPostAsViewedError } from "../usecases/posts/mark_post_as_viewed.ts";
 import { reactPost, ReactPostError } from "../usecases/posts/react_post.ts";
-import { viewPost, ViewPostError } from "../usecases/posts/view_post.ts";
 import {
   viewPostReactions,
   ViewPostReactionsError,
@@ -152,6 +153,43 @@ const protectedPostsRouter = new Elysia()
     },
   )
 
+  // Get a single post
+  .get(
+    "/posts/:postId",
+    async ({ authUserId, params, set }) => {
+      const result = await getPost(authUserId, params.postId);
+
+      set.status = 200;
+      return {
+        post: {
+          id: result.id,
+          caption: result.caption,
+          audience_type: result.audienceType,
+          created_at: result.createdAt,
+          author: {
+            id: result.author.id,
+            username: result.author.username,
+            display_name: result.author.displayName,
+            avatar_url: result.author.avatarUrl,
+          },
+          media: {
+            url: result.media.url,
+            thumbnail_url: result.media.thumbnailUrl,
+            media_type: result.media.mediaType,
+            width: result.media.width,
+            height: result.media.height,
+            duration_ms: result.media.durationMs,
+          },
+        },
+      };
+    },
+    {
+      params: t.Object({
+        postId: t.String(),
+      }),
+    },
+  )
+
   // Delete a post
   .delete(
     "/posts/:postId",
@@ -263,7 +301,7 @@ const protectedPostsRouter = new Elysia()
   .post(
     "/posts/:postId/views",
     async ({ authUserId, params, set }) => {
-      await viewPost(authUserId, params.postId);
+      await markPostAsViewed(authUserId, params.postId);
 
       set.status = 200;
       return {
@@ -311,10 +349,11 @@ const postsRouter = withApiErrorHandler(new Elysia(), {
   PostsRequestError,
   UploadPostError,
   DeletePostError,
+  GetPostError,
   ReactPostError,
   DeleteReactionError,
   ViewPostReactionsError,
-  ViewPostError,
+  MarkPostAsViewedError,
   GetPostViewersError,
 }).use(protectedPostsRouter);
 

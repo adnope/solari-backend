@@ -145,7 +145,6 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
         pushData: {
           postOwnerId: postInfo.authorId,
           reactorName: nickname ?? reactor?.displayName ?? reactor?.username ?? "Someone",
-          reactorAvatarKey: reactor?.avatarKey || "",
         },
       };
     });
@@ -161,7 +160,6 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
             reactionId: reactionResult.id,
             postId: reactionResult.postId,
             emoji: reactionResult.emoji,
-            avatarKey: pushData.reactorAvatarKey,
           },
         });
       } catch (err) {

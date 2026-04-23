@@ -187,7 +187,6 @@ export async function sendFriendRequest(
         requestResult: inserted,
         pushData: {
           requesterName: requester.displayName || requester.username || "Someone",
-          requesterAvatarKey: requester.avatarKey,
           requesterId: normalizedRequesterId,
         },
       };
@@ -201,7 +200,6 @@ export async function sendFriendRequest(
     if (pushData) {
       const extraData = {
         requesterId: pushData.requesterId,
-        avatarKey: pushData.requesterAvatarKey || "",
       };
 
       try {

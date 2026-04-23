@@ -1883,6 +1883,63 @@ GET /posts/statuses?ids=018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a,018f9e7b-9e7b-4e7b-
 - **FAILED**: The background processing encountered an error and the post was not created.
 - **NOT_FOUND**: The ID was not found, the upload ticket has expired (after 10 minutes), or the post belongs to a different user.
 
+## Get a single post
+
+- Endpoint:
+
+```
+GET /posts/:postId
+```
+
+- Description: Retrieves a single post visible to the authenticated user. The endpoint enforces the same visibility and blocking rules as the feed: the author can always access their own post, while other users must be in the post's allowed audience and must not have a blocking relationship with the author.
+- Auth required: Yes
+
+### Request parameters:
+
+- postId (string, Required): The UUID of the post to retrieve (passed as a path parameter).
+- Example:
+
+```text
+GET /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a
+```
+
+### Request body:
+
+- None
+
+### Responses:
+
+- [200 OK] - Post retrieved successfully.
+
+```json
+{
+  "post": {
+    "id": "018f9e...",
+    "caption": "Beautiful sunset today!",
+    "audience_type": "all",
+    "created_at": "2026-04-08T12:45:10.000Z",
+    "author": {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "username": "johndoe",
+      "display_name": "Johnny (Bestie)",
+      "avatar_url": "https://s3.amazonaws.com/bucket/avatars/018fa1..."
+    },
+    "media": {
+      "url": "https://s3.amazonaws.com/bucket/media_xyz...",
+      "thumbnail_url": "https://s3.amazonaws.com/bucket/thumb_xyz...",
+      "media_type": "image/jpeg",
+      "width": 1080,
+      "height": 1080,
+      "duration_ms": null
+    }
+  }
+}
+```
+
+- [400 Bad Request] - Possible 'type' values: MISSING_INPUT.
+- [403 Forbidden] - Possible 'type' values: UNAUTHORIZED.
+- [404 Not Found] - Possible 'type' values: POST_NOT_FOUND.
+
 ## Delete a post
 
 - Endpoint:
@@ -2550,3 +2607,163 @@ GET /users/me/streak?timezone=Asia/Ho_Chi_Minh
 - **lastPostDate**: The ISO timestamp of the user's most recent post.
 - **isAlive**: A boolean indicating if the streak is still active. Returns `true` if the user posted today or yesterday in their local time.
 - **postedToday**: A boolean indicating if the user has already posted during the current calendar day in their local time.
+
+# FCM Push Notifications
+
+The backend can send FCM notifications to device tokens registered through the API. These notifications are sent through the FCM HTTP v1 API and contain:
+
+- `notification.title`: user-visible title
+- `notification.body`: user-visible body
+- `data`: string key/value pairs for app routing and state updates
+
+The backend always includes `data.type`, which is the notification unique type identifier.
+
+## Notification Format
+
+The backend sends FCM messages in this form:
+
+```json
+{
+  "message": {
+    "token": "<device_token>",
+    "notification": {
+      "title": "New Message",
+      "body": "Jane sent a message."
+    },
+    "data": {
+      "type": "NEW_MESSAGE",
+      "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+      "messageId": "018fa2..."
+    }
+  }
+}
+```
+
+## Notification types
+
+### NEW_FRIEND_REQUEST
+
+Sent when another user sends a friend request.
+
+```json
+{
+  "notification": {
+    "title": "New Friend Request",
+    "body": "johndoe sent you a friend request."
+  },
+  "data": {
+    "type": "NEW_FRIEND_REQUEST",
+    "requesterId": "123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+```
+
+- `requesterId`: sender user ID
+
+### FRIEND_REQUEST_ACCEPTED
+
+Sent when a pending friend request is accepted.
+
+```json
+{
+  "notification": {
+    "title": "Friend Request Accepted",
+    "body": "janesmith accepted your friend request."
+  },
+  "data": {
+    "type": "FRIEND_REQUEST_ACCEPTED",
+    "acceptorId": "987f6543-e21b-34c4-b567-513314175000"
+  }
+}
+```
+
+- `acceptorId`: accepting user ID
+
+### NEW_MESSAGE
+
+Sent when the user receives a direct message, a reply to a post in conversation, or a reply to a message.
+
+```json
+{
+  "notification": {
+    "title": "New Message",
+    "body": "Jane sent a message."
+  },
+  "data": {
+    "type": "NEW_MESSAGE",
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "messageId": "018fa2..."
+  }
+}
+```
+
+Possible `notification.title` values:
+
+- `New Message`
+- `New Post Reply`
+- `New Reply`
+
+Data fields:
+
+- `conversationId`: target conversation ID
+- `messageId`: created message ID
+
+### NEW_MESSAGE_REACTION
+
+Sent when someone reacts to one of the user's messages.
+
+```json
+{
+  "notification": {
+    "title": "New Reaction",
+    "body": "Jane reacted 👍"
+  },
+  "data": {
+    "type": "NEW_MESSAGE_REACTION",
+    "conversationId": "123e4567-e89b-12d3-a456-426614174000",
+    "messageId": "018fa2..."
+  }
+}
+```
+
+- `conversationId`: conversation containing the reacted message
+- `messageId`: reacted message ID
+
+### NEW_POST_REACTION
+
+Sent when someone reacts to one of the user's posts.
+
+```json
+{
+  "notification": {
+    "title": "New Reaction",
+    "body": "Jane reacted 👍 to your post."
+  },
+  "data": {
+    "type": "NEW_POST_REACTION",
+    "reactionId": "018fb1...",
+    "postId": "018fd1...",
+    "emoji": "👍"
+  }
+}
+```
+
+- `reactionId`: created reaction ID
+- `postId`: reacted post ID
+- `emoji`: emoji used in the reaction
+
+### STREAK_MILESTONE
+
+Sent when the user reaches one of the configured streak milestones: `3`, `7`, `10`, `30`, `50`, `100`.
+
+```json
+{
+  "notification": {
+    "title": "🔥 7 Day Streak!",
+    "body": "You're on fire! Keep the momentum going tomorrow."
+  },
+  "data": {
+    "type": "STREAK_MILESTONE"
+  }
+}
+```

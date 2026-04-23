@@ -269,7 +269,6 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
             extraData: {
               conversationId: normalizedConversationId,
               messageId: messageResult.id,
-              avatarKey: sender.avatarKey || "",
             },
           });
         }

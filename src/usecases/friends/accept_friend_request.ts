@@ -131,7 +131,6 @@ export async function acceptFriendRequest(
         },
         pushData: {
           acceptorName: acceptor.displayName || acceptor.username || "Someone",
-          acceptorAvatarKey: acceptor.avatarKey,
           acceptorId: normalizedReceiverId,
         },
       };
@@ -149,7 +148,6 @@ export async function acceptFriendRequest(
     if (pushData) {
       const extraData = {
         acceptorId: pushData.acceptorId,
-        avatarKey: pushData.acceptorAvatarKey || "",
       };
 
       try {

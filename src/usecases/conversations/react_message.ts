@@ -149,7 +149,6 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
 
       let pushPayload: {
         reactorName: string;
-        reactorAvatarKey: string | null;
         conversationId: string;
         receiverId: string;
       } | null = null;
@@ -164,7 +163,6 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
 
         pushPayload = {
           reactorName: nickname ?? reactor?.displayName ?? reactor?.username ?? "Someone",
-          reactorAvatarKey: reactor?.avatarKey ?? null,
           conversationId: messageRow.conversationId,
           receiverId: recipientId,
         };
@@ -204,7 +202,6 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
           extraData: {
             conversationId: pushData.conversationId,
             messageId: reactionResult.messageId,
-            avatarKey: pushData.reactorAvatarKey || "",
           },
         });
       } catch (err) {
