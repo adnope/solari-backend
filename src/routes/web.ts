@@ -1,8 +1,15 @@
+import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { Elysia, t } from "elysia";
 import {
   getPublicWebProfile,
   GetPublicWebProfileError,
 } from "../usecases/users/get_public_web_profile.ts";
+
+const faviconBase64 = readFileSync(
+  join(import.meta.dir, "assets", "favicon.ico"),
+).toString("base64");
+const faviconDataUri = `data:image/x-icon;base64,${faviconBase64}`;
 
 const escapeHtml = (value: string) =>
   value
@@ -20,8 +27,6 @@ const htmlResponse = (html: string, status = 200) =>
     },
   });
 
-const solariLogoPath = "/assets/favicon.ico";
-
 export const webRouter = new Elysia().get(
   "/u/:username",
   async ({ params }) => {
@@ -36,7 +41,7 @@ export const webRouter = new Elysia().get(
       const imageUrl = profile.avatarUrl;
 
       const appUrl = `https://solari.adnope.io.vn/u/${username}`;
-      const solariLogoUrl = `https://solari.adnope.io.vn${solariLogoPath}`;
+      const solariLogoUrl = "https://solari.adnope.io.vn/assets/favicon.ico";
       const ogImageUrl = imageUrl || solariLogoUrl;
       const androidPackage = "com.solari.app";
       const intentUrl = `intent://solari.adnope.io.vn/u/${username}#Intent;scheme=https;package=${androidPackage};end`;
@@ -48,7 +53,7 @@ export const webRouter = new Elysia().get(
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Add ${displayName} on Solari</title>
-            <link rel="icon" type="image/webp" href="${solariLogoPath}">
+            <link rel="icon" type="image/x-icon" href="${faviconDataUri}">
 
             <meta name="description" content="See photos of your best friends on your Home Screen">
 
@@ -153,47 +158,7 @@ export const webRouter = new Elysia().get(
               .btn:active {
                 transform: scale(0.96);
               }
-              .modal-backdrop {
-                position: fixed;
-                inset: 0;
-                z-index: 10;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 24px;
-                background: rgba(0, 0, 0, 0.58);
-              }
-              .modal-backdrop[hidden] {
-                display: none;
-              }
-              .modal {
-                width: min(320px, 100%);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 16px;
-                background: #1D1A15;
-                padding: 24px;
-                box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
-              }
-              .modal h2 {
-                margin: 0 0 10px 0;
-                font-size: 22px;
-                font-weight: 800;
-              }
-              .modal p {
-                margin: 0 0 20px 0;
-                max-width: none;
-              }
-              .modal button {
-                width: 100%;
-                border: 0;
-                border-radius: 12px;
-                background: var(--solari-orange);
-                color: #000000;
-                font: inherit;
-                font-weight: 800;
-                padding: 12px 16px;
-                -webkit-tap-highlight-color: transparent;
-              }
+
             </style>
         </head>
         <body>
@@ -213,45 +178,6 @@ export const webRouter = new Elysia().get(
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
             </a>
 
-            <div class="modal-backdrop" id="install-modal" hidden>
-              <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="install-modal-title">
-                <h2 id="install-modal-title">Solari is not installed</h2>
-                <p>Install Solari to add ${displayName} as a friend.</p>
-                <button type="button" id="close-install-modal">OK</button>
-              </div>
-            </div>
-
-            <script>
-              const openButton = document.getElementById("open-solari");
-              const installModal = document.getElementById("install-modal");
-              const closeInstallModalButton = document.getElementById("close-install-modal");
-              let installFallbackTimer = null;
-
-              function clearInstallFallbackTimer() {
-                if (installFallbackTimer !== null) {
-                  window.clearTimeout(installFallbackTimer);
-                  installFallbackTimer = null;
-                }
-              }
-
-              openButton?.addEventListener("click", () => {
-                clearInstallFallbackTimer();
-                installFallbackTimer = window.setTimeout(() => {
-                  installModal.hidden = false;
-                }, 1200);
-              });
-
-              closeInstallModalButton?.addEventListener("click", () => {
-                installModal.hidden = true;
-              });
-
-              window.addEventListener("pagehide", clearInstallFallbackTimer);
-              document.addEventListener("visibilitychange", () => {
-                if (document.hidden) {
-                  clearInstallFallbackTimer();
-                }
-              });
-            </script>
         </body>
         </html>
       `;
