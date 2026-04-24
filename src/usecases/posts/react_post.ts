@@ -154,7 +154,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
         await enqueuePushNotification({
           recipientUserId: pushData.postOwnerId,
           title: "New Reaction",
-          body: `${pushData.reactorName} reacted ${trimmedEmoji} to your post.`,
+          body: `${pushData.reactorName} reacted ${trimmedEmoji} to your post`,
           notificationType: "NEW_POST_REACTION",
           extraData: {
             reactionId: reactionResult.id,

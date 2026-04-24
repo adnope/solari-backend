@@ -26,6 +26,24 @@ export type NotificationType =
   | "NEW_MESSAGE_REACTION"
   | "STREAK_MILESTONE";
 
+function getAndroidNotificationConfig(type: NotificationType): {
+  channel_id: string;
+  priority: "HIGH" | "NORMAL";
+} {
+  switch (type) {
+    case "NEW_MESSAGE":
+      return { channel_id: "direct_messages", priority: "HIGH" };
+    case "NEW_MESSAGE_REACTION":
+    case "NEW_POST_REACTION":
+      return { channel_id: "reactions", priority: "NORMAL" };
+    case "NEW_FRIEND_REQUEST":
+    case "FRIEND_REQUEST_ACCEPTED":
+      return { channel_id: "friend_activities", priority: "HIGH" };
+    case "STREAK_MILESTONE":
+      return { channel_id: "milestones_streaks", priority: "NORMAL" };
+  }
+}
+
 export async function sendPushNotification(
   deviceToken: string,
   title: string,
@@ -42,6 +60,7 @@ export async function sendPushNotification(
 
   try {
     const oauthToken = await getGoogleAccessToken();
+    const androidConfig = getAndroidNotificationConfig(notificationType);
 
     const payload = {
       message: {
@@ -53,6 +72,12 @@ export async function sendPushNotification(
         data: {
           type: notificationType,
           ...extraData,
+        },
+        android: {
+          priority: androidConfig.priority,
+          notification: {
+            channel_id: androidConfig.channel_id,
+          },
         },
       },
     };
@@ -69,6 +94,8 @@ export async function sendPushNotification(
     if (!response.ok) {
       const errorText = await response.text();
       console.error("FCM Send Error:", errorText);
+    } else {
+      console.log(`[FCM] Sent ${notificationType} notification to device: ${deviceToken}`);
     }
   } catch (error) {
     console.error("FCM Request Failed:", error);

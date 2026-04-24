@@ -251,14 +251,14 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
         if (sender) {
           const senderName = nickname ?? sender.displayName ?? sender.username ?? "Someone";
           let title = "New Message";
-          let body = `${senderName} sent a message.`;
+          let body = `${senderName} sent you a message`;
 
           if (normalizedReferencedPostId) {
             title = "New Post Reply";
-            body = `${senderName} replied to your post.`;
+            body = `${senderName} replied to your post`;
           } else if (normalizedRepliedMessageId) {
             title = "New Reply";
-            body = `${senderName} replied to a message.`;
+            body = `${senderName} replied to a message`;
           }
 
           await enqueuePushNotification({

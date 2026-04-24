@@ -154,7 +154,7 @@ export async function acceptFriendRequest(
         await enqueuePushNotification({
           recipientUserId: result.requesterId,
           title: "Friend Request Accepted",
-          body: `${pushData.acceptorName} accepted your friend request.`,
+          body: `${pushData.acceptorName} accepted your friend request`,
           notificationType: "FRIEND_REQUEST_ACCEPTED",
           extraData: extraData,
         });

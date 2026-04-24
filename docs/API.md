@@ -2634,10 +2634,29 @@ The backend sends FCM messages in this form:
       "type": "NEW_MESSAGE",
       "conversationId": "123e4567-e89b-12d3-a456-426614174000",
       "messageId": "018fa2..."
+    },
+    "android": {
+      "priority": "HIGH",
+      "notification": {
+        "channel_id": "direct_messages"
+      }
     }
   }
 }
 ```
+
+### Android Notification Channels & Priorities
+
+To ensure reliable delivery and proper routing on Android 8.0+ (API 26+), the backend automatically includes the `android` configuration block specifying the delivery priority and the target notification channel. The Android client must create these channels with the appropriate `IMPORTANCE` level to match:
+
+| Notification Type         | Channel ID           | FCM Priority | Expected Android Importance |
+| :------------------------ | :------------------- | :----------- | :-------------------------- |
+| `NEW_MESSAGE`             | `direct_messages`    | `HIGH`       | `IMPORTANCE_HIGH`           |
+| `NEW_MESSAGE_REACTION`    | `reactions`          | `NORMAL`     | `IMPORTANCE_DEFAULT`        |
+| `NEW_POST_REACTION`       | `reactions`          | `NORMAL`     | `IMPORTANCE_DEFAULT`        |
+| `NEW_FRIEND_REQUEST`      | `friend_activities`  | `HIGH`       | `IMPORTANCE_HIGH`           |
+| `FRIEND_REQUEST_ACCEPTED` | `friend_activities`  | `HIGH`       | `IMPORTANCE_HIGH`           |
+| `STREAK_MILESTONE`        | `milestones_streaks` | `NORMAL`     | `IMPORTANCE_DEFAULT`        |
 
 ## Notification types
 

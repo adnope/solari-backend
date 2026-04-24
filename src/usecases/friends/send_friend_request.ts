@@ -206,7 +206,7 @@ export async function sendFriendRequest(
         await enqueuePushNotification({
           recipientUserId: requestResult.receiverId,
           title: "New Friend Request",
-          body: `${pushData.requesterName} sent you a friend request.`,
+          body: `${pushData.requesterName} sent you a friend request`,
           notificationType: "NEW_FRIEND_REQUEST",
           extraData: extraData,
         });

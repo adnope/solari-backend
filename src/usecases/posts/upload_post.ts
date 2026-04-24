@@ -258,7 +258,7 @@ export async function finalizePostUpload(input: FinalizePostInput) {
           void enqueuePushNotification({
             recipientUserId: normalizedAuthorId,
             title: `🔥 ${streakMath.newStreak} Day Streak!`,
-            body: "You're on fire! Keep the momentum going tomorrow.",
+            body: "You're on fire! Keep the momentum going tomorrow",
             notificationType: "STREAK_MILESTONE",
           }).catch(console.error);
         }
