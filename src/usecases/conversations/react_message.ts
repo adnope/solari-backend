@@ -197,7 +197,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
         await enqueuePushNotification({
           recipientUserId: pushData.receiverId,
           title: "New Reaction",
-          body: `${pushData.reactorName} reacted ${trimmedEmoji}`,
+          body: `${pushData.reactorName} reacted ${trimmedEmoji} to your message`,
           notificationType: "NEW_MESSAGE_REACTION",
           extraData: {
             conversationId: pushData.conversationId,
