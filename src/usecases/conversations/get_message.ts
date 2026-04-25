@@ -11,6 +11,7 @@ export type GetMessageReaction = {
 export type GetMessageResult = {
   id: string;
   senderId: string;
+  content: string;
   referencedPostId: string | null;
   repliedMessageId: string | null;
   isDeleted: boolean;
@@ -49,6 +50,7 @@ export async function getMessage(viewerId: string, messageId: string): Promise<G
       .select({
         id: messages.id,
         senderId: messages.senderId,
+        content: messages.content,
         referencedPostId: messages.referencedPostId,
         repliedMessageId: messages.repliedMessageId,
         isDeleted: messages.isDeleted,
@@ -94,6 +96,7 @@ export async function getMessage(viewerId: string, messageId: string): Promise<G
     return {
       id: message.id,
       senderId: message.senderId,
+      content: message.content,
       referencedPostId: message.referencedPostId,
       repliedMessageId: message.repliedMessageId,
       isDeleted: message.isDeleted,

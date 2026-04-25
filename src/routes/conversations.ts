@@ -314,6 +314,7 @@ const protectedConversationsRouter = new Elysia()
         message: {
           id: result.id,
           sender_id: result.senderId,
+          content: result.content,
           referenced_post_id: result.referencedPostId,
           replied_message_id: result.repliedMessageId,
           is_deleted: result.isDeleted,

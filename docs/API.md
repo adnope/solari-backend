@@ -864,7 +864,7 @@ GET /conversations/123e4567-e89b-12d3-a456-426614174000/messages?limit=20&cursor
 GET /messages/:messageId
 ```
 
-- Description: Retrieves one message by ID for the authenticated user. The user must be a participant in the message's conversation, and the message must not be hidden by the user's cleared conversation history. Returns message metadata and reactions without message content.
+- Description: Retrieves one message by ID for the authenticated user. The user must be a participant in the message's conversation, and the message must not be hidden by the user's cleared conversation history. Returns message content, metadata, and reactions.
 - Auth required: Yes
 
 ### Request parameters:
@@ -885,6 +885,7 @@ GET /messages/018fa1...
   "message": {
     "id": "018fa1...",
     "sender_id": "987f6543-e21b-34c4-b567-513314175000",
+    "content": "Yo!",
     "referenced_post_id": null,
     "replied_message_id": null,
     "is_deleted": false,
