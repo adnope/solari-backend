@@ -15,6 +15,7 @@ import {
   getConversations,
   GetConversationsError,
 } from "../usecases/conversations/get_conversations.ts";
+import { getMessage, GetMessageError } from "../usecases/conversations/get_message.ts";
 import {
   markConversationAsRead,
   MarkConversationAsReadError,
@@ -302,6 +303,35 @@ const protectedConversationsRouter = new Elysia()
     },
   )
 
+  // Get a single message
+  .get(
+    "/messages/:messageId",
+    async ({ authUserId, params, set }) => {
+      const result = await getMessage(authUserId, params.messageId);
+
+      set.status = 200;
+      return {
+        message: {
+          id: result.id,
+          sender_id: result.senderId,
+          referenced_post_id: result.referencedPostId,
+          replied_message_id: result.repliedMessageId,
+          is_deleted: result.isDeleted,
+          created_at: result.createdAt,
+          reactions: result.reactions.map((reaction) => ({
+            user_id: reaction.userId,
+            emoji: reaction.emoji,
+          })),
+        },
+      };
+    },
+    {
+      params: t.Object({
+        messageId: t.String(),
+      }),
+    },
+  )
+
   // React to a message
   .post(
     "/messages/:messageId/reactions",
@@ -411,6 +441,7 @@ const conversationsRouter = withApiErrorHandler(new Elysia(), {
   MarkConversationAsReadError,
   GetConversationError,
   GetConversationsError,
+  GetMessageError,
   ClearConversationError,
   ReactMessageError,
   RemoveMessageReactionError,

@@ -856,6 +856,52 @@ GET /conversations/123e4567-e89b-12d3-a456-426614174000/messages?limit=20&cursor
 - [403 Forbidden] - Possible 'type' values: UNAUTHORIZED.
 - [404 Not Found] - Possible 'type' values: CONVERSATION_NOT_FOUND.
 
+## Get a single message
+
+- Endpoint:
+
+```
+GET /messages/:messageId
+```
+
+- Description: Retrieves one message by ID for the authenticated user. The user must be a participant in the message's conversation, and the message must not be hidden by the user's cleared conversation history. Returns message metadata and reactions without message content.
+- Auth required: Yes
+
+### Request parameters:
+
+- messageId (string, Required): The UUID of the message (passed as a path parameter).
+- Example:
+
+```text
+GET /messages/018fa1...
+```
+
+### Responses:
+
+- [200 OK] - Message retrieved successfully.
+
+```json
+{
+  "message": {
+    "id": "018fa1...",
+    "sender_id": "987f6543-e21b-34c4-b567-513314175000",
+    "referenced_post_id": null,
+    "replied_message_id": null,
+    "is_deleted": false,
+    "created_at": "2026-04-08T12:45:10.000Z",
+    "reactions": [
+      {
+        "user_id": "123e4567-e89b-12d3-a456-426614174000",
+        "emoji": "💀"
+      }
+    ]
+  }
+}
+```
+
+- [400 Bad Request] - Possible 'type' values: MISSING_INPUT.
+- [404 Not Found] - Possible 'type' values: MESSAGE_NOT_FOUND.
+
 ## Mark a conversation as read
 
 - Endpoint:
