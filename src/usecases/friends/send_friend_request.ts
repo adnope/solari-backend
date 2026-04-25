@@ -1,10 +1,10 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { friendRequests, friendships, users } from "../../db/schema.ts";
+import { friendRequests } from "../../db/schema.ts";
 import { enqueuePushNotification, publishWebSocketEvent } from "../../jobs/queue.ts";
 import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
-import { getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
+import { getUserSummaryById } from "../common_queries.ts";
+import { getFriendRequestContext } from "../../db/queries/get_friend_request_context.ts";
 
 export type FriendRequestResult = {
   id: string;
@@ -77,28 +77,17 @@ export async function sendFriendRequest(
         throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
       }
 
-      const [receiver] = await tx
-        .select({
-          id: users.id,
-        })
-        .from(users)
-        .where(
-          normalizedIdentifier.includes("@")
-            ? eq(users.email, normalizedIdentifier)
-            : eq(users.username, normalizedIdentifier),
-        )
-        .limit(1);
+      const ctx = await getFriendRequestContext(normalizedRequesterId, normalizedIdentifier, tx);
 
-      if (!receiver) {
+      if (!ctx) {
         throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
       }
 
-      const isBlocked = await hasBlockingRelationship(normalizedRequesterId, receiver.id, tx);
-      if (isBlocked) {
+      if (ctx.isBlocked) {
         throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
       }
 
-      if (receiver.id === normalizedRequesterId) {
+      if (ctx.receiverId === normalizedRequesterId) {
         throw new SendFriendRequestError(
           "SELF_REQUEST",
           "You cannot send a friend request to yourself.",
@@ -106,18 +95,7 @@ export async function sendFriendRequest(
         );
       }
 
-      const [userLow, userHigh]: [string, string] =
-        normalizedRequesterId < receiver.id
-          ? [normalizedRequesterId, receiver.id]
-          : [receiver.id, normalizedRequesterId];
-
-      const [existingFriendship] = await tx
-        .select({ userLow: friendships.userLow })
-        .from(friendships)
-        .where(and(eq(friendships.userLow, userLow), eq(friendships.userHigh, userHigh)))
-        .limit(1);
-
-      if (existingFriendship) {
+      if (ctx.isFriend) {
         throw new SendFriendRequestError(
           "ALREADY_FRIENDS",
           "You are already friends with this user.",
@@ -125,18 +103,7 @@ export async function sendFriendRequest(
         );
       }
 
-      const [existingOutgoing] = await tx
-        .select({ id: friendRequests.id })
-        .from(friendRequests)
-        .where(
-          and(
-            eq(friendRequests.requesterId, normalizedRequesterId),
-            eq(friendRequests.receiverId, receiver.id),
-          ),
-        )
-        .limit(1);
-
-      if (existingOutgoing) {
+      if (ctx.outgoingReqId) {
         throw new SendFriendRequestError(
           "REQUEST_ALREADY_SENT",
           "Friend request already sent.",
@@ -144,18 +111,7 @@ export async function sendFriendRequest(
         );
       }
 
-      const [existingIncoming] = await tx
-        .select({ id: friendRequests.id })
-        .from(friendRequests)
-        .where(
-          and(
-            eq(friendRequests.requesterId, receiver.id),
-            eq(friendRequests.receiverId, normalizedRequesterId),
-          ),
-        )
-        .limit(1);
-
-      if (existingIncoming) {
+      if (ctx.incomingReqId) {
         throw new SendFriendRequestError(
           "REQUEST_ALREADY_RECEIVED",
           "This user has already sent you a friend request.",
@@ -170,7 +126,7 @@ export async function sendFriendRequest(
         .values({
           id: requestId,
           requesterId: normalizedRequesterId,
-          receiverId: receiver.id,
+          receiverId: ctx.receiverId,
         })
         .returning({
           id: friendRequests.id,
