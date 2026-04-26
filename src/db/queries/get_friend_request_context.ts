@@ -11,6 +11,8 @@ export type FriendRequestContext = {
   incomingReqId: string | null;
 };
 
+type FriendRequestContextRow = FriendRequestContext & Record<string, unknown>;
+
 export async function getFriendRequestContext(
   requesterId: string,
   identifier: string,
@@ -33,13 +35,11 @@ export async function getFriendRequestContext(
     FROM receiver_cte r;
   `;
 
-  const result = await tx.execute(query);
-  const rows = Array.isArray(result) ? result : (result as any).rows;
+  const rows = await tx.execute<FriendRequestContextRow>(query);
+  const row = rows[0];
 
-  if (!rows || rows.length === 0) return null;
+  if (!row) return null;
 
-  const row = rows[0] as any;
-  
   return {
     receiverId: row.receiverId,
     isBlocked: Boolean(row.isBlocked),

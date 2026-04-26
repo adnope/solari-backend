@@ -1,9 +1,9 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { and, eq, gte, isNull, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { conversations, friendships, messageReactions, messages } from "../../db/schema.ts";
+import { messageReactions } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
-import { hasBlockingRelationship } from "../common_queries.ts";
+import { getMessageActionContext } from "../../db/queries/get_message_action_context.ts";
 
 export type RemoveMessageReactionErrorType =
   | "MISSING_INPUT"
@@ -41,37 +41,12 @@ export async function removeMessageReaction(userId: string, messageId: string): 
 
   try {
     const { receiverId, conversationId } = await withTx(async (tx) => {
-      const [authorizedMessage] = await tx
-        .select({
-          id: messages.id,
-          conversationId: messages.conversationId,
-          userLow: conversations.userLow,
-          userHigh: conversations.userHigh,
-        })
-        .from(messages)
-        .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-        .where(
-          and(
-            eq(messages.id, normalizedMessageId),
-            or(
-              and(
-                eq(conversations.userLow, normalizedUserId),
-                or(
-                  isNull(conversations.userLowClearedAt),
-                  gte(messages.createdAt, conversations.userLowClearedAt),
-                ),
-              ),
-              and(
-                eq(conversations.userHigh, normalizedUserId),
-                or(
-                  isNull(conversations.userHighClearedAt),
-                  gte(messages.createdAt, conversations.userHighClearedAt),
-                ),
-              ),
-            ),
-          ),
-        )
-        .limit(1);
+      const authorizedMessage = await getMessageActionContext(
+        normalizedMessageId,
+        normalizedUserId,
+        tx,
+        true,
+      );
 
       if (!authorizedMessage) {
         throw new RemoveMessageReactionError(
@@ -81,13 +56,7 @@ export async function removeMessageReaction(userId: string, messageId: string): 
         );
       }
 
-      const targetReceiverId =
-        authorizedMessage.userLow === normalizedUserId
-          ? authorizedMessage.userHigh
-          : authorizedMessage.userLow;
-
-      const isBlocked = await hasBlockingRelationship(normalizedUserId, targetReceiverId, tx);
-      if (isBlocked) {
+      if (authorizedMessage.isBlocked) {
         throw new RemoveMessageReactionError(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
@@ -95,18 +64,7 @@ export async function removeMessageReaction(userId: string, messageId: string): 
         );
       }
 
-      const [friendship] = await tx
-        .select({ userLow: friendships.userLow })
-        .from(friendships)
-        .where(
-          and(
-            eq(friendships.userLow, authorizedMessage.userLow),
-            eq(friendships.userHigh, authorizedMessage.userHigh),
-          ),
-        )
-        .limit(1);
-
-      if (!friendship) {
+      if (!authorizedMessage.isFriend) {
         throw new RemoveMessageReactionError(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
@@ -129,7 +87,7 @@ export async function removeMessageReaction(userId: string, messageId: string): 
       }
 
       return {
-        receiverId: targetReceiverId,
+        receiverId: authorizedMessage.receiverId,
         conversationId: authorizedMessage.conversationId,
       };
     });

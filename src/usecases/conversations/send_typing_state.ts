@@ -1,7 +1,5 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { and, eq } from "drizzle-orm";
-import { db } from "../../db/client.ts";
-import { conversations, friendships } from "../../db/schema.ts";
+import { getTypingStateContext } from "../../db/queries/get_typing_state_context.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type SendTypingStateInput = {
@@ -59,30 +57,17 @@ export async function sendTypingState(input: SendTypingStateInput): Promise<Send
   }
 
   try {
-    const [conversation] = await db
-      .select({
-        userLow: conversations.userLow,
-        userHigh: conversations.userHigh,
-      })
-      .from(conversations)
-      .where(eq(conversations.id, normalizedConversationId))
-      .limit(1);
+    const context = await getTypingStateContext(
+      normalizedSenderId,
+      normalizedConversationId,
+      false,
+    );
 
-    if (!conversation) {
+    if (!context) {
       throw new SendTypingStateError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
     }
 
-    const isSenderInConversation =
-      conversation.userLow === normalizedSenderId || conversation.userHigh === normalizedSenderId;
-
-    if (!isSenderInConversation) {
-      throw new SendTypingStateError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
-    }
-
-    const expectedReceiverId =
-      conversation.userLow === normalizedSenderId ? conversation.userHigh : conversation.userLow;
-
-    if (expectedReceiverId !== normalizedReceiverId) {
+    if (context.expectedReceiverId !== normalizedReceiverId) {
       throw new SendTypingStateError("UNAUTHORIZED", "Receiver does not match conversation.", 403);
     }
 
@@ -95,18 +80,7 @@ export async function sendTypingState(input: SendTypingStateInput): Promise<Send
       );
     }
 
-    const [friendship] = await db
-      .select({ userLow: friendships.userLow })
-      .from(friendships)
-      .where(
-        and(
-          eq(friendships.userLow, conversation.userLow),
-          eq(friendships.userHigh, conversation.userHigh),
-        ),
-      )
-      .limit(1);
-
-    if (!friendship) {
+    if (!context.isFriend) {
       throw new SendTypingStateError(
         "ARCHIVED",
         "This conversation is archived. You cannot send typing state.",

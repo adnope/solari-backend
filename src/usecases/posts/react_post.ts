@@ -1,10 +1,10 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { postReactions, postVisibility, posts } from "../../db/schema.ts";
+import { postReactions } from "../../db/schema.ts";
 import { enqueuePushNotification } from "../../jobs/queue.ts";
-import { hasBlockingRelationship, getNickname, getUserSummaryById } from "../common_queries.ts";
+import { getNickname, getUserSummaryById } from "../common_queries.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
+import { getPostAccessContext } from "../../db/queries/get_post_access_context.ts";
 
 export type ReactPostInput = {
   userId: string;
@@ -73,11 +73,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
 
   try {
     const { reactionResult, pushData } = await withTx(async (tx) => {
-      const [postInfo] = await tx
-        .select({ authorId: posts.authorId })
-        .from(posts)
-        .where(eq(posts.id, normalizedPostId))
-        .limit(1);
+      const postInfo = await getPostAccessContext(normalizedUserId, normalizedPostId, tx);
 
       if (!postInfo) {
         throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
@@ -87,23 +83,11 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
         throw new ReactPostError("UNAUTHORIZED", "You cannot react to your own post.", 403);
       }
 
-      const isBlocked = await hasBlockingRelationship(normalizedUserId, postInfo.authorId, tx);
-      if (isBlocked) {
+      if (postInfo.isBlocked) {
         throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
       }
 
-      const [visible] = await tx
-        .select({ viewerId: postVisibility.viewerId })
-        .from(postVisibility)
-        .where(
-          and(
-            eq(postVisibility.postId, normalizedPostId),
-            eq(postVisibility.viewerId, normalizedUserId),
-          ),
-        )
-        .limit(1);
-
-      if (!visible) {
+      if (!postInfo.isVisible) {
         throw new ReactPostError(
           "UNAUTHORIZED",
           "You are not authorized to react to this post.",

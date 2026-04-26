@@ -1,10 +1,10 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { conversations, friendships, messageReactions, messages } from "../../db/schema.ts";
+import { messageReactions } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { isSingleEmoji } from "./react_message.ts";
-import { hasBlockingRelationship } from "../common_queries.ts";
+import { getMessageActionContext } from "../../db/queries/get_message_action_context.ts";
 
 export type UpdateMessageReactionInput = {
   userId: string;
@@ -68,26 +68,18 @@ export async function updateMessageReaction(
 
   try {
     const { updatedReaction, receiverId, conversationId } = await withTx(async (tx) => {
-      const [messageRow] = await tx
-        .select({
-          conversationId: messages.conversationId,
-          userLow: conversations.userLow,
-          userHigh: conversations.userHigh,
-        })
-        .from(messages)
-        .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-        .where(eq(messages.id, normalizedMessageId))
-        .limit(1);
+      const messageRow = await getMessageActionContext(
+        normalizedMessageId,
+        normalizedUserId,
+        tx,
+        false,
+      );
 
       if (!messageRow) {
         throw new UpdateMessageReactionError("REACTION_NOT_FOUND", "Message not found.", 404);
       }
 
-      const targetReceiverId =
-        messageRow.userLow === normalizedUserId ? messageRow.userHigh : messageRow.userLow;
-
-      const isBlocked = await hasBlockingRelationship(normalizedUserId, targetReceiverId, tx);
-      if (isBlocked) {
+      if (messageRow.isBlocked) {
         throw new UpdateMessageReactionError(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
@@ -95,18 +87,7 @@ export async function updateMessageReaction(
         );
       }
 
-      const [friendship] = await tx
-        .select({ userLow: friendships.userLow })
-        .from(friendships)
-        .where(
-          and(
-            eq(friendships.userLow, messageRow.userLow),
-            eq(friendships.userHigh, messageRow.userHigh),
-          ),
-        )
-        .limit(1);
-
-      if (!friendship) {
+      if (!messageRow.isFriend) {
         throw new UpdateMessageReactionError(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
@@ -146,7 +127,7 @@ export async function updateMessageReaction(
           emoji: trimmedEmoji,
           createdAt: updated.createdAt,
         },
-        receiverId: targetReceiverId,
+        receiverId: messageRow.receiverId,
         conversationId: messageRow.conversationId,
       };
     });

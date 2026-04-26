@@ -1,16 +1,11 @@
 import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
-import {
-  conversations,
-  friendships,
-  messages,
-  mutedConversations,
-  posts,
-} from "../../db/schema.ts";
-import { hasBlockingRelationship, getNickname, getUserSummaryById } from "../common_queries.ts";
+import { conversations, messages, mutedConversations } from "../../db/schema.ts";
+import { getNickname, getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { enqueuePushNotification, publishWebSocketEventToUsers } from "../../jobs/queue.ts";
+import { getSendMessageContext } from "../../db/queries/get_send_message_context.ts";
 
 export type SendMessageInput = {
   senderId: string;
@@ -90,41 +85,19 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
   const createdAt = new Date().toISOString();
 
   try {
-    const [conversation, referencedPost, repliedMessage] = await Promise.all([
-      db
-        .select({ userLow: conversations.userLow, userHigh: conversations.userHigh })
-        .from(conversations)
-        .where(eq(conversations.id, normalizedConversationId))
-        .limit(1)
-        .then((res) => res[0]),
+    const context = await getSendMessageContext(
+      normalizedSenderId,
+      normalizedConversationId,
+      normalizedReferencedPostId,
+      normalizedRepliedMessageId,
+      false,
+    );
 
-      normalizedReferencedPostId
-        ? db
-            .select({ authorId: posts.authorId })
-            .from(posts)
-            .where(eq(posts.id, normalizedReferencedPostId))
-            .limit(1)
-            .then((res) => res[0])
-        : Promise.resolve(null),
-
-      normalizedRepliedMessageId
-        ? db
-            .select({ conversationId: messages.conversationId, isDeleted: messages.isDeleted })
-            .from(messages)
-            .where(eq(messages.id, normalizedRepliedMessageId))
-            .limit(1)
-            .then((res) => res[0])
-        : Promise.resolve(null),
-    ]);
-
-    if (!conversation) {
+    if (!context) {
       throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
     }
 
-    if (
-      conversation.userLow !== normalizedSenderId &&
-      conversation.userHigh !== normalizedSenderId
-    ) {
+    if (context.userLow !== normalizedSenderId && context.userHigh !== normalizedSenderId) {
       throw new SendMessageError(
         "CONVERSATION_NOT_FOUND",
         "Unauthorized access to conversation.",
@@ -133,22 +106,26 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     }
 
     if (normalizedReferencedPostId) {
-      if (!referencedPost) throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
-      if (referencedPost.authorId === normalizedSenderId) {
+      if (!context.referencedPostAuthorId) {
+        throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
+      }
+      if (context.referencedPostAuthorId === normalizedSenderId) {
         throw new SendMessageError("CANNOT_REFERENCE_OWN_POST", "Cannot reference own post.", 400);
       }
     }
 
     if (normalizedRepliedMessageId) {
-      if (!repliedMessage)
+      if (!context.repliedMessageConversationId) {
         throw new SendMessageError("REPLIED_MESSAGE_NOT_FOUND", "Replied message not found.", 404);
-      if (repliedMessage.isDeleted)
+      }
+      if (context.repliedMessageIsDeleted) {
         throw new SendMessageError(
           "REPLIED_MESSAGE_UNSENT",
           "Cannot reply to a deleted message.",
           400,
         );
-      if (repliedMessage.conversationId !== normalizedConversationId) {
+      }
+      if (context.repliedMessageConversationId !== normalizedConversationId) {
         throw new SendMessageError(
           "REPLIED_MESSAGE_NOT_FOUND",
           "Replied message is not in this conversation.",
@@ -157,25 +134,9 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
       }
     }
 
-    const receiverId =
-      conversation.userLow === normalizedSenderId ? conversation.userHigh : conversation.userLow;
+    const isBlocked = await hasBlockingRelationship(normalizedSenderId, context.receiverId);
 
-    const [isBlocked, friendship] = await Promise.all([
-      hasBlockingRelationship(normalizedSenderId, receiverId),
-      db
-        .select({ userLow: friendships.userLow })
-        .from(friendships)
-        .where(
-          and(
-            eq(friendships.userLow, conversation.userLow),
-            eq(friendships.userHigh, conversation.userHigh),
-          ),
-        )
-        .limit(1)
-        .then((res) => res[0]),
-    ]);
-
-    if (isBlocked || !friendship) {
+    if (isBlocked || !context.isFriend) {
       throw new SendMessageError("NOT_FRIENDS", "You can only message friends.", 403);
     }
 
@@ -202,7 +163,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
       await tx
         .update(conversations)
         .set(
-          conversation.userLow === normalizedSenderId
+          context.userLow === normalizedSenderId
             ? { updatedAt: insertedMessage.createdAt, userLowLastReadAt: insertedMessage.createdAt }
             : {
                 updatedAt: insertedMessage.createdAt,
@@ -226,7 +187,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
       type: "NEW_MESSAGE" as const,
       payload: { conversationId: normalizedConversationId, message: messageResult },
     };
-    await publishWebSocketEventToUsers([receiverId, normalizedSenderId], wsPayload);
+    await publishWebSocketEventToUsers([context.receiverId, normalizedSenderId], wsPayload);
 
     void (async () => {
       try {
@@ -235,7 +196,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
           .from(mutedConversations)
           .where(
             and(
-              eq(mutedConversations.userId, receiverId),
+              eq(mutedConversations.userId, context.receiverId),
               eq(mutedConversations.conversationId, normalizedConversationId),
             ),
           )
@@ -245,7 +206,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
         const [sender, nickname] = await Promise.all([
           getUserSummaryById(normalizedSenderId),
-          getNickname(receiverId, normalizedSenderId),
+          getNickname(context.receiverId, normalizedSenderId),
         ]);
 
         if (sender) {
@@ -262,7 +223,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
           }
 
           await enqueuePushNotification({
-            recipientUserId: receiverId,
+            recipientUserId: context.receiverId,
             title,
             body,
             notificationType: "NEW_MESSAGE",

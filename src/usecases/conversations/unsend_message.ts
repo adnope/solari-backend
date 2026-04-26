@@ -1,9 +1,9 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
-import { conversations, friendships, messages } from "../../db/schema.ts";
+import { messages } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
-import { hasBlockingRelationship } from "../common_queries.ts";
+import { getMessageActionContext } from "../../db/queries/get_message_action_context.ts";
 
 export type UnsendMessageInput = {
   senderId: string;
@@ -49,15 +49,12 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
 
   try {
     const { resultPayload, receiverId } = await withTx(async (tx) => {
-      const [message] = await tx
-        .select({
-          senderId: messages.senderId,
-          conversationId: messages.conversationId,
-          isDeleted: messages.isDeleted,
-        })
-        .from(messages)
-        .where(eq(messages.id, normalizedMessageId))
-        .limit(1);
+      const message = await getMessageActionContext(
+        normalizedMessageId,
+        normalizedSenderId,
+        tx,
+        false,
+      );
 
       if (!message) {
         throw new UnsendMessageError("MESSAGE_NOT_FOUND", "Message not found.", 404);
@@ -67,24 +64,7 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
         throw new UnsendMessageError("UNAUTHORIZED", "You can only unsend your own messages.", 403);
       }
 
-      const [conversation] = await tx
-        .select({
-          userLow: conversations.userLow,
-          userHigh: conversations.userHigh,
-        })
-        .from(conversations)
-        .where(eq(conversations.id, message.conversationId))
-        .limit(1);
-
-      if (!conversation) {
-        throw new UnsendMessageError("INTERNAL_ERROR", "Conversation data missing.", 500);
-      }
-
-      const targetReceiverId =
-        conversation.userLow === normalizedSenderId ? conversation.userHigh : conversation.userLow;
-
-      const isBlocked = await hasBlockingRelationship(normalizedSenderId, targetReceiverId, tx);
-      if (isBlocked) {
+      if (message.isBlocked) {
         throw new UnsendMessageError(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
@@ -92,18 +72,7 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
         );
       }
 
-      const [friendship] = await tx
-        .select({ userLow: friendships.userLow })
-        .from(friendships)
-        .where(
-          and(
-            eq(friendships.userLow, conversation.userLow),
-            eq(friendships.userHigh, conversation.userHigh),
-          ),
-        )
-        .limit(1);
-
-      if (!friendship) {
+      if (!message.isFriend) {
         throw new UnsendMessageError(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
@@ -118,7 +87,7 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
             messageId: normalizedMessageId,
             isDeleted: true,
           },
-          receiverId: targetReceiverId,
+          receiverId: message.receiverId,
         };
       }
 
@@ -144,7 +113,7 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
           conversationId: updatedMessage.conversationId,
           isDeleted: true,
         },
-        receiverId: targetReceiverId,
+        receiverId: message.receiverId,
       };
     });
 

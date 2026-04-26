@@ -1,8 +1,8 @@
-import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
-import { postVisibility, postViews, posts } from "../../db/schema.ts";
-import { hasBlockingRelationship } from "../common_queries.ts";
+import { postViews } from "../../db/schema.ts";
 import { isValidUuid } from "../../utils/uuid.ts";
+import { getPostAccessContext } from "../../db/queries/get_post_access_context.ts";
+import { hasBlockingRelationship } from "../common_queries.ts";
 
 export type MarkPostAsViewedErrorType =
   | "MISSING_INPUT"
@@ -35,13 +35,7 @@ export async function markPostAsViewed(viewerId: string, postId: string): Promis
   }
 
   try {
-    const [post] = await db
-      .select({
-        authorId: posts.authorId,
-      })
-      .from(posts)
-      .where(eq(posts.id, normalizedPostId))
-      .limit(1);
+    const post = await getPostAccessContext(normalizedViewerId, normalizedPostId, db, false);
 
     if (!post) {
       throw new MarkPostAsViewedError("POST_NOT_FOUND", "Post not found.", 404);
@@ -56,18 +50,7 @@ export async function markPostAsViewed(viewerId: string, postId: string): Promis
       throw new MarkPostAsViewedError("POST_NOT_FOUND", "Post not found.", 404);
     }
 
-    const [visible] = await db
-      .select({ viewerId: postVisibility.viewerId })
-      .from(postVisibility)
-      .where(
-        and(
-          eq(postVisibility.postId, normalizedPostId),
-          eq(postVisibility.viewerId, normalizedViewerId),
-        ),
-      )
-      .limit(1);
-
-    if (!visible) {
+    if (!post.isVisible) {
       throw new MarkPostAsViewedError(
         "UNAUTHORIZED",
         "You are not authorized to view this post.",
