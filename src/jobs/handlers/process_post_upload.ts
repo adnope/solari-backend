@@ -74,16 +74,26 @@ export async function handlePostProcessing(
         height: actualMetadata.height,
       });
 
+      const getCanonicalPair = (userId1: string, userId2: string): [string, string] => {
+        return userId1 < userId2 ? [userId1, userId2] : [userId2, userId1];
+      };
+
       if (payload.audienceType === "all") {
         if (allFriendIds.length > 0) {
-          await tx
-            .insert(postVisibility)
-            .values(allFriendIds.map((viewerId) => ({ postId: payload.postId, viewerId })));
+          await tx.insert(postVisibility).values(
+            allFriendIds.map((viewerId) => {
+              const [friendLowId, friendHighId] = getCanonicalPair(payload.authorId, viewerId);
+              return { postId: payload.postId, viewerId, friendLowId, friendHighId };
+            }),
+          );
         }
       } else if (payload.viewerIds && payload.viewerIds.length > 0) {
-        await tx
-          .insert(postVisibility)
-          .values(payload.viewerIds.map((viewerId) => ({ postId: payload.postId, viewerId })));
+        await tx.insert(postVisibility).values(
+          payload.viewerIds.map((viewerId) => {
+            const [friendLowId, friendHighId] = getCanonicalPair(payload.authorId, viewerId);
+            return { postId: payload.postId, viewerId, friendLowId, friendHighId };
+          }),
+        );
       }
     });
 

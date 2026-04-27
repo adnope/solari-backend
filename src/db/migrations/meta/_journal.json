@@ -8,6 +8,13 @@
       "when": 1776236476000,
       "tag": "0000_dapper_nightshade",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777297446327,
+      "tag": "0001_wealthy_quasimodo",
+      "breakpoints": true
     }
   ]
 }

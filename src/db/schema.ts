@@ -485,6 +485,8 @@ export const postVisibility = pgTable(
   {
     postId: uuid("post_id").notNull(),
     viewerId: uuid("viewer_id").notNull(),
+    friendLowId: uuid("friend_low_id"),
+    friendHighId: uuid("friend_high_id"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
@@ -504,6 +506,11 @@ export const postVisibility = pgTable(
       columns: [table.viewerId],
       foreignColumns: [users.id],
       name: "post_visibility_viewer_id_fkey",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.friendLowId, table.friendHighId],
+      foreignColumns: [friendships.userLow, friendships.userHigh],
+      name: "post_visibility_friendship_fk",
     }).onDelete("cascade"),
     primaryKey({ columns: [table.postId, table.viewerId], name: "post_visibility_pkey" }),
   ],
