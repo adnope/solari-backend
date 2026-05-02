@@ -1264,17 +1264,18 @@ POST /conversations/mute
 GET /feed
 ```
 
-- Description: Retrieves a paginated feed of posts visible to the authenticated user. This includes the user's own posts and posts explicitly shared with them (e.g., by friends). Automatically filters out content involving blocking relationships. Resolves secure, presigned URLs for media access and applies custom nicknames for authors if they have been set. Supports optional filtering to only show posts from specific authors.
+- Description: Retrieves a paginated feed of posts visible to the authenticated user. This includes the user's own posts and posts explicitly shared with them (e.g., by friends). Automatically filters out content involving blocking relationships. Resolves secure, presigned URLs for media access and applies custom nicknames for authors if they have been set. Supports optional filtering to only show posts from specific authors and chronological sorting.
 - Auth required: Yes
 
 ### Request parameters:
 
-- limit (string, Optional): The maximum number of posts to return. Max is 100. Defaults to 30 (passed as a query parameter).
-- cursor (string, Optional): An ISO date string used for pagination. Fetches posts created before this timestamp (passed as a query parameter).
+- limit (string, Optional): The maximum number of posts to return. Max is 100. Defaults to 50 (passed as a query parameter).
+- cursor (string, Optional): An ISO date string used for pagination. Fetches posts created before or after this timestamp depending on the sort order (passed as a query parameter).
 - authors (string, Optional): A comma-separated list of user UUIDs to filter the feed to only show posts from those specific authors (passed as a query parameter).
+- sort (string, Optional): Sorts the results by creation date. Valid values are 'newest' or 'oldest'. Defaults to 'newest' (passed as a query parameter).
 - Example:
   ```text
-  GET /feed?limit=20&cursor=2026-04-08T12:45:10.000Z&authors=123e4567-e89b-12d3-a456-426614174000,987f6543-e21b-34c4-b567-513314175000
+  GET /feed?limit=20&cursor=2026-04-08T12:45:10.000Z&sort=newest&authors=123e4567-e89b-12d3-a456-426614174000,987f6543-e21b-34c4-b567-513314175000
   ```
 
 ### Request body:

@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { requireAuth } from "./middleware/require_auth.ts";
-import { getFeed, GetFeedError } from "../usecases/feed/get_feed.ts";
+import { getFeed, GetFeedError, type GetFeedSort } from "../usecases/feed/get_feed.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 
 // Get user's feed (posts of friends)
@@ -17,8 +17,9 @@ const protectedFeedRouter = new Elysia().use(requireAuth).get(
     }
 
     const limit = Number(query.limit) || 50;
+    const sort = (query.sort as GetFeedSort | undefined) || "newest";
 
-    const result = await getFeed(authUserId, limit, query.cursor, authorIds);
+    const result = await getFeed(authUserId, limit, query.cursor, authorIds, sort);
 
     set.status = 200;
     return {
@@ -49,6 +50,7 @@ const protectedFeedRouter = new Elysia().use(requireAuth).get(
       limit: t.Optional(t.String()),
       cursor: t.Optional(t.String()),
       authors: t.Optional(t.String()),
+      sort: t.Optional(t.String()),
     }),
   },
 );

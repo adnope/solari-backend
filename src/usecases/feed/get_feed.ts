@@ -1,5 +1,5 @@
 import { isValidUuid } from "../../utils/uuid.ts";
-import { and, desc, eq, inArray, lt, notExists, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { blockedUsers, postVisibility, posts } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
@@ -40,7 +40,10 @@ export type GetFeedErrorType =
   | "INVALID_CURSOR"
   | "INVALID_FILTER"
   | "INVALID_AUTHORS"
+  | "INVALID_SORT"
   | "INTERNAL_ERROR";
+
+export type GetFeedSort = "newest" | "oldest";
 
 export class GetFeedError extends Error {
   readonly type: GetFeedErrorType;
@@ -90,16 +93,26 @@ function normalizeAuthorIds(authorIds?: string[]): string[] | undefined {
   return normalized;
 }
 
+function normalizeSort(sort: string): GetFeedSort {
+  if (sort === "newest" || sort === "oldest") {
+    return sort;
+  }
+
+  throw new GetFeedError("INVALID_SORT", "Sort must be 'newest' or 'oldest'.", 400);
+}
+
 export async function getFeed(
   viewerId: string,
   limit = 30,
   cursor?: string,
   authorIds?: string[],
+  sort: GetFeedSort = "newest",
 ): Promise<GetFeedResult> {
   const normalizedViewerId = normalizeViewerId(viewerId);
   const normalizedCursor = normalizeCursor(cursor);
   const normalizedAuthorIds = normalizeAuthorIds(authorIds);
   const normalizedLimit = Math.min(Math.max(1, limit), 100);
+  const normalizedSort = normalizeSort(sort);
 
   try {
     if (normalizedAuthorIds) {
@@ -109,6 +122,14 @@ export async function getFeed(
         throw new GetFeedError("INVALID_AUTHORS", "One or more author IDs do not exist.", 404);
       }
     }
+
+    const cursorCondition = normalizedCursor
+      ? normalizedSort === "newest"
+        ? lt(posts.createdAt, normalizedCursor)
+        : gt(posts.createdAt, normalizedCursor)
+      : undefined;
+    const orderCondition =
+      normalizedSort === "newest" ? desc(posts.createdAt) : asc(posts.createdAt);
 
     const candidateRows = await db
       .select({
@@ -146,10 +167,10 @@ export async function getFeed(
           ),
 
           normalizedAuthorIds ? inArray(posts.authorId, normalizedAuthorIds) : undefined,
-          normalizedCursor ? lt(posts.createdAt, normalizedCursor) : undefined,
+          cursorCondition,
         ),
       )
-      .orderBy(desc(posts.createdAt))
+      .orderBy(orderCondition)
       .limit(normalizedLimit);
 
     const postIds = candidateRows.map((row) => row.id);
