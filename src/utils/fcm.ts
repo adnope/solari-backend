@@ -24,7 +24,8 @@ export type NotificationType =
   | "NEW_POST_REACTION"
   | "NEW_MESSAGE"
   | "NEW_MESSAGE_REACTION"
-  | "STREAK_MILESTONE";
+  | "STREAK_MILESTONE"
+  | "NEW_POST_PUBLISHED";
 
 function getAndroidNotificationConfig(type: NotificationType): {
   channel_id: string;
@@ -38,6 +39,7 @@ function getAndroidNotificationConfig(type: NotificationType): {
       return { channel_id: "reactions", priority: "NORMAL" };
     case "NEW_FRIEND_REQUEST":
     case "FRIEND_REQUEST_ACCEPTED":
+    case "NEW_POST_PUBLISHED":
       return { channel_id: "friend_activities", priority: "HIGH" };
     case "STREAK_MILESTONE":
       return { channel_id: "milestones_streaks", priority: "NORMAL" };

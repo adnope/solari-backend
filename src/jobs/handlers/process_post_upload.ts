@@ -3,9 +3,9 @@ import { postMedia, posts, postVisibility } from "../../db/schema.ts";
 import { uploadFile, deleteFile, getFileBuffer } from "../../storage/s3.ts";
 import { generateThumbnail } from "../../utils/thumbnail.ts";
 import { extractMediaMetadata } from "../../utils/media_parser.ts";
-import { publishWebSocketEvent } from "../queue.ts";
+import { publishWebSocketEvent, enqueuePushNotification } from "../queue.ts";
 import type { UploadPostJobPayload } from "../types.ts";
-import { getFriendIds } from "../../usecases/common_queries.ts";
+import { getFriendIds, getUserSummaryById } from "../../usecases/common_queries.ts";
 
 export async function handlePostProcessing(
   jobId: string,
@@ -101,6 +101,31 @@ export async function handlePostProcessing(
       type: "POST_PROCESSED",
       payload: { postId: payload.postId, status: "completed" },
     });
+
+    try {
+      const authorSummary = await getUserSummaryById(payload.authorId);
+      if (authorSummary) {
+        const friendsToNotify =
+          payload.audienceType === "all" ? allFriendIds : await getFriendIds(payload.authorId);
+
+        const pushPromises = friendsToNotify.map((friendId) =>
+          enqueuePushNotification({
+            recipientUserId: friendId,
+            title: "New Post",
+            body: `${authorSummary.username} just posted a new ${mediaType === "video" ? "video" : "photo"}.`,
+            notificationType: "NEW_POST_PUBLISHED",
+            extraData: {
+              postId: payload.postId,
+              authorId: payload.authorId,
+            },
+          }),
+        );
+
+        await Promise.allSettled(pushPromises);
+      }
+    } catch (e) {
+      console.error(`[HANDLER] Failed to enqueue push notifications for job ${jobId}:`, e);
+    }
   } catch (error) {
     console.error(`[HANDLER] Post processing failed for ${jobId}:`, error);
 

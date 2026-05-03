@@ -2704,6 +2704,7 @@ To ensure reliable delivery and proper routing on Android 8.0+ (API 26+), the ba
 | `NEW_POST_REACTION`       | `reactions`          | `NORMAL`     | `IMPORTANCE_DEFAULT`        |
 | `NEW_FRIEND_REQUEST`      | `friend_activities`  | `HIGH`       | `IMPORTANCE_HIGH`           |
 | `FRIEND_REQUEST_ACCEPTED` | `friend_activities`  | `HIGH`       | `IMPORTANCE_HIGH`           |
+| `NEW_POST_PUBLISHED`      | `friend_activities`  | `HIGH`       | `IMPORTANCE_HIGH`           |
 | `STREAK_MILESTONE`        | `milestones_streaks` | `NORMAL`     | `IMPORTANCE_DEFAULT`        |
 
 ## Notification types
@@ -2834,3 +2835,24 @@ Sent when the user reaches one of the configured streak milestones: `3`, `7`, `1
   }
 }
 ```
+
+### NEW_POST_PUBLISHED
+
+Sent to all friends of the author when a post upload is processed successfully.
+
+```json
+{
+  "notification": {
+    "title": "New Post",
+    "body": "janesmith just posted a new photo."
+  },
+  "data": {
+    "type": "NEW_POST_PUBLISHED",
+    "postId": "018fd1...",
+    "authorId": "987f6543-e21b-34c4-b567-513314175000"
+  }
+}
+```
+
+- `postId`: UUID of the published post
+- `authorId`: UUID of the post's author
