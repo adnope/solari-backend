@@ -64,25 +64,46 @@ export async function sendPushNotification(
     const oauthToken = await getGoogleAccessToken();
     const androidConfig = getAndroidNotificationConfig(notificationType);
 
-    const payload = {
+    const isDataOnly = notificationType === "NEW_POST_PUBLISHED";
+
+    const payload: any = {
       message: {
         token: deviceToken,
-        notification: {
-          title,
-          body,
-        },
         data: {
           type: notificationType,
+          title,
+          body,
           ...extraData,
-        },
-        android: {
-          priority: androidConfig.priority,
-          notification: {
-            channel_id: androidConfig.channel_id,
-          },
         },
       },
     };
+
+    if (!isDataOnly) {
+      payload.message.notification = {
+        title,
+        body,
+      };
+      payload.message.android = {
+        priority: androidConfig.priority,
+        notification: {
+          channel_id: androidConfig.channel_id,
+        },
+      };
+    } else {
+      payload.message.android = {
+        priority: androidConfig.priority,
+      };
+      payload.message.apns = {
+        payload: {
+          aps: {
+            alert: {
+              title,
+              body,
+            },
+          },
+        },
+      };
+    }
 
     const response = await fetch(fcmUrl, {
       method: "POST",
