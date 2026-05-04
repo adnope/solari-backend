@@ -264,3 +264,9 @@ CREATE INDEX "idx_user_devices_user_id" ON "user_devices" USING btree ("user_id"
 CREATE INDEX "idx_user_oauth_accounts_user_id" ON "user_oauth_accounts" USING btree ("user_id" uuid_ops);--> statement-breakpoint
 CREATE INDEX "idx_users_email" ON "users" USING btree ("email" citext_ops);--> statement-breakpoint
 CREATE INDEX "idx_users_username" ON "users" USING btree ("username" citext_ops);
+ALTER TABLE "post_visibility" ADD COLUMN "friend_low_id" uuid;--> statement-breakpoint
+ALTER TABLE "post_visibility" ADD COLUMN "friend_high_id" uuid;--> statement-breakpoint
+ALTER TABLE "post_visibility" ADD CONSTRAINT "post_visibility_friendship_fk" FOREIGN KEY ("friend_low_id","friend_high_id") REFERENCES "public"."friendships"("user_low","user_high") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "posts" ADD COLUMN "caption_type" text DEFAULT 'text' NOT NULL;--> statement-breakpoint
+ALTER TABLE "posts" ADD COLUMN "caption_metadata" jsonb;--> statement-breakpoint
+ALTER TABLE "posts" ADD CONSTRAINT "posts_caption_type_check" CHECK (caption_type = ANY (ARRAY['text'::text, 'ootd'::text, 'clock'::text, 'weather'::text, 'location'::text, 'rating'::text]));
