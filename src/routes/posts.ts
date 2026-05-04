@@ -64,6 +64,8 @@ const protectedPostsRouter = new Elysia()
         authorId: authUserId,
         contentType: body.content_type,
         caption: caption,
+        captionType: body.caption_type as any,
+        captionMetadata: body.caption_metadata as any,
         audienceType: audienceType,
         viewerIds: viewerIds,
         width: body.width,
@@ -84,6 +86,17 @@ const protectedPostsRouter = new Elysia()
       body: t.Object({
         content_type: t.String(),
         caption: t.Optional(t.String()),
+        caption_type: t.Optional(
+          t.Union([
+            t.Literal("text"),
+            t.Literal("ootd"),
+            t.Literal("weather"),
+            t.Literal("location"),
+            t.Literal("rating"),
+            t.Literal("clock"),
+          ]),
+        ),
+        caption_metadata: t.Optional(t.Any()),
         audience_type: t.Union([t.Literal("all"), t.Literal("selected")]),
         viewer_ids: t.Optional(t.String()),
         width: t.Number(),
@@ -164,6 +177,8 @@ const protectedPostsRouter = new Elysia()
         post: {
           id: result.id,
           caption: result.caption,
+          caption_type: result.captionType,
+          caption_metadata: result.captionMetadata,
           audience_type: result.audienceType,
           created_at: result.createdAt,
           author: {

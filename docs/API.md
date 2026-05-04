@@ -1808,6 +1808,14 @@ POST /posts/initiate
 
 - content_type (string, Required): The MIME type of the media (e.g., "image/jpeg", "video/mp4").
 - caption (string, Optional): A short text description. Max 48 characters.
+- caption_type (string, Optional): The type of caption. Can be "text", "ootd", "weather", "location", "rating", or "clock". Defaults to "text".
+- caption_metadata (object, Optional): A JSON object representing the type-specific metadata (must include the "type" property as discriminator). Detailed formats per `caption_type`:
+  - **`text`**: `{"type": "text", "data": null}`
+  - **`ootd`**: `{"type": "ootd", "data": {}}`
+  - **`weather`**: `{"type": "weather", "data": {"condition": string, "temperature_c"?: number}}`
+  - **`location`**: `{"type": "location", "data": {"place_name": string}}`
+  - **`rating`**: `{"type": "rating", "data": {"star_rating": number, "review"?: string}}`
+  - **`clock`**: `{"type": "clock", "data": {"time": string}}` (e.g., `"1:08 PM"`)
 - audience_type (string, Required): Access level for the post. Must be "all" (visible to all friends) or "selected" (visible only to specified friends).
 - viewer_ids (string, Optional): A comma-separated list of user UUIDs. Required if audience_type is "selected"; must be empty if audience_type is "all". Every ID must belong to a current friend.
 - width (number, Required): Media width in pixels. Must be a positive integer and equal to the height.
@@ -1821,6 +1829,14 @@ POST /posts/initiate
 {
   "content_type": "video/mp4",
   "caption": "what is this???",
+  "caption_type": "weather",
+  "caption_metadata": {
+    "type": "weather",
+    "data": {
+      "condition": "sunny",
+      "temperature_c": 30
+    }
+  },
   "audience_type": "selected",
   "viewer_ids": "123e4567-e89b-12d3-a456-426614174000,987f6543-e21b-34c4-b567-513314175000",
   "width": 1080,
@@ -1964,6 +1980,11 @@ GET /posts/018f9e7a-9e7a-4e7a-8e7a-9e7a9e7a9e7a
   "post": {
     "id": "018f9e...",
     "caption": "Beautiful sunset today!",
+    "caption_type": "text",
+    "caption_metadata": {
+      "type": "text",
+      "data": null
+    },
     "audience_type": "all",
     "created_at": "2026-04-08T12:45:10.000Z",
     "author": {

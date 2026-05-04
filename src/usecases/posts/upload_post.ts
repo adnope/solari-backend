@@ -11,6 +11,7 @@ import {
 import type { UploadPostJobPayload } from "../../jobs/types.ts";
 import { calculateNewStreak } from "../../utils/streak.ts";
 import { getFriendIds } from "../common_queries.ts";
+import type { CaptionMetadata } from "../../db/schema.ts";
 
 export type UploadPostErrorType =
   | "MISSING_INPUT"
@@ -39,6 +40,8 @@ export type InitiatePostUploadInput = {
   authorId: string;
   contentType: string;
   caption?: string | undefined;
+  captionType?: "text" | "ootd" | "weather" | "location" | "rating" | "clock" | undefined;
+  captionMetadata?: CaptionMetadata | undefined;
   audienceType: "all" | "selected";
   viewerIds?: string[] | undefined;
   width: number;
@@ -149,6 +152,8 @@ export async function initiatePostUpload(
       authorId: normalizedAuthorId,
       contentType: normalizedContentType,
       caption: input.caption,
+      captionType: input.captionType,
+      captionMetadata: input.captionMetadata,
       audienceType: input.audienceType,
       viewerIds: uniqueViewerIds,
       timezone: input.timezone.trim(),
@@ -271,6 +276,8 @@ export async function finalizePostUpload(input: FinalizePostInput) {
       objectKey: input.objectKey,
       contentType: ticketData.contentType,
       caption: ticketData.caption,
+      captionType: ticketData.captionType,
+      captionMetadata: ticketData.captionMetadata,
       audienceType: ticketData.audienceType,
       viewerIds: ticketData.viewerIds,
     };

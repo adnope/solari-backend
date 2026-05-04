@@ -1,4 +1,5 @@
 import type { NotificationType } from "../utils/fcm";
+import type { CaptionMetadata } from "../db/schema.ts";
 
 export type UploadPostJobPayload = {
   postId: string;
@@ -6,6 +7,8 @@ export type UploadPostJobPayload = {
   objectKey: string;
   contentType: string;
   caption?: string;
+  captionType?: string;
+  captionMetadata?: CaptionMetadata | null;
   audienceType: "all" | "selected";
   viewerIds?: string[];
 };

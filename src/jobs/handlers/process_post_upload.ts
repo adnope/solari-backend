@@ -59,6 +59,8 @@ export async function handlePostProcessing(
         id: payload.postId,
         authorId: payload.authorId,
         caption: payload.caption || null,
+        captionType: payload.captionType || "text",
+        captionMetadata: payload.captionMetadata || null,
         audienceType: payload.audienceType,
       });
 

@@ -1,4 +1,5 @@
 import { deleteKey, getJson, setJson } from "./json_cache.ts";
+import type { CaptionMetadata } from "../db/schema.ts";
 
 export type CachedPostAudienceType = "all" | "selected";
 export type CachedPostMediaType = "image" | "video";
@@ -7,6 +8,8 @@ export type CachedPostDetail = {
   id: string;
   authorId: string;
   caption: string | null;
+  captionType: string;
+  captionMetadata: CaptionMetadata | null;
   audienceType: CachedPostAudienceType;
   createdAt: string;
   mediaType: CachedPostMediaType;

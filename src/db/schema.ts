@@ -13,8 +13,37 @@ import {
   integer,
   primaryKey,
   customType,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+export interface WeatherMetadata {
+  condition: string;
+  temperature_c?: number;
+}
+
+export interface LocationMetadata {
+  place_name: string;
+}
+
+export interface RatingMetadata {
+  star_rating: number;
+  review?: string;
+}
+
+export interface OOTDMetadata {}
+
+export interface ClockMetadata {
+  time: string;
+}
+
+export type CaptionMetadata =
+  | { type: "weather"; data: WeatherMetadata }
+  | { type: "location"; data: LocationMetadata }
+  | { type: "rating"; data: RatingMetadata }
+  | { type: "ootd"; data: OOTDMetadata }
+  | { type: "clock"; data: ClockMetadata }
+  | { type: "text"; data: null };
 
 const citext = customType<{ data: string }>({
   dataType() {
@@ -167,6 +196,8 @@ export const posts = pgTable(
     id: uuid().primaryKey().notNull(),
     authorId: uuid("author_id").notNull(),
     caption: text(),
+    captionType: text("caption_type").default("text").notNull(),
+    captionMetadata: jsonb("caption_metadata").$type<CaptionMetadata>(),
     audienceType: text("audience_type").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
@@ -186,6 +217,10 @@ export const posts = pgTable(
     check(
       "posts_audience_type_check",
       sql`audience_type = ANY (ARRAY['all'::text, 'selected'::text])`,
+    ),
+    check(
+      "posts_caption_type_check",
+      sql`caption_type = ANY (ARRAY['text'::text, 'ootd'::text, 'clock'::text, 'weather'::text, 'location'::text, 'rating'::text])`,
     ),
   ],
 );

@@ -17,6 +17,8 @@ type PostDetailRow = {
   id: string;
   authorId: string;
   caption: string | null;
+  captionType: string;
+  captionMetadata: any;
   audienceType: string;
   createdAt: string;
   mediaType: string;
@@ -52,6 +54,8 @@ function toPostDetail(row: PostDetailRow): PostDetail {
     id: row.id,
     authorId: row.authorId,
     caption: row.caption,
+    captionType: row.captionType,
+    captionMetadata: row.captionMetadata,
     audienceType: normalizeAudienceType(row.audienceType),
     createdAt: row.createdAt,
     mediaType: normalizeMediaType(row.mediaType),
@@ -73,6 +77,8 @@ async function fetchPostDetailsByIds(postIds: string[]): Promise<PostDetail[]> {
       id: posts.id,
       authorId: posts.authorId,
       caption: posts.caption,
+      captionType: posts.captionType,
+      captionMetadata: posts.captionMetadata,
       audienceType: posts.audienceType,
       createdAt: posts.createdAt,
       mediaType: postMedia.mediaType,

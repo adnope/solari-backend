@@ -5,6 +5,7 @@ import { getFileUrl } from "../../storage/s3.ts";
 import { isValidUuid } from "../../utils/uuid.ts";
 import { getNickname, getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
 import { getPostDetailById } from "../post_details.ts";
+import type { CaptionMetadata } from "../../db/schema.ts";
 
 export type GetPostAuthor = {
   id: string;
@@ -25,6 +26,8 @@ export type GetPostMedia = {
 export type GetPostResult = {
   id: string;
   caption: string | null;
+  captionType: string;
+  captionMetadata: CaptionMetadata | null;
   audienceType: "all" | "selected";
   createdAt: string;
   author: GetPostAuthor;
@@ -110,6 +113,8 @@ export async function getPost(viewerId: string, postId: string): Promise<GetPost
     return {
       id: post.id,
       caption: post.caption,
+      captionType: post.captionType,
+      captionMetadata: post.captionMetadata,
       audienceType: post.audienceType,
       createdAt: post.createdAt,
       author: {
