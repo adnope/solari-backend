@@ -4,6 +4,7 @@ import { db } from "../../db/client.ts";
 import { blockedUsers, postReactions, posts } from "../../db/schema.ts";
 import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
+import { AppError } from "../app_error.ts";
 
 export type ReactionUser = {
   id: string;
@@ -32,18 +33,6 @@ export type ViewPostReactionsErrorType =
   | "POST_NOT_FOUND"
   | "INTERNAL_ERROR";
 
-export class ViewPostReactionsError extends Error {
-  readonly type: ViewPostReactionsErrorType;
-  readonly statusCode: number;
-
-  constructor(type: ViewPostReactionsErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "ViewPostReactionsError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function viewPostReactions(
   viewerId: string,
   postId: string,
@@ -54,18 +43,22 @@ export async function viewPostReactions(
   const normalizedPostId = postId.trim();
 
   if (!normalizedViewerId || !normalizedPostId) {
-    throw new ViewPostReactionsError("MISSING_INPUT", "Viewer ID and Post ID are required.", 400);
+    throw new AppError<ViewPostReactionsErrorType>(
+      "MISSING_INPUT",
+      "Viewer ID and Post ID are required.",
+      400,
+    );
   }
 
   if (!isValidUuid(normalizedViewerId) || !isValidUuid(normalizedPostId)) {
-    throw new ViewPostReactionsError("POST_NOT_FOUND", "Post not found.", 404);
+    throw new AppError<ViewPostReactionsErrorType>("POST_NOT_FOUND", "Post not found.", 404);
   }
 
   let parsedCursor: string | undefined;
   if (cursor) {
     const parsed = new Date(cursor);
     if (Number.isNaN(parsed.getTime())) {
-      throw new ViewPostReactionsError(
+      throw new AppError<ViewPostReactionsErrorType>(
         "INVALID_CURSOR",
         "Cursor must be a valid ISO date string.",
         400,
@@ -84,7 +77,7 @@ export async function viewPostReactions(
       .limit(1);
 
     if (!authorizedPost) {
-      throw new ViewPostReactionsError(
+      throw new AppError<ViewPostReactionsErrorType>(
         "UNAUTHORIZED",
         "You are not authorized to view reactions for this post, or it does not exist.",
         403,
@@ -137,7 +130,11 @@ export async function viewPostReactions(
       const user = userMap.get(row.userId);
 
       if (!user) {
-        throw new ViewPostReactionsError("INTERNAL_ERROR", "Internal server error.", 500);
+        throw new AppError<ViewPostReactionsErrorType>(
+          "INTERNAL_ERROR",
+          "Internal server error.",
+          500,
+        );
       }
 
       return {
@@ -159,9 +156,9 @@ export async function viewPostReactions(
       nextCursor: items.length > 0 ? items[items.length - 1]!.createdAt : null,
     };
   } catch (error) {
-    if (error instanceof ViewPostReactionsError) throw error;
+    if (error instanceof AppError) throw error;
     console.error(`[ERROR] Unexpected error in use case: View post reactions\n${error}`);
-    throw new ViewPostReactionsError(
+    throw new AppError<ViewPostReactionsErrorType>(
       "INTERNAL_ERROR",
       "Internal server error fetching reactions.",
       500,

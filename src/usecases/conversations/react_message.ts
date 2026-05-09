@@ -5,6 +5,7 @@ import { conversations, messageReactions, messages } from "../../db/schema.ts";
 import { getNickname, getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
 import { enqueuePushNotification, publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
+import { AppError } from "../app_error.ts";
 
 export type ReactMessageInput = {
   userId: string;
@@ -27,18 +28,6 @@ export type ReactMessageErrorType =
   | "MESSAGE_DELETED"
   | "INTERNAL_ERROR";
 
-export class ReactMessageError extends Error {
-  readonly type: ReactMessageErrorType;
-  readonly statusCode: number;
-
-  constructor(type: ReactMessageErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "ReactMessageError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export function isSingleEmoji(input: string): boolean {
   const emojiRegex = /^\p{RGI_Emoji}$/v;
   return emojiRegex.test(input);
@@ -50,7 +39,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
   const trimmedEmoji = input.emoji?.trim();
 
   if (!normalizedUserId || !normalizedMessageId || !trimmedEmoji) {
-    throw new ReactMessageError(
+    throw new AppError<ReactMessageErrorType>(
       "MISSING_INPUT",
       "User ID, Message ID, and Emoji are required.",
       400,
@@ -58,11 +47,11 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
   }
 
   if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedMessageId)) {
-    throw new ReactMessageError("UNAUTHORIZED_OR_NOT_FOUND", "Invalid ID.", 404);
+    throw new AppError<ReactMessageErrorType>("UNAUTHORIZED_OR_NOT_FOUND", "Invalid ID.", 404);
   }
 
   if (!isSingleEmoji(trimmedEmoji)) {
-    throw new ReactMessageError("INVALID_EMOJI", "Invalid emoji.", 400);
+    throw new AppError<ReactMessageErrorType>("INVALID_EMOJI", "Invalid emoji.", 400);
   }
 
   const reactionId = Bun.randomUUIDv7();
@@ -103,7 +92,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
         .limit(1);
 
       if (!messageRow) {
-        throw new ReactMessageError(
+        throw new AppError<ReactMessageErrorType>(
           "UNAUTHORIZED_OR_NOT_FOUND",
           "Message not found or authorized.",
           404,
@@ -111,7 +100,11 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
       }
 
       if (messageRow.isDeleted) {
-        throw new ReactMessageError("MESSAGE_DELETED", "Cannot react to an unsent message.", 400);
+        throw new AppError<ReactMessageErrorType>(
+          "MESSAGE_DELETED",
+          "Cannot react to an unsent message.",
+          400,
+        );
       }
 
       const targetReceiverId =
@@ -119,7 +112,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
 
       const isBlocked = await hasBlockingRelationship(normalizedUserId, targetReceiverId, tx);
       if (isBlocked) {
-        throw new ReactMessageError(
+        throw new AppError<ReactMessageErrorType>(
           "UNAUTHORIZED_OR_NOT_FOUND",
           "Message not found or authorized.",
           404,
@@ -144,7 +137,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
         });
 
       if (!reactionRow) {
-        throw new ReactMessageError("INTERNAL_ERROR", "Error adding reaction.", 500);
+        throw new AppError<ReactMessageErrorType>("INTERNAL_ERROR", "Error adding reaction.", 500);
       }
 
       let pushPayload: {
@@ -211,13 +204,13 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
 
     return reactionResult;
   } catch (error: unknown) {
-    if (error instanceof ReactMessageError) throw error;
+    if (error instanceof AppError) throw error;
 
     if (isPgErrorCode(error, PgErrorCode.INVALID_TEXT_REPRESENTATION)) {
-      throw new ReactMessageError("UNAUTHORIZED_OR_NOT_FOUND", "Invalid ID.", 404);
+      throw new AppError<ReactMessageErrorType>("UNAUTHORIZED_OR_NOT_FOUND", "Invalid ID.", 404);
     }
 
     console.error(`[ERROR] Unexpected error in use case: React message\n`, error);
-    throw new ReactMessageError("INTERNAL_ERROR", "Error adding reaction.", 500);
+    throw new AppError<ReactMessageErrorType>("INTERNAL_ERROR", "Error adding reaction.", 500);
   }
 }

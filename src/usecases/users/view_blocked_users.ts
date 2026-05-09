@@ -4,6 +4,7 @@ import { db } from "../../db/client.ts";
 import { blockedUsers } from "../../db/schema.ts";
 import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getUserSummariesByIds } from "../common_queries.ts";
+import { AppError } from "../app_error.ts";
 
 export type ViewBlockedUsersErrorType =
   | "MISSING_USER_ID"
@@ -11,18 +12,6 @@ export type ViewBlockedUsersErrorType =
   | "INVALID_LIMIT"
   | "INVALID_SORT"
   | "INTERNAL_ERROR";
-
-export class ViewBlockedUsersError extends Error {
-  readonly type: ViewBlockedUsersErrorType;
-  readonly statusCode: number;
-
-  constructor(type: ViewBlockedUsersErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "ViewBlockedUsersError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
 
 export type BlockedUser = {
   id: string;
@@ -40,7 +29,11 @@ export type ViewBlockedUsersResult = {
 
 function normalizeLimit(limit = 20): number {
   if (!Number.isInteger(limit) || limit <= 0) {
-    throw new ViewBlockedUsersError("INVALID_LIMIT", "Limit must be a positive integer.", 400);
+    throw new AppError<ViewBlockedUsersErrorType>(
+      "INVALID_LIMIT",
+      "Limit must be a positive integer.",
+      400,
+    );
   }
   return Math.min(limit, 100);
 }
@@ -55,15 +48,23 @@ export async function viewBlockedUsers(
 
   try {
     if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
-      throw new ViewBlockedUsersError("MISSING_USER_ID", "User id is missing or invalid.", 400);
+      throw new AppError<ViewBlockedUsersErrorType>(
+        "MISSING_USER_ID",
+        "User id is missing or invalid.",
+        400,
+      );
     }
 
     if (sort !== "newest" && sort !== "oldest") {
-      throw new ViewBlockedUsersError("INVALID_SORT", "Sort must be 'newest' or 'oldest'.", 400);
+      throw new AppError<ViewBlockedUsersErrorType>(
+        "INVALID_SORT",
+        "Sort must be 'newest' or 'oldest'.",
+        400,
+      );
     }
 
     if (cursor && Number.isNaN(Date.parse(cursor))) {
-      throw new ViewBlockedUsersError(
+      throw new AppError<ViewBlockedUsersErrorType>(
         "INVALID_CURSOR",
         "Cursor must be a valid ISO date string.",
         400,
@@ -116,7 +117,11 @@ export async function viewBlockedUsers(
       const blockedUser = userMap.get(row.blockedId);
 
       if (!blockedUser) {
-        throw new ViewBlockedUsersError("INTERNAL_ERROR", "Internal server error.", 500);
+        throw new AppError<ViewBlockedUsersErrorType>(
+          "INTERNAL_ERROR",
+          "Internal server error.",
+          500,
+        );
       }
 
       return {
@@ -136,11 +141,11 @@ export async function viewBlockedUsers(
       limit: normalizedLimit,
     };
   } catch (error: unknown) {
-    if (error instanceof ViewBlockedUsersError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: View blocked users\n`, error);
-    throw new ViewBlockedUsersError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<ViewBlockedUsersErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

@@ -3,6 +3,7 @@ import { db } from "../../db/client.ts";
 import { users } from "../../db/schema.ts";
 import { cachePublicProfile, getCachedPublicProfile } from "../../cache/public_profile_cache.ts";
 import { getFileUrl } from "../../storage/s3.ts";
+import { AppError } from "../app_error.ts";
 
 export type PublicWebProfileResult = {
   id: string;
@@ -13,23 +14,11 @@ export type PublicWebProfileResult = {
 
 export type GetPublicWebProfileErrorType = "INVALID_INPUT" | "USER_NOT_FOUND" | "INTERNAL_ERROR";
 
-export class GetPublicWebProfileError extends Error {
-  readonly type: GetPublicWebProfileErrorType;
-  readonly statusCode: number;
-
-  constructor(type: GetPublicWebProfileErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "GetPublicWebProfileError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function getPublicWebProfile(username: string): Promise<PublicWebProfileResult> {
   const normalizedUsername = username.trim().toLowerCase();
 
   if (!normalizedUsername) {
-    throw new GetPublicWebProfileError("INVALID_INPUT", "Username is required.", 400);
+    throw new AppError<GetPublicWebProfileErrorType>("INVALID_INPUT", "Username is required.", 400);
   }
 
   try {
@@ -51,7 +40,7 @@ export async function getPublicWebProfile(username: string): Promise<PublicWebPr
       .limit(1);
 
     if (!user) {
-      throw new GetPublicWebProfileError("USER_NOT_FOUND", "User not found.", 404);
+      throw new AppError<GetPublicWebProfileErrorType>("USER_NOT_FOUND", "User not found.", 404);
     }
 
     const profile = {
@@ -65,12 +54,12 @@ export async function getPublicWebProfile(username: string): Promise<PublicWebPr
 
     return profile;
   } catch (error: unknown) {
-    if (error instanceof GetPublicWebProfileError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: Get public web profile\n`, error);
-    throw new GetPublicWebProfileError(
+    throw new AppError<GetPublicWebProfileErrorType>(
       "INTERNAL_ERROR",
       "Internal server error fetching profile.",
       500,

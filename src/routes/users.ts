@@ -1,15 +1,15 @@
 import { Elysia, t } from "elysia";
 import { requireAuth } from "./middleware/require_auth.ts";
-import { deleteAccount, DeleteAccountError } from "../usecases/users/delete_account.ts";
-import { getPublicProfile, GetPublicProfileError } from "../usecases/users/get_public_profile.ts";
-import { registerDevice, RegisterDeviceError } from "../usecases/users/register_device.ts";
-import { updateProfile, UpdateProfileError } from "../usecases/users/update_profile.ts";
+import { deleteAccount } from "../usecases/users/delete_account.ts";
+import { getPublicProfile } from "../usecases/users/get_public_profile.ts";
+import { registerDevice } from "../usecases/users/register_device.ts";
+import { updateProfile } from "../usecases/users/update_profile.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
-import { updatePassword, UpdatePasswordError } from "../usecases/auth/update_password.ts";
+import { updatePassword } from "../usecases/auth/update_password.ts";
 import { blockUser } from "../usecases/users/block_user.ts";
 import { getUserStreak } from "../usecases/users/get_user_streak.ts";
-import { viewBlockedUsers, ViewBlockedUsersError } from "../usecases/users/view_blocked_users.ts";
-import { unblockUser, UnblockUserError } from "../usecases/users/unblock_user.ts";
+import { viewBlockedUsers } from "../usecases/users/view_blocked_users.ts";
+import { unblockUser } from "../usecases/users/unblock_user.ts";
 
 const protectedUsersRouter = new Elysia()
   .use(requireAuth)
@@ -249,14 +249,6 @@ const protectedUsersRouter = new Elysia()
     },
   );
 
-const usersRouter = withApiErrorHandler(new Elysia(), {
-  UpdateProfileError,
-  DeleteAccountError,
-  RegisterDeviceError,
-  GetPublicProfileError,
-  UpdatePasswordError,
-  ViewBlockedUsersError,
-  UnblockUserError,
-}).use(protectedUsersRouter);
+const usersRouter = withApiErrorHandler(new Elysia()).use(protectedUsersRouter);
 
 export default usersRouter;

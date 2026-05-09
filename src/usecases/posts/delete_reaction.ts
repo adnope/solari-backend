@@ -2,20 +2,9 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { postReactions } from "../../db/schema.ts";
+import { AppError } from "../app_error.ts";
 
 export type DeleteReactionErrorType = "MISSING_INPUT" | "REACTION_NOT_FOUND" | "INTERNAL_ERROR";
-
-export class DeleteReactionError extends Error {
-  readonly type: DeleteReactionErrorType;
-  readonly statusCode: number;
-
-  constructor(type: DeleteReactionErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "DeleteReactionError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
 
 export async function deleteReaction(
   userId: string,
@@ -27,7 +16,7 @@ export async function deleteReaction(
   const normalizedReactionId = reactionId.trim();
 
   if (!normalizedUserId || !normalizedPostId || !normalizedReactionId) {
-    throw new DeleteReactionError(
+    throw new AppError<DeleteReactionErrorType>(
       "MISSING_INPUT",
       "User ID, Post ID, and Reaction ID are required.",
       400,
@@ -39,7 +28,7 @@ export async function deleteReaction(
     !isValidUuid(normalizedPostId) ||
     !isValidUuid(normalizedReactionId)
   ) {
-    throw new DeleteReactionError(
+    throw new AppError<DeleteReactionErrorType>(
       "REACTION_NOT_FOUND",
       "Reaction not found or invalid ID format.",
       404,
@@ -59,16 +48,16 @@ export async function deleteReaction(
       .returning({ id: postReactions.id });
 
     if (!deleted) {
-      throw new DeleteReactionError(
+      throw new AppError<DeleteReactionErrorType>(
         "REACTION_NOT_FOUND",
         "Reaction not found or you do not have permission to delete it.",
         404,
       );
     }
   } catch (error) {
-    if (error instanceof DeleteReactionError) throw error;
+    if (error instanceof AppError) throw error;
     console.error(`[ERROR] Unexpected error in use case: Delete reaction\n${error}`);
-    throw new DeleteReactionError(
+    throw new AppError<DeleteReactionErrorType>(
       "INTERNAL_ERROR",
       "Internal server error deleting reaction.",
       500,

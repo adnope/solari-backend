@@ -3,6 +3,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { sessions, userPasswords, users } from "../../db/schema.ts";
 import { deleteCachedAuthSessions } from "../../cache/auth_session_cache.ts";
+import { AppError } from "../app_error.ts";
 
 export type UpdatePasswordInput = {
   userId: string;
@@ -22,27 +23,15 @@ export type UpdatePasswordErrorType =
   | "USER_NOT_FOUND"
   | "INTERNAL_ERROR";
 
-export class UpdatePasswordError extends Error {
-  readonly type: UpdatePasswordErrorType;
-  readonly statusCode: number;
-
-  constructor(type: UpdatePasswordErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "UpdatePasswordError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 function normalizeUserId(userId: string): string {
   const value = userId.trim();
 
   if (!value) {
-    throw new UpdatePasswordError("MISSING_USER_ID", "User ID is required.", 400);
+    throw new AppError<UpdatePasswordErrorType>("MISSING_USER_ID", "User ID is required.", 400);
   }
 
   if (!isValidUuid(value)) {
-    throw new UpdatePasswordError("MISSING_USER_ID", "Invalid user ID format.", 400);
+    throw new AppError<UpdatePasswordErrorType>("MISSING_USER_ID", "Invalid user ID format.", 400);
   }
 
   return value;
@@ -52,11 +41,19 @@ function normalizeSessionId(sessionId: string): string {
   const value = sessionId.trim();
 
   if (!value) {
-    throw new UpdatePasswordError("MISSING_SESSION_ID", "Session ID is required.", 400);
+    throw new AppError<UpdatePasswordErrorType>(
+      "MISSING_SESSION_ID",
+      "Session ID is required.",
+      400,
+    );
   }
 
   if (!isValidUuid(value)) {
-    throw new UpdatePasswordError("MISSING_SESSION_ID", "Invalid session ID format.", 400);
+    throw new AppError<UpdatePasswordErrorType>(
+      "MISSING_SESSION_ID",
+      "Invalid session ID format.",
+      400,
+    );
   }
 
   return value;
@@ -64,7 +61,11 @@ function normalizeSessionId(sessionId: string): string {
 
 function requireOldPassword(password: string): string {
   if (password.length === 0) {
-    throw new UpdatePasswordError("MISSING_OLD_PASSWORD", "Old password is required.", 400);
+    throw new AppError<UpdatePasswordErrorType>(
+      "MISSING_OLD_PASSWORD",
+      "Old password is required.",
+      400,
+    );
   }
 
   return password;
@@ -72,11 +73,19 @@ function requireOldPassword(password: string): string {
 
 function validateNewPassword(password: string): string {
   if (password.length === 0) {
-    throw new UpdatePasswordError("MISSING_NEW_PASSWORD", "New password is required.", 400);
+    throw new AppError<UpdatePasswordErrorType>(
+      "MISSING_NEW_PASSWORD",
+      "New password is required.",
+      400,
+    );
   }
 
   if (password.length < 6) {
-    throw new UpdatePasswordError("WEAK_PASSWORD", "Password must be at least 6 characters.", 400);
+    throw new AppError<UpdatePasswordErrorType>(
+      "WEAK_PASSWORD",
+      "Password must be at least 6 characters.",
+      400,
+    );
   }
 
   return password;
@@ -101,11 +110,11 @@ export async function updatePassword(input: UpdatePasswordInput): Promise<void> 
         .limit(1);
 
       if (!row) {
-        throw new UpdatePasswordError("USER_NOT_FOUND", "User not found.", 404);
+        throw new AppError<UpdatePasswordErrorType>("USER_NOT_FOUND", "User not found.", 404);
       }
 
       if (!row.passwordHash) {
-        throw new UpdatePasswordError(
+        throw new AppError<UpdatePasswordErrorType>(
           "PASSWORD_NOT_SET",
           "This account does not have a password set. Please sign in using your linked third-party account.",
           400,
@@ -114,7 +123,11 @@ export async function updatePassword(input: UpdatePasswordInput): Promise<void> 
 
       const isOldPasswordValid = await Bun.password.verify(oldPassword, row.passwordHash);
       if (!isOldPasswordValid) {
-        throw new UpdatePasswordError("INVALID_OLD_PASSWORD", "Old password is incorrect.", 401);
+        throw new AppError<UpdatePasswordErrorType>(
+          "INVALID_OLD_PASSWORD",
+          "Old password is incorrect.",
+          401,
+        );
       }
 
       const newPasswordHash = await Bun.password.hash(newPassword, {
@@ -139,11 +152,11 @@ export async function updatePassword(input: UpdatePasswordInput): Promise<void> 
 
     await deleteCachedAuthSessions(deletedSessionIds);
   } catch (error) {
-    if (error instanceof UpdatePasswordError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: Update password\n${error}`);
-    throw new UpdatePasswordError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<UpdatePasswordErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

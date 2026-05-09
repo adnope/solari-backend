@@ -5,6 +5,7 @@ import { enqueuePushNotification } from "../../jobs/queue.ts";
 import { getNickname, getUserSummaryById } from "../common_queries.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { getPostAccessContext } from "../../db/queries/get_post_access_context.ts";
+import { AppError } from "../app_error.ts";
 
 export type ReactPostInput = {
   userId: string;
@@ -30,18 +31,6 @@ export type ReactPostErrorType =
   | "INTERNAL_ERROR"
   | "INVALID_EMOJI";
 
-export class ReactPostError extends Error {
-  readonly type: ReactPostErrorType;
-  readonly statusCode: number;
-
-  constructor(type: ReactPostErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "ReactPostError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export function isSingleEmoji(input: string): boolean {
   const emojiRegex = /^\p{RGI_Emoji}$/v;
   return emojiRegex.test(input);
@@ -54,19 +43,31 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
   const trimmedNote = input.note?.trim();
 
   if (!normalizedUserId || !normalizedPostId || !trimmedEmoji) {
-    throw new ReactPostError("MISSING_INPUT", "User ID, Post ID, and Emoji are required.", 400);
+    throw new AppError<ReactPostErrorType>(
+      "MISSING_INPUT",
+      "User ID, Post ID, and Emoji are required.",
+      400,
+    );
   }
 
   if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedPostId)) {
-    throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
+    throw new AppError<ReactPostErrorType>("POST_NOT_FOUND", "Post not found.", 404);
   }
 
   if (!isSingleEmoji(trimmedEmoji)) {
-    throw new ReactPostError("INVALID_EMOJI", "Reaction must be a single valid emoji.", 400);
+    throw new AppError<ReactPostErrorType>(
+      "INVALID_EMOJI",
+      "Reaction must be a single valid emoji.",
+      400,
+    );
   }
 
   if (trimmedNote && trimmedNote.length > 20) {
-    throw new ReactPostError("INVALID_NOTE", "Note must be 20 characters or fewer.", 400);
+    throw new AppError<ReactPostErrorType>(
+      "INVALID_NOTE",
+      "Note must be 20 characters or fewer.",
+      400,
+    );
   }
 
   const reactionId = Bun.randomUUIDv7();
@@ -76,19 +77,23 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
       const postInfo = await getPostAccessContext(normalizedUserId, normalizedPostId, tx);
 
       if (!postInfo) {
-        throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
+        throw new AppError<ReactPostErrorType>("POST_NOT_FOUND", "Post not found.", 404);
       }
 
       if (postInfo.authorId === normalizedUserId) {
-        throw new ReactPostError("UNAUTHORIZED", "You cannot react to your own post.", 403);
+        throw new AppError<ReactPostErrorType>(
+          "UNAUTHORIZED",
+          "You cannot react to your own post.",
+          403,
+        );
       }
 
       if (postInfo.isBlocked) {
-        throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
+        throw new AppError<ReactPostErrorType>("POST_NOT_FOUND", "Post not found.", 404);
       }
 
       if (!postInfo.isVisible) {
-        throw new ReactPostError(
+        throw new AppError<ReactPostErrorType>(
           "UNAUTHORIZED",
           "You are not authorized to react to this post.",
           403,
@@ -109,7 +114,11 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
         });
 
       if (!inserted) {
-        throw new ReactPostError("INTERNAL_ERROR", "Internal server error saving reaction.", 500);
+        throw new AppError<ReactPostErrorType>(
+          "INTERNAL_ERROR",
+          "Internal server error saving reaction.",
+          500,
+        );
       }
 
       const [reactor, nickname] = await Promise.all([
@@ -153,13 +162,17 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
 
     return reactionResult;
   } catch (error: unknown) {
-    if (error instanceof ReactPostError) throw error;
+    if (error instanceof AppError) throw error;
 
     if (isPgErrorCode(error, PgErrorCode.INVALID_TEXT_REPRESENTATION)) {
-      throw new ReactPostError("POST_NOT_FOUND", "Post not found.", 404);
+      throw new AppError<ReactPostErrorType>("POST_NOT_FOUND", "Post not found.", 404);
     }
 
     console.error(`[ERROR] Unexpected error in use case: React post\n`, error);
-    throw new ReactPostError("INTERNAL_ERROR", "Internal server error sending reaction.", 500);
+    throw new AppError<ReactPostErrorType>(
+      "INTERNAL_ERROR",
+      "Internal server error sending reaction.",
+      500,
+    );
   }
 }

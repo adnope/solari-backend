@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { conversations, messageReactions, messages } from "../../db/schema.ts";
+import { AppError } from "../app_error.ts";
 
 export type MessageReaction = {
   userId: string;
@@ -32,18 +33,6 @@ export type ViewConversationMessagesErrorType =
   | "CONVERSATION_NOT_FOUND"
   | "INTERNAL_ERROR";
 
-export class ViewConversationMessagesError extends Error {
-  readonly type: ViewConversationMessagesErrorType;
-  readonly statusCode: number;
-
-  constructor(type: ViewConversationMessagesErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "ViewConversationMessagesError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function viewConversationMessages(
   viewerId: string,
   conversationId: string,
@@ -54,7 +43,7 @@ export async function viewConversationMessages(
   const normalizedConversationId = conversationId.trim();
 
   if (!normalizedViewerId || !normalizedConversationId) {
-    throw new ViewConversationMessagesError(
+    throw new AppError<ViewConversationMessagesErrorType>(
       "MISSING_INPUT",
       "Viewer ID and Conversation ID are required.",
       400,
@@ -62,7 +51,7 @@ export async function viewConversationMessages(
   }
 
   if (!isValidUuid(normalizedViewerId) || !isValidUuid(normalizedConversationId)) {
-    throw new ViewConversationMessagesError(
+    throw new AppError<ViewConversationMessagesErrorType>(
       "CONVERSATION_NOT_FOUND",
       "Invalid conversation ID format.",
       404,
@@ -73,7 +62,7 @@ export async function viewConversationMessages(
   if (cursor) {
     const parsed = new Date(cursor);
     if (Number.isNaN(parsed.getTime())) {
-      throw new ViewConversationMessagesError(
+      throw new AppError<ViewConversationMessagesErrorType>(
         "INVALID_CURSOR",
         "Cursor must be a valid ISO date string.",
         400,
@@ -99,7 +88,7 @@ export async function viewConversationMessages(
       .limit(1);
 
     if (!conversation) {
-      throw new ViewConversationMessagesError(
+      throw new AppError<ViewConversationMessagesErrorType>(
         "CONVERSATION_NOT_FOUND",
         "Conversation not found.",
         404,
@@ -110,7 +99,7 @@ export async function viewConversationMessages(
       conversation.userLow !== normalizedViewerId &&
       conversation.userHigh !== normalizedViewerId
     ) {
-      throw new ViewConversationMessagesError(
+      throw new AppError<ViewConversationMessagesErrorType>(
         "UNAUTHORIZED",
         "You are not a participant in this conversation.",
         403,
@@ -195,10 +184,10 @@ export async function viewConversationMessages(
       partnerLastReadAt: partnerLastReadAt ?? null,
     };
   } catch (error) {
-    if (error instanceof ViewConversationMessagesError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: View conversation messages\n${error}`);
-    throw new ViewConversationMessagesError(
+    throw new AppError<ViewConversationMessagesErrorType>(
       "INTERNAL_ERROR",
       "Internal server error fetching messages.",
       500,

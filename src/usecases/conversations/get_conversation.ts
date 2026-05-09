@@ -11,23 +11,12 @@ import {
 import { getFileUrl } from "../../storage/s3.ts";
 import { getNickname, getUserSummaryById } from "../common_queries.ts";
 import type { ConversationItem, ConversationPartner } from "./get_conversations.ts";
+import { AppError } from "../app_error.ts";
 
 export type GetConversationErrorType =
   | "MISSING_INPUT"
   | "CONVERSATION_NOT_FOUND"
   | "INTERNAL_ERROR";
-
-export class GetConversationError extends Error {
-  readonly type: GetConversationErrorType;
-  readonly statusCode: number;
-
-  constructor(type: GetConversationErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "GetConversationError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
 
 export async function getConversation(
   userId: string,
@@ -37,7 +26,7 @@ export async function getConversation(
   const normalizedConversationId = conversationId.trim();
 
   if (!normalizedUserId || !normalizedConversationId) {
-    throw new GetConversationError(
+    throw new AppError<GetConversationErrorType>(
       "MISSING_INPUT",
       "User ID and conversation ID are required.",
       400,
@@ -45,7 +34,11 @@ export async function getConversation(
   }
 
   if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedConversationId)) {
-    throw new GetConversationError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
+    throw new AppError<GetConversationErrorType>(
+      "CONVERSATION_NOT_FOUND",
+      "Conversation not found.",
+      404,
+    );
   }
 
   try {
@@ -74,7 +67,11 @@ export async function getConversation(
       .limit(1);
 
     if (!conversation) {
-      throw new GetConversationError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
+      throw new AppError<GetConversationErrorType>(
+        "CONVERSATION_NOT_FOUND",
+        "Conversation not found.",
+        404,
+      );
     }
 
     const partnerId =
@@ -138,7 +135,7 @@ export async function getConversation(
       ]);
 
     if (!partner) {
-      throw new GetConversationError("INTERNAL_ERROR", "Partner not found.", 500);
+      throw new AppError<GetConversationErrorType>("INTERNAL_ERROR", "Partner not found.", 500);
     }
 
     const avatarUrl =
@@ -185,10 +182,10 @@ export async function getConversation(
       isMuted: Boolean(mutedConversation),
     };
   } catch (error) {
-    if (error instanceof GetConversationError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Get conversation\n${error}`);
-    throw new GetConversationError(
+    throw new AppError<GetConversationErrorType>(
       "INTERNAL_ERROR",
       "Internal server error fetching conversation.",
       500,

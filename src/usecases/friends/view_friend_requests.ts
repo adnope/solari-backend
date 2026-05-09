@@ -4,6 +4,7 @@ import { db } from "../../db/client.ts";
 import { blockedUsers, friendRequests, users } from "../../db/schema.ts";
 import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getUserSummariesByIds } from "../common_queries.ts";
+import { AppError } from "../app_error.ts";
 
 export type FriendRequestUser = {
   id: string;
@@ -38,32 +39,32 @@ export type ViewFriendRequestsErrorType =
   | "INVALID_SORT"
   | "INTERNAL_ERROR";
 
-export class ViewFriendRequestsError extends Error {
-  readonly type: ViewFriendRequestsErrorType;
-  readonly statusCode: number;
-
-  constructor(type: ViewFriendRequestsErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "ViewFriendRequestsError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 function normalizeRequesterId(requesterId: string): string {
   const value = requesterId.trim();
   if (value.length === 0) {
-    throw new ViewFriendRequestsError("MISSING_USER_ID", "Requester id is required.", 400);
+    throw new AppError<ViewFriendRequestsErrorType>(
+      "MISSING_USER_ID",
+      "Requester id is required.",
+      400,
+    );
   }
   if (!isValidUuid(value)) {
-    throw new ViewFriendRequestsError("MISSING_USER_ID", "Requester id is invalid.", 400);
+    throw new AppError<ViewFriendRequestsErrorType>(
+      "MISSING_USER_ID",
+      "Requester id is invalid.",
+      400,
+    );
   }
   return value;
 }
 
 function normalizeLimit(limit = 20): number {
   if (!Number.isInteger(limit) || limit <= 0) {
-    throw new ViewFriendRequestsError("INVALID_LIMIT", "Limit must be a positive integer.", 400);
+    throw new AppError<ViewFriendRequestsErrorType>(
+      "INVALID_LIMIT",
+      "Limit must be a positive integer.",
+      400,
+    );
   }
   return Math.min(limit, 100);
 }
@@ -75,7 +76,7 @@ function normalizeDirection(direction: string | undefined): FriendRequestDirecti
     return value;
   }
 
-  throw new ViewFriendRequestsError(
+  throw new AppError<ViewFriendRequestsErrorType>(
     "INVALID_DIRECTION",
     "Direction must be one of: incoming, outgoing, both.",
     400,
@@ -95,11 +96,15 @@ export async function viewFriendRequests(
     const normalizedDirection = normalizeDirection(direction);
 
     if (sort !== "newest" && sort !== "oldest") {
-      throw new ViewFriendRequestsError("INVALID_SORT", "Sort must be 'newest' or 'oldest'.", 400);
+      throw new AppError<ViewFriendRequestsErrorType>(
+        "INVALID_SORT",
+        "Sort must be 'newest' or 'oldest'.",
+        400,
+      );
     }
 
     if (cursor && Number.isNaN(Date.parse(cursor))) {
-      throw new ViewFriendRequestsError(
+      throw new AppError<ViewFriendRequestsErrorType>(
         "INVALID_CURSOR",
         "Cursor must be a valid ISO date string.",
         400,
@@ -196,7 +201,11 @@ export async function viewFriendRequests(
       const receiverEmail = emailMap.get(row.receiverId);
 
       if (!requester || !receiver || requesterEmail === undefined || receiverEmail === undefined) {
-        throw new ViewFriendRequestsError("INTERNAL_ERROR", "Internal server error.", 500);
+        throw new AppError<ViewFriendRequestsErrorType>(
+          "INTERNAL_ERROR",
+          "Internal server error.",
+          500,
+        );
       }
 
       return {
@@ -229,11 +238,15 @@ export async function viewFriendRequests(
       direction: normalizedDirection,
     };
   } catch (error) {
-    if (error instanceof ViewFriendRequestsError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: View friend requests\n${error}`);
-    throw new ViewFriendRequestsError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<ViewFriendRequestsErrorType>(
+      "INTERNAL_ERROR",
+      "Internal server error.",
+      500,
+    );
   }
 }

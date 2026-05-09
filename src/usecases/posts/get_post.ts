@@ -6,6 +6,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { getNickname, getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
 import { getPostDetailById } from "../post_details.ts";
 import type { CaptionMetadata } from "../../db/schema.ts";
+import { AppError } from "../app_error.ts";
 
 export type GetPostAuthor = {
   id: string;
@@ -40,35 +41,27 @@ export type GetPostErrorType =
   | "UNAUTHORIZED"
   | "INTERNAL_ERROR";
 
-export class GetPostError extends Error {
-  readonly type: GetPostErrorType;
-  readonly statusCode: number;
-
-  constructor(type: GetPostErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "GetPostError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function getPost(viewerId: string, postId: string): Promise<GetPostResult> {
   const normalizedViewerId = viewerId.trim();
   const normalizedPostId = postId.trim();
 
   if (!normalizedViewerId || !normalizedPostId) {
-    throw new GetPostError("MISSING_INPUT", "Viewer ID and Post ID are required.", 400);
+    throw new AppError<GetPostErrorType>(
+      "MISSING_INPUT",
+      "Viewer ID and Post ID are required.",
+      400,
+    );
   }
 
   if (!isValidUuid(normalizedViewerId) || !isValidUuid(normalizedPostId)) {
-    throw new GetPostError("POST_NOT_FOUND", "Post not found.", 404);
+    throw new AppError<GetPostErrorType>("POST_NOT_FOUND", "Post not found.", 404);
   }
 
   try {
     const post = await getPostDetailById(normalizedPostId);
 
     if (!post) {
-      throw new GetPostError("POST_NOT_FOUND", "Post not found.", 404);
+      throw new AppError<GetPostErrorType>("POST_NOT_FOUND", "Post not found.", 404);
     }
 
     const isAuthor = post.authorId === normalizedViewerId;
@@ -76,7 +69,7 @@ export async function getPost(viewerId: string, postId: string): Promise<GetPost
     if (!isAuthor) {
       const isBlocked = await hasBlockingRelationship(normalizedViewerId, post.authorId);
       if (isBlocked) {
-        throw new GetPostError("POST_NOT_FOUND", "Post not found.", 404);
+        throw new AppError<GetPostErrorType>("POST_NOT_FOUND", "Post not found.", 404);
       }
 
       const [visible] = await db
@@ -91,7 +84,11 @@ export async function getPost(viewerId: string, postId: string): Promise<GetPost
         .limit(1);
 
       if (!visible) {
-        throw new GetPostError("UNAUTHORIZED", "You are not authorized to view this post.", 403);
+        throw new AppError<GetPostErrorType>(
+          "UNAUTHORIZED",
+          "You are not authorized to view this post.",
+          403,
+        );
       }
     }
 
@@ -105,7 +102,7 @@ export async function getPost(viewerId: string, postId: string): Promise<GetPost
     ]);
 
     if (!author) {
-      throw new GetPostError("INTERNAL_ERROR", "Post author not found.", 500);
+      throw new AppError<GetPostErrorType>("INTERNAL_ERROR", "Post author not found.", 500);
     }
 
     const avatarUrl = author.avatarKey ? await getFileUrl(author.avatarKey) : null;
@@ -133,9 +130,13 @@ export async function getPost(viewerId: string, postId: string): Promise<GetPost
       },
     };
   } catch (error) {
-    if (error instanceof GetPostError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Get post\n${error}`);
-    throw new GetPostError("INTERNAL_ERROR", "Internal server error fetching post.", 500);
+    throw new AppError<GetPostErrorType>(
+      "INTERNAL_ERROR",
+      "Internal server error fetching post.",
+      500,
+    );
   }
 }

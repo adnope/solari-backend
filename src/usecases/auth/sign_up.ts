@@ -1,8 +1,9 @@
 import { withTx } from "../../db/client.ts";
 import { userPasswords, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
-import { AuthError } from "./error_type.ts";
+import type { AuthErrorType } from "./error_type.ts";
 import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
+import { AppError } from "../app_error.ts";
 
 export type PublicUser = {
   id: string;
@@ -23,15 +24,19 @@ function normalizeUsername(username: string): string {
   const value = username.trim();
 
   if (value.length === 0) {
-    throw new AuthError("MISSING_USERNAME", "Username is required.", 400);
+    throw new AppError<AuthErrorType>("MISSING_USERNAME", "Username is required.", 400);
   }
 
   if (value.length < 4 || value.length > 32) {
-    throw new AuthError("INVALID_USERNAME", "Username must be between 4 and 32 characters.", 400);
+    throw new AppError<AuthErrorType>(
+      "INVALID_USERNAME",
+      "Username must be between 4 and 32 characters.",
+      400,
+    );
   }
 
   if (!/^[a-zA-Z0-9_.]+$/.test(value)) {
-    throw new AuthError(
+    throw new AppError<AuthErrorType>(
       "INVALID_USERNAME",
       "Username may contain only letters, numbers, underscores, and dots.",
       400,
@@ -45,14 +50,14 @@ function normalizeEmail(email: string): string {
   const value = email.trim().toLowerCase();
 
   if (value.length === 0) {
-    throw new AuthError("MISSING_EMAIL", "Email is required.", 400);
+    throw new AppError<AuthErrorType>("MISSING_EMAIL", "Email is required.", 400);
   }
 
   const rfc2822Regex =
     /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
 
   if (!rfc2822Regex.test(value)) {
-    throw new AuthError("INVALID_EMAIL", "Invalid email format.", 400);
+    throw new AppError<AuthErrorType>("INVALID_EMAIL", "Invalid email format.", 400);
   }
 
   return value;
@@ -60,11 +65,15 @@ function normalizeEmail(email: string): string {
 
 function validatePassword(password: string): string {
   if (password.length === 0) {
-    throw new AuthError("MISSING_PASSWORD", "Password is required.", 400);
+    throw new AppError<AuthErrorType>("MISSING_PASSWORD", "Password is required.", 400);
   }
 
   if (password.length < 6) {
-    throw new AuthError("WEAK_PASSWORD", "Password must be at least 6 characters.", 400);
+    throw new AppError<AuthErrorType>(
+      "WEAK_PASSWORD",
+      "Password must be at least 6 characters.",
+      400,
+    );
   }
 
   return password;
@@ -99,7 +108,7 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
         });
 
       if (!user) {
-        throw new AuthError("INTERNAL_ERROR", "Failed to create user.", 500);
+        throw new AppError<AuthErrorType>("INTERNAL_ERROR", "Failed to create user.", 500);
       }
 
       await tx.insert(userPasswords).values({
@@ -119,7 +128,7 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
       };
     });
   } catch (error: unknown) {
-    if (error instanceof AuthError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
@@ -127,16 +136,20 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
       const constraint = getPgConstraintName(error);
 
       if (constraint === "users_username_key") {
-        throw new AuthError("USERNAME_TAKEN", "Username is already taken.", 409);
+        throw new AppError<AuthErrorType>("USERNAME_TAKEN", "Username is already taken.", 409);
       }
       if (constraint === "users_email_key") {
-        throw new AuthError("EMAIL_TAKEN", "Email is already in use.", 409);
+        throw new AppError<AuthErrorType>("EMAIL_TAKEN", "Email is already in use.", 409);
       }
 
-      throw new AuthError("IDENTIFIER_ALREADY_IN_USE", "Username or email is already in use.", 409);
+      throw new AppError<AuthErrorType>(
+        "IDENTIFIER_ALREADY_IN_USE",
+        "Username or email is already in use.",
+        409,
+      );
     }
 
     console.error(`[ERROR] Unexpected error in use case: Sign up\n`, error);
-    throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<AuthErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

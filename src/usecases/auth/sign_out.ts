@@ -1,14 +1,15 @@
 import { and, eq } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { sessions, userDevices } from "../../db/schema.ts";
-import { AuthError } from "./error_type.ts";
+import type { AuthErrorType } from "./error_type.ts";
 import { deleteCachedAuthSession } from "../../cache/auth_session_cache.ts";
+import { AppError } from "../app_error.ts";
 
 export async function signOut(sessionId: string, deviceToken?: string): Promise<boolean> {
   const normalizedSessionId = sessionId.trim();
 
   if (!normalizedSessionId) {
-    throw new AuthError("MISSING_SESSION_ID", "Session id is missing.", 400);
+    throw new AppError<AuthErrorType>("MISSING_SESSION_ID", "Session id is missing.", 400);
   }
 
   try {
@@ -22,7 +23,7 @@ export async function signOut(sessionId: string, deviceToken?: string): Promise<
         });
 
       if (!deletedSession) {
-        throw new AuthError("SESSION_NOT_FOUND", "Session not found.", 404);
+        throw new AppError<AuthErrorType>("SESSION_NOT_FOUND", "Session not found.", 404);
       }
 
       if (deviceToken) {
@@ -46,11 +47,11 @@ export async function signOut(sessionId: string, deviceToken?: string): Promise<
     await deleteCachedAuthSession(normalizedSessionId);
     return signedOut;
   } catch (error) {
-    if (error instanceof AuthError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: Sign out\n${error}`);
-    throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<AuthErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

@@ -5,6 +5,7 @@ import { messageReactions } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { isSingleEmoji } from "./react_message.ts";
 import { getMessageActionContext } from "../../db/queries/get_message_action_context.ts";
+import { AppError } from "../app_error.ts";
 
 export type UpdateMessageReactionInput = {
   userId: string;
@@ -27,18 +28,6 @@ export type UpdateMessageReactionErrorType =
   | "ARCHIVED"
   | "INTERNAL_ERROR";
 
-export class UpdateMessageReactionError extends Error {
-  readonly type: UpdateMessageReactionErrorType;
-  readonly statusCode: number;
-
-  constructor(type: UpdateMessageReactionErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "UpdateMessageReactionError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function updateMessageReaction(
   input: UpdateMessageReactionInput,
 ): Promise<UpdateMessageReactionResult> {
@@ -47,7 +36,7 @@ export async function updateMessageReaction(
   const trimmedEmoji = input.emoji?.trim();
 
   if (!normalizedUserId || !normalizedMessageId || !trimmedEmoji) {
-    throw new UpdateMessageReactionError(
+    throw new AppError<UpdateMessageReactionErrorType>(
       "MISSING_INPUT",
       "User ID, Message ID, and Emoji are required.",
       400,
@@ -55,11 +44,15 @@ export async function updateMessageReaction(
   }
 
   if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedMessageId)) {
-    throw new UpdateMessageReactionError("REACTION_NOT_FOUND", "Invalid message ID format.", 404);
+    throw new AppError<UpdateMessageReactionErrorType>(
+      "REACTION_NOT_FOUND",
+      "Invalid message ID format.",
+      404,
+    );
   }
 
   if (!isSingleEmoji(trimmedEmoji)) {
-    throw new UpdateMessageReactionError(
+    throw new AppError<UpdateMessageReactionErrorType>(
       "INVALID_EMOJI",
       "Reaction must be a single valid emoji.",
       400,
@@ -76,11 +69,15 @@ export async function updateMessageReaction(
       );
 
       if (!messageRow) {
-        throw new UpdateMessageReactionError("REACTION_NOT_FOUND", "Message not found.", 404);
+        throw new AppError<UpdateMessageReactionErrorType>(
+          "REACTION_NOT_FOUND",
+          "Message not found.",
+          404,
+        );
       }
 
       if (messageRow.isBlocked) {
-        throw new UpdateMessageReactionError(
+        throw new AppError<UpdateMessageReactionErrorType>(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
           403,
@@ -88,7 +85,7 @@ export async function updateMessageReaction(
       }
 
       if (!messageRow.isFriend) {
-        throw new UpdateMessageReactionError(
+        throw new AppError<UpdateMessageReactionErrorType>(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
           403,
@@ -112,7 +109,7 @@ export async function updateMessageReaction(
         });
 
       if (!updated) {
-        throw new UpdateMessageReactionError(
+        throw new AppError<UpdateMessageReactionErrorType>(
           "REACTION_NOT_FOUND",
           "Reaction not found. You must react to the message first.",
           404,
@@ -144,10 +141,10 @@ export async function updateMessageReaction(
 
     return updatedReaction;
   } catch (error) {
-    if (error instanceof UpdateMessageReactionError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Update message reaction\n${error}`);
-    throw new UpdateMessageReactionError(
+    throw new AppError<UpdateMessageReactionErrorType>(
       "INTERNAL_ERROR",
       "Internal server error updating reaction.",
       500,

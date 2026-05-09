@@ -5,6 +5,7 @@ import { friendRequests, friendships } from "../../db/schema.ts";
 import { enqueuePushNotification, publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
 import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
+import { AppError } from "../app_error.ts";
 
 export type AcceptFriendRequestResult = {
   id: string;
@@ -21,25 +22,21 @@ export type AcceptFriendRequestErrorType =
   | "ALREADY_FRIENDS"
   | "INTERNAL_ERROR";
 
-export class AcceptFriendRequestError extends Error {
-  readonly type: AcceptFriendRequestErrorType;
-  readonly statusCode: number;
-
-  constructor(type: AcceptFriendRequestErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "AcceptFriendRequestError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 function normalizeId(value: string, fieldName: string): string {
   const normalized = value.trim();
   if (!normalized) {
-    throw new AcceptFriendRequestError("MISSING_INPUT", `${fieldName} is required.`, 400);
+    throw new AppError<AcceptFriendRequestErrorType>(
+      "MISSING_INPUT",
+      `${fieldName} is required.`,
+      400,
+    );
   }
   if (!isValidUuid(normalized)) {
-    throw new AcceptFriendRequestError("MISSING_INPUT", `${fieldName} is invalid.`, 400);
+    throw new AppError<AcceptFriendRequestErrorType>(
+      "MISSING_INPUT",
+      `${fieldName} is invalid.`,
+      400,
+    );
   }
   return normalized;
 }
@@ -70,7 +67,7 @@ export async function acceptFriendRequest(
         .limit(1);
 
       if (!requestRow) {
-        throw new AcceptFriendRequestError(
+        throw new AppError<AcceptFriendRequestErrorType>(
           "REQUEST_NOT_FOUND",
           "Friend request not found or not for this user.",
           404,
@@ -83,7 +80,7 @@ export async function acceptFriendRequest(
         tx,
       );
       if (isBlocked) {
-        throw new AcceptFriendRequestError(
+        throw new AppError<AcceptFriendRequestErrorType>(
           "REQUEST_NOT_FOUND",
           "Friend request not found or not for this user.",
           404,
@@ -91,7 +88,11 @@ export async function acceptFriendRequest(
       }
 
       if (requestRow.requesterId === requestRow.receiverId) {
-        throw new AcceptFriendRequestError("SELF_REQUEST", "Cannot accept self request.", 400);
+        throw new AppError<AcceptFriendRequestErrorType>(
+          "SELF_REQUEST",
+          "Cannot accept self request.",
+          400,
+        );
       }
 
       const [userLow, userHigh]: [string, string] =
@@ -106,7 +107,11 @@ export async function acceptFriendRequest(
         .limit(1);
 
       if (existingFriendship) {
-        throw new AcceptFriendRequestError("ALREADY_FRIENDS", "Users are already friends.", 409);
+        throw new AppError<AcceptFriendRequestErrorType>(
+          "ALREADY_FRIENDS",
+          "Users are already friends.",
+          409,
+        );
       }
 
       await tx.insert(friendships).values({
@@ -119,7 +124,7 @@ export async function acceptFriendRequest(
       const acceptor = await getUserSummaryById(normalizedReceiverId, tx);
 
       if (!acceptor) {
-        throw new AcceptFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
+        throw new AppError<AcceptFriendRequestErrorType>("USER_NOT_FOUND", "User not found.", 404);
       }
 
       return {
@@ -165,11 +170,15 @@ export async function acceptFriendRequest(
 
     return result;
   } catch (error) {
-    if (error instanceof AcceptFriendRequestError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: Accept friend request\n${error}`);
-    throw new AcceptFriendRequestError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<AcceptFriendRequestErrorType>(
+      "INTERNAL_ERROR",
+      "Internal server error.",
+      500,
+    );
   }
 }

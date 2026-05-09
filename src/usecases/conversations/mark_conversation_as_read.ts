@@ -3,6 +3,7 @@ import { and, desc, eq, gte } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, messages } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
+import { AppError } from "../app_error.ts";
 
 export type MarkConversationAsReadResult = {
   conversationId: string;
@@ -15,18 +16,6 @@ export type MarkConversationAsReadErrorType =
   | "CONVERSATION_NOT_FOUND"
   | "INTERNAL_ERROR";
 
-export class MarkConversationAsReadError extends Error {
-  readonly type: MarkConversationAsReadErrorType;
-  readonly statusCode: number;
-
-  constructor(type: MarkConversationAsReadErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "MarkConversationAsReadError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function markConversationAsRead(
   userId: string,
   conversationId: string,
@@ -35,7 +24,7 @@ export async function markConversationAsRead(
   const normalizedConversationId = conversationId.trim();
 
   if (!normalizedUserId || !normalizedConversationId) {
-    throw new MarkConversationAsReadError(
+    throw new AppError<MarkConversationAsReadErrorType>(
       "MISSING_INPUT",
       "User ID and Conversation ID are required.",
       400,
@@ -43,7 +32,7 @@ export async function markConversationAsRead(
   }
 
   if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedConversationId)) {
-    throw new MarkConversationAsReadError("MISSING_INPUT", "Invalid format.", 400);
+    throw new AppError<MarkConversationAsReadErrorType>("MISSING_INPUT", "Invalid format.", 400);
   }
 
   try {
@@ -63,7 +52,7 @@ export async function markConversationAsRead(
         .limit(1);
 
       if (!conversation) {
-        throw new MarkConversationAsReadError(
+        throw new AppError<MarkConversationAsReadErrorType>(
           "CONVERSATION_NOT_FOUND",
           "Conversation not found.",
           404,
@@ -74,7 +63,7 @@ export async function markConversationAsRead(
       const isUserHigh = conversation.userHigh === normalizedUserId;
 
       if (!isUserLow && !isUserHigh) {
-        throw new MarkConversationAsReadError(
+        throw new AppError<MarkConversationAsReadErrorType>(
           "CONVERSATION_NOT_FOUND",
           "Conversation not found.",
           404,
@@ -160,10 +149,10 @@ export async function markConversationAsRead(
 
     return result;
   } catch (error) {
-    if (error instanceof MarkConversationAsReadError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Mark conversation as read\n${error}`);
-    throw new MarkConversationAsReadError(
+    throw new AppError<MarkConversationAsReadErrorType>(
       "INTERNAL_ERROR",
       "Internal server error marking conversation as read.",
       500,

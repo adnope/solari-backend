@@ -1,40 +1,16 @@
 import { Elysia, t } from "elysia";
-import {
-  clearConversation,
-  ClearConversationError,
-} from "../usecases/conversations/clear_conversation.ts";
-import {
-  createConversation,
-  CreateConversationError,
-} from "../usecases/conversations/create_conversation.ts";
-import {
-  getConversation,
-  GetConversationError,
-} from "../usecases/conversations/get_conversation.ts";
-import {
-  getConversations,
-  GetConversationsError,
-} from "../usecases/conversations/get_conversations.ts";
-import { getMessage, GetMessageError } from "../usecases/conversations/get_message.ts";
-import {
-  markConversationAsRead,
-  MarkConversationAsReadError,
-} from "../usecases/conversations/mark_conversation_as_read.ts";
-import { reactMessage, ReactMessageError } from "../usecases/conversations/react_message.ts";
-import {
-  removeMessageReaction,
-  RemoveMessageReactionError,
-} from "../usecases/conversations/remove_message_reaction.ts";
-import { sendMessage, SendMessageError } from "../usecases/conversations/send_message.ts";
+import { clearConversation } from "../usecases/conversations/clear_conversation.ts";
+import { createConversation } from "../usecases/conversations/create_conversation.ts";
+import { getConversation } from "../usecases/conversations/get_conversation.ts";
+import { getConversations } from "../usecases/conversations/get_conversations.ts";
+import { getMessage } from "../usecases/conversations/get_message.ts";
+import { markConversationAsRead } from "../usecases/conversations/mark_conversation_as_read.ts";
+import { reactMessage } from "../usecases/conversations/react_message.ts";
+import { removeMessageReaction } from "../usecases/conversations/remove_message_reaction.ts";
+import { sendMessage } from "../usecases/conversations/send_message.ts";
 import { unsendMessage } from "../usecases/conversations/unsend_message.ts";
-import {
-  updateMessageReaction,
-  UpdateMessageReactionError,
-} from "../usecases/conversations/update_message_reaction.ts";
-import {
-  viewConversationMessages,
-  ViewConversationMessagesError,
-} from "../usecases/conversations/view_conversation_messages.ts";
+import { updateMessageReaction } from "../usecases/conversations/update_message_reaction.ts";
+import { viewConversationMessages } from "../usecases/conversations/view_conversation_messages.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
 import { toggleConversationMute } from "../usecases/conversations/mute_conversation.ts";
@@ -435,18 +411,6 @@ const protectedConversationsRouter = new Elysia()
     },
   );
 
-const conversationsRouter = withApiErrorHandler(new Elysia(), {
-  CreateConversationError,
-  SendMessageError,
-  ViewConversationMessagesError,
-  MarkConversationAsReadError,
-  GetConversationError,
-  GetConversationsError,
-  GetMessageError,
-  ClearConversationError,
-  ReactMessageError,
-  RemoveMessageReactionError,
-  UpdateMessageReactionError,
-}).use(protectedConversationsRouter);
+const conversationsRouter = withApiErrorHandler(new Elysia()).use(protectedConversationsRouter);
 
 export default conversationsRouter;

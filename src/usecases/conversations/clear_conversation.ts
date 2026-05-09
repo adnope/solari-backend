@@ -2,30 +2,19 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq, or, sql } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations } from "../../db/schema.ts";
+import { AppError } from "../app_error.ts";
 
 export type ClearConversationErrorType =
   | "MISSING_INPUT"
   | "CONVERSATION_NOT_FOUND"
   | "INTERNAL_ERROR";
 
-export class ClearConversationError extends Error {
-  readonly type: ClearConversationErrorType;
-  readonly statusCode: number;
-
-  constructor(type: ClearConversationErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "ClearConversationError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function clearConversation(userId: string, conversationId: string): Promise<void> {
   const normalizedUserId = userId.trim();
   const normalizedConversationId = conversationId.trim();
 
   if (!normalizedUserId || !normalizedConversationId) {
-    throw new ClearConversationError(
+    throw new AppError<ClearConversationErrorType>(
       "MISSING_INPUT",
       "User ID and Conversation ID are required.",
       400,
@@ -33,7 +22,11 @@ export async function clearConversation(userId: string, conversationId: string):
   }
 
   if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedConversationId)) {
-    throw new ClearConversationError("CONVERSATION_NOT_FOUND", "Invalid ID format.", 404);
+    throw new AppError<ClearConversationErrorType>(
+      "CONVERSATION_NOT_FOUND",
+      "Invalid ID format.",
+      404,
+    );
   }
 
   try {
@@ -65,17 +58,17 @@ export async function clearConversation(userId: string, conversationId: string):
     });
 
     if (!updated) {
-      throw new ClearConversationError(
+      throw new AppError<ClearConversationErrorType>(
         "CONVERSATION_NOT_FOUND",
         "Conversation not found or you are not a participant.",
         404,
       );
     }
   } catch (error) {
-    if (error instanceof ClearConversationError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Clear conversation\n${error}`);
-    throw new ClearConversationError(
+    throw new AppError<ClearConversationErrorType>(
       "INTERNAL_ERROR",
       "Internal server error clearing conversation.",
       500,

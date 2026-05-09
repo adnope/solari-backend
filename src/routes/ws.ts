@@ -2,10 +2,8 @@ import { Elysia } from "elysia";
 import { publishWebSocketEvent } from "../jobs/queue.ts";
 import { verifyAccessToken } from "../utils/jwt";
 import type { WsClientEvent } from "../websocket/types.ts";
-import {
-  sendTypingState,
-  SendTypingStateError,
-} from "../usecases/conversations/send_typing_state.ts";
+import { sendTypingState } from "../usecases/conversations/send_typing_state.ts";
+import { AppError } from "../usecases/app_error.ts";
 
 export const wsRoutes = new Elysia()
   .derive(({ headers }) => {
@@ -64,7 +62,7 @@ export const wsRoutes = new Elysia()
               });
             })
             .catch((error: unknown) => {
-              if (error instanceof SendTypingStateError) {
+              if (error instanceof AppError) {
                 return;
               }
 

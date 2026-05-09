@@ -7,6 +7,7 @@ import { deleteCachedPublicProfile } from "../../cache/public_profile_cache.ts";
 import { deleteFile, getFileUrl, uploadFile } from "../../storage/s3.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
+import { AppError } from "../app_error.ts";
 
 export type UpdateProfileInput = {
   userId: string;
@@ -39,18 +40,6 @@ export type UpdateProfileErrorType =
   | "STORAGE_ERROR"
   | "INTERNAL_ERROR";
 
-export class UpdateProfileError extends Error {
-  readonly type: UpdateProfileErrorType;
-  readonly statusCode: number;
-
-  constructor(type: UpdateProfileErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "UpdateProfileError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 function isValidEmail(email: string): boolean {
   const rfc2822Regex =
     /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
@@ -62,7 +51,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
   const normalizedUserId = input.userId.trim();
 
   if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
-    throw new UpdateProfileError("MISSING_USER", "User not found.", 404);
+    throw new AppError<UpdateProfileErrorType>("MISSING_USER", "User not found.", 404);
   }
 
   let newAvatarKey: string | undefined;
@@ -84,7 +73,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
         .limit(1);
 
       if (!currentUser) {
-        throw new UpdateProfileError("MISSING_USER", "User not found.", 404);
+        throw new AppError<UpdateProfileErrorType>("MISSING_USER", "User not found.", 404);
       }
 
       const currentAvatarKey = currentUser.avatarKey;
@@ -101,7 +90,11 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
         ];
 
         if (!allowedTypes.includes(input.avatar.contentType)) {
-          throw new UpdateProfileError("STORAGE_ERROR", "Avatar must be a valid image.", 400);
+          throw new AppError<UpdateProfileErrorType>(
+            "STORAGE_ERROR",
+            "Avatar must be a valid image.",
+            400,
+          );
         }
 
         const fileExtension = input.avatar.contentType.split("/")[1] || "jpeg";
@@ -110,7 +103,11 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
         try {
           await uploadFile(newAvatarKey, input.avatar.buffer, input.avatar.contentType);
         } catch {
-          throw new UpdateProfileError("STORAGE_ERROR", "Failed to upload avatar.", 502);
+          throw new AppError<UpdateProfileErrorType>(
+            "STORAGE_ERROR",
+            "Failed to upload avatar.",
+            502,
+          );
         }
       }
 
@@ -125,7 +122,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
         const trimmedEmail = input.email.trim();
         if (trimmedEmail !== "") {
           if (currentUser.googleProviderUserId) {
-            throw new UpdateProfileError(
+            throw new AppError<UpdateProfileErrorType>(
               "LINKED_GOOGLE_ACCOUNT",
               "Google-linked accounts cannot update their email address.",
               400,
@@ -133,7 +130,11 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
           }
 
           if (!isValidEmail(trimmedEmail)) {
-            throw new UpdateProfileError("INVALID_EMAIL", "Invalid email address format.", 400);
+            throw new AppError<UpdateProfileErrorType>(
+              "INVALID_EMAIL",
+              "Invalid email address format.",
+              400,
+            );
           }
           updateData.email = trimmedEmail;
         }
@@ -180,7 +181,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
           });
 
         if (!updatedUser) {
-          throw new UpdateProfileError("MISSING_USER", "User not found.", 404);
+          throw new AppError<UpdateProfileErrorType>("MISSING_USER", "User not found.", 404);
         }
 
         rawUser = updatedUser;
@@ -205,7 +206,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
           .limit(1);
 
         if (!existingUser) {
-          throw new UpdateProfileError("MISSING_USER", "User not found.", 404);
+          throw new AppError<UpdateProfileErrorType>("MISSING_USER", "User not found.", 404);
         }
 
         rawUser = existingUser;
@@ -284,14 +285,18 @@ export async function updateProfile(input: UpdateProfileInput): Promise<UpdatePr
       void deleteFile(newAvatarKey).catch(() => {});
     }
 
-    if (error instanceof UpdateProfileError) throw error;
+    if (error instanceof AppError) throw error;
 
     if (isPgErrorCode(error, PgErrorCode.UNIQUE_VIOLATION)) {
-      throw new UpdateProfileError("EMAIL_TAKEN", "Email address is already in use.", 409);
+      throw new AppError<UpdateProfileErrorType>(
+        "EMAIL_TAKEN",
+        "Email address is already in use.",
+        409,
+      );
     }
 
     console.error(`[ERROR] Unexpected error in use case: Update profile\n`, error);
-    throw new UpdateProfileError(
+    throw new AppError<UpdateProfileErrorType>(
       "INTERNAL_ERROR",
       "Internal server error during profile update.",
       500,

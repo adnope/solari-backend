@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
-import { setNickname, SetNicknameError } from "../usecases/nicknames/set_nickname.ts";
-import { updateNickname, UpdateNicknameError } from "../usecases/nicknames/update_nickname.ts";
-import { removeNickname, RemoveNicknameError } from "../usecases/nicknames/remove_nickname.ts";
+import { setNickname } from "../usecases/nicknames/set_nickname.ts";
+import { updateNickname } from "../usecases/nicknames/update_nickname.ts";
+import { removeNickname } from "../usecases/nicknames/remove_nickname.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
 import { getNickname } from "../usecases/nicknames/get_nickname.ts";
@@ -109,10 +109,6 @@ const protectedNicknamesRouter = new Elysia()
     };
   });
 
-const nicknamesRouter = withApiErrorHandler(new Elysia(), {
-  SetNicknameError,
-  UpdateNicknameError,
-  RemoveNicknameError,
-}).use(protectedNicknamesRouter);
+const nicknamesRouter = withApiErrorHandler(new Elysia()).use(protectedNicknamesRouter);
 
 export default nicknamesRouter;

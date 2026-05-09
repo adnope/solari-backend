@@ -1,22 +1,10 @@
 import { Elysia, t } from "elysia";
-import {
-  acceptFriendRequest,
-  AcceptFriendRequestError,
-} from "../usecases/friends/accept_friend_request.ts";
-import {
-  cancelOrRejectFriendRequest,
-  CancelOrRejectFriendRequestError,
-} from "../usecases/friends/cancel_or_reject_friend_request.ts";
-import {
-  sendFriendRequest,
-  SendFriendRequestError,
-} from "../usecases/friends/send_friend_request.ts";
-import { unfriend, UnfriendError } from "../usecases/friends/unfriend.ts";
-import {
-  viewFriendRequests,
-  ViewFriendRequestsError,
-} from "../usecases/friends/view_friend_requests.ts";
-import { viewFriends, ViewFriendsError } from "../usecases/friends/view_friends.ts";
+import { acceptFriendRequest } from "../usecases/friends/accept_friend_request.ts";
+import { cancelOrRejectFriendRequest } from "../usecases/friends/cancel_or_reject_friend_request.ts";
+import { sendFriendRequest } from "../usecases/friends/send_friend_request.ts";
+import { unfriend } from "../usecases/friends/unfriend.ts";
+import { viewFriendRequests } from "../usecases/friends/view_friend_requests.ts";
+import { viewFriends } from "../usecases/friends/view_friends.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
 
@@ -184,13 +172,6 @@ const protectedFriendsRouter = new Elysia()
     },
   );
 
-const friendsRouter = withApiErrorHandler(new Elysia(), {
-  SendFriendRequestError,
-  ViewFriendRequestsError,
-  AcceptFriendRequestError,
-  CancelOrRejectFriendRequestError,
-  UnfriendError,
-  ViewFriendsError,
-}).use(protectedFriendsRouter);
+const friendsRouter = withApiErrorHandler(new Elysia()).use(protectedFriendsRouter);
 
 export default friendsRouter;

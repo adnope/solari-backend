@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { passwordResetCodes, sessions, userPasswords, users } from "../../db/schema.ts";
 import { deleteCachedAuthSessions } from "../../cache/auth_session_cache.ts";
+import { AppError } from "../app_error.ts";
 
 export type ResetPasswordInput = {
   email: string;
@@ -16,30 +17,18 @@ export type ResetPasswordErrorType =
   | "RESET_NOT_VERIFIED"
   | "INTERNAL_ERROR";
 
-export class ResetPasswordError extends Error {
-  readonly type: ResetPasswordErrorType;
-  readonly statusCode: number;
-
-  constructor(type: ResetPasswordErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "ResetPasswordAfterVerifiedCodeError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 function normalizeEmail(email: string): string {
   const value = email.trim().toLowerCase();
 
   if (!value) {
-    throw new ResetPasswordError("MISSING_EMAIL", "Email required.", 400);
+    throw new AppError<ResetPasswordErrorType>("MISSING_EMAIL", "Email required.", 400);
   }
 
   const rfc2822Regex =
     /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
 
   if (!rfc2822Regex.test(value)) {
-    throw new ResetPasswordError("INVALID_EMAIL", "Invalid email.", 400);
+    throw new AppError<ResetPasswordErrorType>("INVALID_EMAIL", "Invalid email.", 400);
   }
 
   return value;
@@ -49,11 +38,11 @@ function normalizePassword(password: string): string {
   const value = password.trim();
 
   if (!value) {
-    throw new ResetPasswordError("MISSING_PASSWORD", "Password required.", 400);
+    throw new AppError<ResetPasswordErrorType>("MISSING_PASSWORD", "Password required.", 400);
   }
 
   if (value.length < 6) {
-    throw new ResetPasswordError(
+    throw new AppError<ResetPasswordErrorType>(
       "INVALID_PASSWORD",
       "Password must be at least 6 characters.",
       400,
@@ -78,7 +67,11 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
         .limit(1);
 
       if (!user) {
-        throw new ResetPasswordError("RESET_NOT_VERIFIED", "Password reset not verified.", 400);
+        throw new AppError<ResetPasswordErrorType>(
+          "RESET_NOT_VERIFIED",
+          "Password reset not verified.",
+          400,
+        );
       }
 
       const [resetRow] = await tx
@@ -98,7 +91,11 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
         .limit(1);
 
       if (!resetRow) {
-        throw new ResetPasswordError("RESET_NOT_VERIFIED", "Password reset not verified.", 400);
+        throw new AppError<ResetPasswordErrorType>(
+          "RESET_NOT_VERIFIED",
+          "Password reset not verified.",
+          400,
+        );
       }
 
       const passwordHash = await Bun.password.hash(password, {
@@ -135,10 +132,10 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
 
     await deleteCachedAuthSessions(deletedSessionIds);
   } catch (error) {
-    if (error instanceof ResetPasswordError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Reset password\n${error}`);
-    throw new ResetPasswordError(
+    throw new AppError<ResetPasswordErrorType>(
       "INTERNAL_ERROR",
       "Internal server error resetting password.",
       500,

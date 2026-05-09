@@ -3,13 +3,16 @@ import { createHash, randomBytes } from "node:crypto";
 import { db } from "../../db/client.ts";
 import { sessions, userPasswords, users } from "../../db/schema.ts";
 import { createAccessToken } from "../../utils/jwt.ts";
-import { AuthError } from "./error_type.ts";
+import { AppError } from "../app_error.ts";
+import type { AuthErrorType } from "./error_type.ts";
 
 export type SigninInput = {
   identifier: string; // username or email
   password: string;
 };
+
 export type SigninMethod = "password" | "google";
+
 export type SigninResult = {
   sessionId: string;
   accessToken: string;
@@ -44,7 +47,7 @@ function normalizeIdentifier(identifier: string): string {
   const value = identifier.trim();
 
   if (value.length === 0) {
-    throw new AuthError("MISSING_IDENTIFIER", "Username or email is required.", 400);
+    throw new AppError<AuthErrorType>("MISSING_IDENTIFIER", "Username or email is required.", 400);
   }
 
   return value;
@@ -52,7 +55,7 @@ function normalizeIdentifier(identifier: string): string {
 
 function requirePassword(password: string): string {
   if (password.length === 0) {
-    throw new AuthError("MISSING_PASSWORD", "Password is required.", 400);
+    throw new AppError<AuthErrorType>("MISSING_PASSWORD", "Password is required.", 400);
   }
 
   return password;
@@ -91,11 +94,15 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
       .limit(1);
 
     if (!row) {
-      throw new AuthError("INVALID_CREDENTIALS", "Invalid username/email or password.", 401);
+      throw new AppError<AuthErrorType>(
+        "INVALID_CREDENTIALS",
+        "Invalid username/email or password.",
+        401,
+      );
     }
 
     if (!row.passwordHash) {
-      throw new AuthError(
+      throw new AppError<AuthErrorType>(
         "LINKED_THIRD_PARTY_ACCOUNT",
         "Please sign in using your linked third-party account.",
         401,
@@ -104,7 +111,11 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
 
     const ok = await Bun.password.verify(password, row.passwordHash);
     if (!ok) {
-      throw new AuthError("INVALID_CREDENTIALS", "Invalid username/email or password.", 401);
+      throw new AppError<AuthErrorType>(
+        "INVALID_CREDENTIALS",
+        "Invalid username/email or password.",
+        401,
+      );
     }
 
     const now = new Date();
@@ -138,11 +149,11 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
       signInMethod: "password",
     };
   } catch (error) {
-    if (error instanceof AuthError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: Sign in\n${error}`);
-    throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<AuthErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

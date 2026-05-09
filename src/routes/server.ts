@@ -17,7 +17,7 @@ const healthRouter = new Elysia().get("/health", async ({ set }) => {
     status: "healthy",
     timestamp: new Date().toISOString(),
     services: {
-      api: "up and changed",
+      api: "up",
       database: "down",
       redis: "down",
     },

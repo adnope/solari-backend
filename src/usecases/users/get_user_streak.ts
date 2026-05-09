@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { userStreaks } from "../../db/schema.ts";
+import { AppError } from "../app_error.ts";
 
 export type GetUserStreakInput = {
   userId: string;
@@ -16,14 +17,7 @@ export type GetUserStreakResult = {
   postedToday: boolean;
 };
 
-export class GetUserStreakError extends Error {
-  readonly statusCode: number;
-  constructor(message: string, statusCode: number) {
-    super(message);
-    this.name = "GetUserStreakError";
-    this.statusCode = statusCode;
-  }
-}
+export type GetUserStreakErrorType = "MISSING_INPUT" | "INVALID_TIMEZONE" | "INTERNAL_ERROR";
 
 function getLocalDateString(date: Date, timeZone: string): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -40,17 +34,21 @@ export async function getUserStreak(input: GetUserStreakInput): Promise<GetUserS
   const normalizedTimezone = input.timezone?.trim();
 
   if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
-    throw new GetUserStreakError("Invalid user ID.", 400);
+    throw new AppError<GetUserStreakErrorType>("MISSING_INPUT", "Invalid user ID.", 400);
   }
 
   if (!normalizedTimezone) {
-    throw new GetUserStreakError("A valid IANA timezone is required.", 400);
+    throw new AppError<GetUserStreakErrorType>(
+      "INVALID_TIMEZONE",
+      "A valid IANA timezone is required.",
+      400,
+    );
   }
 
   try {
     Intl.DateTimeFormat(undefined, { timeZone: normalizedTimezone });
   } catch (err) {
-    throw new GetUserStreakError("Invalid timezone format.", 400);
+    throw new AppError<GetUserStreakErrorType>("INVALID_TIMEZONE", "Invalid timezone format.", 400);
   }
 
   try {
@@ -107,8 +105,8 @@ export async function getUserStreak(input: GetUserStreakInput): Promise<GetUserS
       postedToday,
     };
   } catch (error) {
-    if (error instanceof GetUserStreakError) throw error;
+    if (error instanceof AppError) throw error;
     console.error(`[ERROR] Unexpected error fetching user streak: \n${error}`);
-    throw new GetUserStreakError("Internal server error.", 500);
+    throw new AppError<GetUserStreakErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

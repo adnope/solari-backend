@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { conversations, mutedConversations } from "../../db/schema.ts";
+import { AppError } from "../app_error.ts";
 
 export type ToggleConversationMuteResult = {
   isMuted: boolean;
@@ -13,18 +14,6 @@ export type MuteConversationErrorType =
   | "CONVERSATION_NOT_FOUND"
   | "INTERNAL_ERROR";
 
-export class MuteConversationError extends Error {
-  readonly type: MuteConversationErrorType;
-  readonly statusCode: number;
-
-  constructor(type: MuteConversationErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "MuteConversationError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function toggleConversationMute(
   userId: string,
   conversationId: string,
@@ -33,7 +22,7 @@ export async function toggleConversationMute(
   const normalizedConversationId = conversationId.trim();
 
   if (!normalizedUserId || !normalizedConversationId) {
-    throw new MuteConversationError(
+    throw new AppError<MuteConversationErrorType>(
       "MISSING_INPUT",
       "User ID and Conversation ID are required.",
       400,
@@ -41,7 +30,7 @@ export async function toggleConversationMute(
   }
 
   if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedConversationId)) {
-    throw new MuteConversationError("INVALID_FORMAT", "Invalid ID format.", 400);
+    throw new AppError<MuteConversationErrorType>("INVALID_FORMAT", "Invalid ID format.", 400);
   }
 
   try {
@@ -60,7 +49,7 @@ export async function toggleConversationMute(
       .limit(1);
 
     if (!conversation) {
-      throw new MuteConversationError(
+      throw new AppError<MuteConversationErrorType>(
         "CONVERSATION_NOT_FOUND",
         "Conversation not found or you do not have access.",
         404,
@@ -96,9 +85,13 @@ export async function toggleConversationMute(
       return { isMuted: true };
     }
   } catch (error) {
-    if (error instanceof MuteConversationError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Toggle conversation mute\n${error}`);
-    throw new MuteConversationError("INTERNAL_ERROR", "Error toggling conversation mute.", 500);
+    throw new AppError<MuteConversationErrorType>(
+      "INTERNAL_ERROR",
+      "Error toggling conversation mute.",
+      500,
+    );
   }
 }

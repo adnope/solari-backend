@@ -18,6 +18,7 @@ import { deleteCachedPublicProfile } from "../../cache/public_profile_cache.ts";
 import { deleteCachedNicknames } from "../../cache/nickname_cache.ts";
 import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
 import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
+import { AppError } from "../app_error.ts";
 
 export type DeleteAccountInput = {
   userId: string;
@@ -33,18 +34,6 @@ export type DeleteAccountErrorType =
   | "GOOGLE_ACCOUNT_NOT_LINKED"
   | "INTERNAL_ERROR";
 
-export class DeleteAccountError extends Error {
-  readonly type: DeleteAccountErrorType;
-  readonly statusCode: number;
-
-  constructor(type: DeleteAccountErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "DeleteAccountError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 type GoogleTokenPayload = {
   sub?: string;
   email?: string;
@@ -54,14 +43,18 @@ type GoogleTokenPayload = {
 async function verifyGoogleIdToken(idToken: string): Promise<GoogleTokenPayload> {
   const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
   if (!verifyRes.ok) {
-    throw new DeleteAccountError("INVALID_CREDENTIALS", "Invalid or expired Google token.", 401);
+    throw new AppError<DeleteAccountErrorType>(
+      "INVALID_CREDENTIALS",
+      "Invalid or expired Google token.",
+      401,
+    );
   }
 
   const payload = (await verifyRes.json()) as GoogleTokenPayload;
 
   const googleClientId = process.env["GOOGLE_CLIENT_ID"];
   if (googleClientId && payload.aud !== googleClientId) {
-    throw new DeleteAccountError(
+    throw new AppError<DeleteAccountErrorType>(
       "INVALID_CREDENTIALS",
       "Token was not issued for this application.",
       401,
@@ -69,7 +62,11 @@ async function verifyGoogleIdToken(idToken: string): Promise<GoogleTokenPayload>
   }
 
   if (!payload.sub) {
-    throw new DeleteAccountError("INVALID_CREDENTIALS", "Invalid Google token payload.", 401);
+    throw new AppError<DeleteAccountErrorType>(
+      "INVALID_CREDENTIALS",
+      "Invalid Google token payload.",
+      401,
+    );
   }
 
   return payload;
@@ -87,11 +84,11 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
   const postIdsToInvalidate: string[] = [];
 
   if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
-    throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
+    throw new AppError<DeleteAccountErrorType>("USER_NOT_FOUND", "User not found.", 404);
   }
 
   if (!password && !googleIdToken) {
-    throw new DeleteAccountError(
+    throw new AppError<DeleteAccountErrorType>(
       "MISSING_VERIFICATION",
       "Password or Google ID token is required.",
       400,
@@ -114,12 +111,12 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
         .limit(1);
 
       if (!userRow) {
-        throw new DeleteAccountError("USER_NOT_FOUND", "User not found.", 404);
+        throw new AppError<DeleteAccountErrorType>("USER_NOT_FOUND", "User not found.", 404);
       }
 
       if (password) {
         if (!userRow.passwordHash) {
-          throw new DeleteAccountError(
+          throw new AppError<DeleteAccountErrorType>(
             "LINKED_THIRD_PARTY_ACCOUNT",
             "Please verify with your linked third-party account.",
             401,
@@ -128,7 +125,11 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
 
         const isPasswordValid = await Bun.password.verify(password, userRow.passwordHash);
         if (!isPasswordValid) {
-          throw new DeleteAccountError("INVALID_CREDENTIALS", "Invalid password.", 401);
+          throw new AppError<DeleteAccountErrorType>(
+            "INVALID_CREDENTIALS",
+            "Invalid password.",
+            401,
+          );
         }
       } else if (googlePayload) {
         const [googleAccount] = await tx
@@ -143,7 +144,7 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
           .limit(1);
 
         if (!googleAccount) {
-          throw new DeleteAccountError(
+          throw new AppError<DeleteAccountErrorType>(
             "GOOGLE_ACCOUNT_NOT_LINKED",
             "Google account is not linked to this user.",
             401,
@@ -151,7 +152,7 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
         }
 
         if (googleAccount.providerUserId !== googlePayload.sub) {
-          throw new DeleteAccountError(
+          throw new AppError<DeleteAccountErrorType>(
             "INVALID_CREDENTIALS",
             "Google token does not match the linked account.",
             401,
@@ -258,9 +259,9 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
       );
     }
   } catch (error) {
-    if (error instanceof DeleteAccountError) throw error;
+    if (error instanceof AppError) throw error;
     console.error(`[ERROR] Unexpected error in use case: Delete account\n${error}`);
-    throw new DeleteAccountError(
+    throw new AppError<DeleteAccountErrorType>(
       "INTERNAL_ERROR",
       "Internal server error during account deletion.",
       500,

@@ -1,14 +1,12 @@
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { Elysia, t } from "elysia";
-import {
-  getPublicWebProfile,
-  GetPublicWebProfileError,
-} from "../usecases/users/get_public_web_profile.ts";
+import { getPublicWebProfile } from "../usecases/users/get_public_web_profile.ts";
+import { AppError } from "../usecases/app_error.ts";
 
-const faviconBase64 = readFileSync(
-  join(import.meta.dir, "assets", "favicon.ico"),
-).toString("base64");
+const faviconBase64 = readFileSync(join(import.meta.dir, "assets", "favicon.ico")).toString(
+  "base64",
+);
 const faviconDataUri = `data:image/x-icon;base64,${faviconBase64}`;
 
 const escapeHtml = (value: string) =>
@@ -186,7 +184,7 @@ export const webRouter = new Elysia().get(
     } catch (error) {
       const errorBg = "background-color: #12100B; margin: 0;";
 
-      if (error instanceof GetPublicWebProfileError && error.statusCode === 404) {
+      if (error instanceof AppError && error.statusCode === 404) {
         return htmlResponse(
           `<body style="${errorBg}"><h1 style="color:white;font-family:sans-serif;text-align:center;margin-top:20vh;">User not found</h1></body>`,
           404,

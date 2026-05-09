@@ -16,15 +16,3 @@ export type AuthErrorType =
   | "USER_NOT_FOUND"
   | "LINKED_THIRD_PARTY_ACCOUNT"
   | "INTERNAL_ERROR";
-
-export class AuthError extends Error {
-  readonly type: AuthErrorType;
-  readonly statusCode: number;
-
-  constructor(type: AuthErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "AuthError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}

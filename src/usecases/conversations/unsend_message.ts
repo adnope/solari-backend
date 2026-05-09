@@ -4,6 +4,7 @@ import { withTx } from "../../db/client.ts";
 import { messages } from "../../db/schema.ts";
 import { publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { getMessageActionContext } from "../../db/queries/get_message_action_context.ts";
+import { AppError } from "../app_error.ts";
 
 export type UnsendMessageInput = {
   senderId: string;
@@ -23,28 +24,16 @@ export type UnsendMessageErrorType =
   | "ARCHIVED"
   | "INTERNAL_ERROR";
 
-export class UnsendMessageError extends Error {
-  readonly type: UnsendMessageErrorType;
-  readonly statusCode: number;
-
-  constructor(type: UnsendMessageErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "UnsendMessageError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMessageResult> {
   const normalizedSenderId = input.senderId.trim();
   const normalizedMessageId = input.messageId.trim();
 
   if (!normalizedSenderId || !normalizedMessageId) {
-    throw new UnsendMessageError("MISSING_INPUT", "Required fields missing.", 400);
+    throw new AppError<UnsendMessageErrorType>("MISSING_INPUT", "Required fields missing.", 400);
   }
 
   if (!isValidUuid(normalizedSenderId) || !isValidUuid(normalizedMessageId)) {
-    throw new UnsendMessageError("MISSING_INPUT", "Invalid format.", 400);
+    throw new AppError<UnsendMessageErrorType>("MISSING_INPUT", "Invalid format.", 400);
   }
 
   try {
@@ -57,15 +46,19 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
       );
 
       if (!message) {
-        throw new UnsendMessageError("MESSAGE_NOT_FOUND", "Message not found.", 404);
+        throw new AppError<UnsendMessageErrorType>("MESSAGE_NOT_FOUND", "Message not found.", 404);
       }
 
       if (message.senderId !== normalizedSenderId) {
-        throw new UnsendMessageError("UNAUTHORIZED", "You can only unsend your own messages.", 403);
+        throw new AppError<UnsendMessageErrorType>(
+          "UNAUTHORIZED",
+          "You can only unsend your own messages.",
+          403,
+        );
       }
 
       if (message.isBlocked) {
-        throw new UnsendMessageError(
+        throw new AppError<UnsendMessageErrorType>(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
           403,
@@ -73,7 +66,7 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
       }
 
       if (!message.isFriend) {
-        throw new UnsendMessageError(
+        throw new AppError<UnsendMessageErrorType>(
           "ARCHIVED",
           "This conversation is archived. You cannot modify it.",
           403,
@@ -104,7 +97,11 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
         });
 
       if (!updatedMessage) {
-        throw new UnsendMessageError("INTERNAL_ERROR", "Failed to unsend message.", 500);
+        throw new AppError<UnsendMessageErrorType>(
+          "INTERNAL_ERROR",
+          "Failed to unsend message.",
+          500,
+        );
       }
 
       return {
@@ -126,9 +123,9 @@ export async function unsendMessage(input: UnsendMessageInput): Promise<UnsendMe
 
     return resultPayload;
   } catch (error) {
-    if (error instanceof UnsendMessageError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Unsend message\n${error}`);
-    throw new UnsendMessageError("INTERNAL_ERROR", "Error unsending message.", 500);
+    throw new AppError<UnsendMessageErrorType>("INTERNAL_ERROR", "Error unsending message.", 500);
   }
 }

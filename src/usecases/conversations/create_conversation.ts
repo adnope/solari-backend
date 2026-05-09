@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { conversations, users } from "../../db/schema.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
+import { AppError } from "../app_error.ts";
 
 export type CreateConversationResult = {
   id: string;
@@ -17,18 +18,6 @@ export type CreateConversationErrorType =
   | "USER_NOT_FOUND"
   | "INTERNAL_ERROR";
 
-export class CreateConversationError extends Error {
-  readonly type: CreateConversationErrorType;
-  readonly statusCode: number;
-
-  constructor(type: CreateConversationErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "CreateConversationError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function createConversation(
   userId: string,
   targetUserId: string,
@@ -37,15 +26,15 @@ export async function createConversation(
   const normalizedTargetUserId = targetUserId.trim();
 
   if (!normalizedUserId || !normalizedTargetUserId) {
-    throw new CreateConversationError("MISSING_INPUT", "User IDs are required.", 400);
+    throw new AppError<CreateConversationErrorType>("MISSING_INPUT", "User IDs are required.", 400);
   }
 
   if (!isValidUuid(normalizedUserId) || !isValidUuid(normalizedTargetUserId)) {
-    throw new CreateConversationError("USER_NOT_FOUND", "Invalid ID format.", 400);
+    throw new AppError<CreateConversationErrorType>("USER_NOT_FOUND", "Invalid ID format.", 400);
   }
 
   if (normalizedUserId === normalizedTargetUserId) {
-    throw new CreateConversationError(
+    throw new AppError<CreateConversationErrorType>(
       "CANNOT_CHAT_WITH_SELF",
       "You cannot chat with yourself.",
       400,
@@ -65,12 +54,20 @@ export async function createConversation(
       .where(inArray(users.id, [userLow, userHigh]));
 
     if (existingUsers.length !== 2) {
-      throw new CreateConversationError("USER_NOT_FOUND", "Target user does not exist.", 404);
+      throw new AppError<CreateConversationErrorType>(
+        "USER_NOT_FOUND",
+        "Target user does not exist.",
+        404,
+      );
     }
 
     const isBlocked = await hasBlockingRelationship(normalizedUserId, normalizedTargetUserId);
     if (isBlocked) {
-      throw new CreateConversationError("USER_NOT_FOUND", "Target user does not exist.", 404);
+      throw new AppError<CreateConversationErrorType>(
+        "USER_NOT_FOUND",
+        "Target user does not exist.",
+        404,
+      );
     }
 
     const inserted = await db
@@ -105,14 +102,22 @@ export async function createConversation(
       .where(and(eq(conversations.userLow, userLow), eq(conversations.userHigh, userHigh)));
 
     if (!existing) {
-      throw new CreateConversationError("INTERNAL_ERROR", "Error creating conversation.", 500);
+      throw new AppError<CreateConversationErrorType>(
+        "INTERNAL_ERROR",
+        "Error creating conversation.",
+        500,
+      );
     }
 
     return existing;
   } catch (error) {
-    if (error instanceof CreateConversationError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Create conversation\n${error}`);
-    throw new CreateConversationError("INTERNAL_ERROR", "Error creating conversation.", 500);
+    throw new AppError<CreateConversationErrorType>(
+      "INTERNAL_ERROR",
+      "Error creating conversation.",
+      500,
+    );
   }
 }

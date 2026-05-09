@@ -4,6 +4,7 @@ import { db } from "../../db/client.ts";
 import { friendNicknames, friendships } from "../../db/schema.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { cacheNickname } from "../../cache/nickname_cache.ts";
+import { AppError } from "../app_error.ts";
 
 export type SetNicknameResult = {
   success: boolean;
@@ -19,18 +20,6 @@ export type SetNicknameErrorType =
   | "NICKNAME_ALREADY_EXISTS"
   | "INTERNAL_ERROR";
 
-export class SetNicknameError extends Error {
-  readonly type: SetNicknameErrorType;
-  readonly statusCode: number;
-
-  constructor(type: SetNicknameErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "SetNicknameError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function setNickname(
   setterId: string,
   targetId: string,
@@ -41,15 +30,19 @@ export async function setNickname(
   const trimmedNickname = nickname.trim();
 
   if (!normalizedSetterId || !normalizedTargetId || !trimmedNickname) {
-    throw new SetNicknameError("MISSING_INPUT", "User IDs and nickname are required.", 400);
+    throw new AppError<SetNicknameErrorType>(
+      "MISSING_INPUT",
+      "User IDs and nickname are required.",
+      400,
+    );
   }
 
   if (!isValidUuid(normalizedSetterId) || !isValidUuid(normalizedTargetId)) {
-    throw new SetNicknameError("INVALID_FORMAT", "Invalid user ID format.", 400);
+    throw new AppError<SetNicknameErrorType>("INVALID_FORMAT", "Invalid user ID format.", 400);
   }
 
   if (normalizedSetterId === normalizedTargetId) {
-    throw new SetNicknameError(
+    throw new AppError<SetNicknameErrorType>(
       "CANNOT_NICKNAME_SELF",
       "You cannot set a nickname for yourself.",
       400,
@@ -69,7 +62,7 @@ export async function setNickname(
       .limit(1);
 
     if (!friendship) {
-      throw new SetNicknameError(
+      throw new AppError<SetNicknameErrorType>(
         "NOT_FRIENDS",
         "You can only set nicknames for users who are on your friends list.",
         403,
@@ -90,12 +83,12 @@ export async function setNickname(
 
     return { success: true, nickname: trimmedNickname };
   } catch (error: unknown) {
-    if (error instanceof SetNicknameError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     if (isPgErrorCode(error, PgErrorCode.UNIQUE_VIOLATION)) {
-      throw new SetNicknameError(
+      throw new AppError<SetNicknameErrorType>(
         "NICKNAME_ALREADY_EXISTS",
         "A nickname is already set for this user. Use the update endpoint instead.",
         409,
@@ -103,10 +96,14 @@ export async function setNickname(
     }
 
     if (isPgErrorCode(error, PgErrorCode.FOREIGN_KEY_VIOLATION)) {
-      throw new SetNicknameError("USER_NOT_FOUND", "Target user does not exist.", 404);
+      throw new AppError<SetNicknameErrorType>(
+        "USER_NOT_FOUND",
+        "Target user does not exist.",
+        404,
+      );
     }
 
     console.error(`[ERROR] Unexpected error in use case: Set nickname\n`, error);
-    throw new SetNicknameError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<SetNicknameErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

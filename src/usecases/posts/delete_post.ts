@@ -4,6 +4,7 @@ import { withTx } from "../../db/client.ts";
 import { deleteCachedPostDetail } from "../../cache/post_detail_cache.ts";
 import { postMedia, posts } from "../../db/schema.ts";
 import { deleteFile } from "../../storage/s3.ts";
+import { AppError } from "../app_error.ts";
 
 export type DeletePostErrorType =
   | "MISSING_INPUT"
@@ -11,28 +12,20 @@ export type DeletePostErrorType =
   | "UNAUTHORIZED"
   | "INTERNAL_ERROR";
 
-export class DeletePostError extends Error {
-  readonly type: DeletePostErrorType;
-  readonly statusCode: number;
-
-  constructor(type: DeletePostErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "DeletePostError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function deletePost(authorId: string, postId: string): Promise<void> {
   const normalizedAuthorId = authorId.trim();
   const normalizedPostId = postId.trim();
 
   if (!normalizedAuthorId || !normalizedPostId) {
-    throw new DeletePostError("MISSING_INPUT", "Author ID and Post ID are required.", 400);
+    throw new AppError<DeletePostErrorType>(
+      "MISSING_INPUT",
+      "Author ID and Post ID are required.",
+      400,
+    );
   }
 
   if (!isValidUuid(normalizedAuthorId) || !isValidUuid(normalizedPostId)) {
-    throw new DeletePostError("POST_NOT_FOUND", "Post not found.", 404);
+    throw new AppError<DeletePostErrorType>("POST_NOT_FOUND", "Post not found.", 404);
   }
 
   let keysToDelete: string[] = [];
@@ -51,11 +44,11 @@ export async function deletePost(authorId: string, postId: string): Promise<void
         .limit(1);
 
       if (!postRow) {
-        throw new DeletePostError("POST_NOT_FOUND", "Post not found.", 404);
+        throw new AppError<DeletePostErrorType>("POST_NOT_FOUND", "Post not found.", 404);
       }
 
       if (postRow.authorId !== normalizedAuthorId) {
-        throw new DeletePostError(
+        throw new AppError<DeletePostErrorType>(
           "UNAUTHORIZED",
           "You are not authorized to delete this post.",
           403,
@@ -83,8 +76,12 @@ export async function deletePost(authorId: string, postId: string): Promise<void
       ).catch(console.error);
     }
   } catch (error) {
-    if (error instanceof DeletePostError) throw error;
+    if (error instanceof AppError) throw error;
     console.error(`[ERROR] Unexpected error in use case: Delete post\n${error}`);
-    throw new DeletePostError("INTERNAL_ERROR", "Internal server error during post deletion.", 500);
+    throw new AppError<DeletePostErrorType>(
+      "INTERNAL_ERROR",
+      "Internal server error during post deletion.",
+      500,
+    );
   }
 }

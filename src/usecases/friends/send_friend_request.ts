@@ -5,6 +5,7 @@ import { enqueuePushNotification, publishWebSocketEvent } from "../../jobs/queue
 import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
 import { getUserSummaryById } from "../common_queries.ts";
 import { getFriendRequestContext } from "../../db/queries/get_friend_request_context.ts";
+import { AppError } from "../app_error.ts";
 
 export type FriendRequestResult = {
   id: string;
@@ -23,25 +24,21 @@ export type SendFriendRequestErrorType =
   | "REQUEST_ALREADY_RECEIVED"
   | "INTERNAL_ERROR";
 
-export class SendFriendRequestError extends Error {
-  readonly type: SendFriendRequestErrorType;
-  readonly statusCode: number;
-
-  constructor(type: SendFriendRequestErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "SendFriendRequestError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 function normalizeRequesterId(requesterId: string): string {
   const value = requesterId.trim();
   if (value.length === 0) {
-    throw new SendFriendRequestError("MISSING_INPUT", "Requester id is required.", 400);
+    throw new AppError<SendFriendRequestErrorType>(
+      "MISSING_INPUT",
+      "Requester id is required.",
+      400,
+    );
   }
   if (!isValidUuid(value)) {
-    throw new SendFriendRequestError("MISSING_INPUT", "Requester id is invalid.", 400);
+    throw new AppError<SendFriendRequestErrorType>(
+      "MISSING_INPUT",
+      "Requester id is invalid.",
+      400,
+    );
   }
   return value;
 }
@@ -49,7 +46,11 @@ function normalizeRequesterId(requesterId: string): string {
 function normalizeIdentifier(identifier: string): string {
   const value = identifier.trim();
   if (value.length === 0) {
-    throw new SendFriendRequestError("INVALID_IDENTIFIER", "Username or email is required.", 400);
+    throw new AppError<SendFriendRequestErrorType>(
+      "INVALID_IDENTIFIER",
+      "Username or email is required.",
+      400,
+    );
   }
   return value;
 }
@@ -59,7 +60,7 @@ export async function sendFriendRequest(
   identifier: string,
 ): Promise<FriendRequestResult> {
   if (!requesterId || !identifier) {
-    throw new SendFriendRequestError(
+    throw new AppError<SendFriendRequestErrorType>(
       "MISSING_INPUT",
       "Requester ID or receiver identifier is missing.",
       400,
@@ -74,21 +75,21 @@ export async function sendFriendRequest(
       const requester = await getUserSummaryById(normalizedRequesterId, tx);
 
       if (!requester) {
-        throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
+        throw new AppError<SendFriendRequestErrorType>("USER_NOT_FOUND", "User not found.", 404);
       }
 
       const ctx = await getFriendRequestContext(normalizedRequesterId, normalizedIdentifier, tx);
 
       if (!ctx) {
-        throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
+        throw new AppError<SendFriendRequestErrorType>("USER_NOT_FOUND", "User not found.", 404);
       }
 
       if (ctx.isBlocked) {
-        throw new SendFriendRequestError("USER_NOT_FOUND", "User not found.", 404);
+        throw new AppError<SendFriendRequestErrorType>("USER_NOT_FOUND", "User not found.", 404);
       }
 
       if (ctx.receiverId === normalizedRequesterId) {
-        throw new SendFriendRequestError(
+        throw new AppError<SendFriendRequestErrorType>(
           "SELF_REQUEST",
           "You cannot send a friend request to yourself.",
           400,
@@ -96,7 +97,7 @@ export async function sendFriendRequest(
       }
 
       if (ctx.isFriend) {
-        throw new SendFriendRequestError(
+        throw new AppError<SendFriendRequestErrorType>(
           "ALREADY_FRIENDS",
           "You are already friends with this user.",
           409,
@@ -104,7 +105,7 @@ export async function sendFriendRequest(
       }
 
       if (ctx.outgoingReqId) {
-        throw new SendFriendRequestError(
+        throw new AppError<SendFriendRequestErrorType>(
           "REQUEST_ALREADY_SENT",
           "Friend request already sent.",
           409,
@@ -112,7 +113,7 @@ export async function sendFriendRequest(
       }
 
       if (ctx.incomingReqId) {
-        throw new SendFriendRequestError(
+        throw new AppError<SendFriendRequestErrorType>(
           "REQUEST_ALREADY_RECEIVED",
           "This user has already sent you a friend request.",
           409,
@@ -136,7 +137,11 @@ export async function sendFriendRequest(
         });
 
       if (!inserted) {
-        throw new SendFriendRequestError("INTERNAL_ERROR", "Failed to create friend request.", 500);
+        throw new AppError<SendFriendRequestErrorType>(
+          "INTERNAL_ERROR",
+          "Failed to create friend request.",
+          500,
+        );
       }
 
       return {
@@ -173,14 +178,14 @@ export async function sendFriendRequest(
 
     return requestResult;
   } catch (error: unknown) {
-    if (error instanceof SendFriendRequestError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     if (isPgErrorCode(error, PgErrorCode.UNIQUE_VIOLATION)) {
       const constraint = getPgConstraintName(error);
       if (constraint === "friend_requests_unique_pair") {
-        throw new SendFriendRequestError(
+        throw new AppError<SendFriendRequestErrorType>(
           "REQUEST_ALREADY_SENT",
           "Friend request already sent.",
           409,
@@ -190,7 +195,7 @@ export async function sendFriendRequest(
 
     if (isPgErrorCode(error, PgErrorCode.CHECK_VIOLATION)) {
       if (getPgConstraintName(error) === "friend_requests_no_self") {
-        throw new SendFriendRequestError(
+        throw new AppError<SendFriendRequestErrorType>(
           "SELF_REQUEST",
           "You cannot send a friend request to yourself.",
           400,
@@ -199,6 +204,6 @@ export async function sendFriendRequest(
     }
 
     console.error(`[ERROR] Unexpected error in use case: Send friend request\n`, error);
-    throw new SendFriendRequestError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<SendFriendRequestErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

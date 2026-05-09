@@ -1,26 +1,9 @@
 import { Elysia } from "elysia";
+import { AppError } from "../usecases/app_error.ts";
 import { AuthorizationError } from "./middleware/require_auth.ts";
-
-type ErrorConstructor = new (...args: any[]) => Error;
-type ErrorRegistry = Record<string, ErrorConstructor>;
 
 type ApiErrorHandlerOptions = {
   validationErrorType?: string;
-};
-
-type TypedAppError = Error & {
-  type: string;
-  statusCode: number;
-};
-
-const isTypedAppError = (error: unknown): error is TypedAppError => {
-  return (
-    error instanceof Error &&
-    "type" in error &&
-    "statusCode" in error &&
-    typeof error.type === "string" &&
-    typeof error.statusCode === "number"
-  );
 };
 
 function getValidationMessage(error: unknown): string {
@@ -45,15 +28,11 @@ function getValidationMessage(error: unknown): string {
   return "Invalid request input.";
 }
 
-export const withApiErrorHandler = (
-  app: Elysia,
-  errors: ErrorRegistry = {},
-  options: ApiErrorHandlerOptions = {},
-) =>
+export const withApiErrorHandler = (app: Elysia, options: ApiErrorHandlerOptions = {}) =>
   app
     .error({
       AuthorizationError,
-      ...errors,
+      AppError,
     })
     .onError(({ code, error, set }) => {
       const validationErrorType = options.validationErrorType ?? "INVALID_INPUT";
@@ -78,7 +57,7 @@ export const withApiErrorHandler = (
         };
       }
 
-      if (isTypedAppError(error)) {
+      if (error instanceof AppError) {
         set.status = error.statusCode;
         return {
           error: {

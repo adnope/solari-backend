@@ -4,6 +4,7 @@ import { users } from "../../db/schema.ts";
 import { cachePublicProfile, getCachedPublicProfile } from "../../cache/public_profile_cache.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { isBlockedBy, getNickname } from "../common_queries.ts";
+import { AppError } from "../app_error.ts";
 
 export type PublicProfileResult = {
   id: string;
@@ -14,18 +15,6 @@ export type PublicProfileResult = {
 
 export type GetPublicProfileErrorType = "INVALID_INPUT" | "USER_NOT_FOUND" | "INTERNAL_ERROR";
 
-export class GetPublicProfileError extends Error {
-  readonly type: GetPublicProfileErrorType;
-  readonly statusCode: number;
-
-  constructor(type: GetPublicProfileErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "GetPublicProfileError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function getPublicProfile(
   requesterId: string,
   username: string,
@@ -34,7 +23,7 @@ export async function getPublicProfile(
   const normalizedRequesterId = requesterId.trim();
 
   if (!normalizedUsername || !normalizedRequesterId) {
-    throw new GetPublicProfileError(
+    throw new AppError<GetPublicProfileErrorType>(
       "INVALID_INPUT",
       "Requester ID and Username are required.",
       400,
@@ -74,7 +63,7 @@ export async function getPublicProfile(
       })());
 
     if (!baseProfile) {
-      throw new GetPublicProfileError("USER_NOT_FOUND", "User not found.", 404);
+      throw new AppError<GetPublicProfileErrorType>("USER_NOT_FOUND", "User not found.", 404);
     }
 
     const [isBlocked, nickname] = await Promise.all([
@@ -83,7 +72,7 @@ export async function getPublicProfile(
     ]);
 
     if (isBlocked) {
-      throw new GetPublicProfileError("USER_NOT_FOUND", "User not found.", 404);
+      throw new AppError<GetPublicProfileErrorType>("USER_NOT_FOUND", "User not found.", 404);
     }
 
     return {
@@ -93,10 +82,10 @@ export async function getPublicProfile(
       avatarUrl: baseProfile.avatarUrl,
     };
   } catch (error: unknown) {
-    if (error instanceof GetPublicProfileError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Get public profile\n`, error);
-    throw new GetPublicProfileError(
+    throw new AppError<GetPublicProfileErrorType>(
       "INTERNAL_ERROR",
       "Internal server error fetching profile.",
       500,

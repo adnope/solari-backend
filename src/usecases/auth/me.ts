@@ -2,7 +2,8 @@ import { eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
-import { AuthError } from "./error_type.ts";
+import type { AuthErrorType } from "./error_type.ts";
+import { AppError } from "../app_error.ts";
 
 export type MeResult = {
   id: string;
@@ -17,7 +18,7 @@ export async function me(userId: string): Promise<MeResult> {
   const normalizedUserId = userId.trim();
 
   if (!normalizedUserId) {
-    throw new AuthError("MISSING_USER_ID", "User id is missing.", 400);
+    throw new AppError<AuthErrorType>("MISSING_USER_ID", "User id is missing.", 400);
   }
 
   try {
@@ -35,7 +36,7 @@ export async function me(userId: string): Promise<MeResult> {
       .limit(1);
 
     if (!user) {
-      throw new AuthError("USER_NOT_FOUND", "User not found.", 404);
+      throw new AppError<AuthErrorType>("USER_NOT_FOUND", "User not found.", 404);
     }
 
     const avatarUrl = user.avatarKey ? await getFileUrl(user.avatarKey) : null;
@@ -49,11 +50,11 @@ export async function me(userId: string): Promise<MeResult> {
       createdAt: user.createdAt,
     };
   } catch (error) {
-    if (error instanceof AuthError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: Me\n${error}`);
-    throw new AuthError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<AuthErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

@@ -6,6 +6,7 @@ import { getNickname, getUserSummaryById, hasBlockingRelationship } from "../com
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { enqueuePushNotification, publishWebSocketEventToUsers } from "../../jobs/queue.ts";
 import { getSendMessageContext } from "../../db/queries/get_send_message_context.ts";
+import { AppError } from "../app_error.ts";
 
 export type SendMessageInput = {
   senderId: string;
@@ -37,18 +38,6 @@ export type SendMessageErrorType =
   | "NOT_FRIENDS"
   | "INTERNAL_ERROR";
 
-export class SendMessageError extends Error {
-  readonly type: SendMessageErrorType;
-  readonly statusCode: number;
-
-  constructor(type: SendMessageErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "SendMessageError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
   const normalizedSenderId = input.senderId.trim();
   const normalizedConversationId = input.conversationId.trim();
@@ -57,7 +46,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
   const trimmedContent = input.content?.trim();
 
   if (!normalizedSenderId || !normalizedConversationId) {
-    throw new SendMessageError("MISSING_INPUT", "Required fields missing.", 400);
+    throw new AppError<SendMessageErrorType>("MISSING_INPUT", "Required fields missing.", 400);
   }
 
   if (
@@ -66,11 +55,11 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     (normalizedReferencedPostId && !isValidUuid(normalizedReferencedPostId)) ||
     (normalizedRepliedMessageId && !isValidUuid(normalizedRepliedMessageId))
   ) {
-    throw new SendMessageError("MISSING_INPUT", "Invalid ID format.", 400);
+    throw new AppError<SendMessageErrorType>("MISSING_INPUT", "Invalid ID format.", 400);
   }
 
   if (normalizedReferencedPostId && normalizedRepliedMessageId) {
-    throw new SendMessageError(
+    throw new AppError<SendMessageErrorType>(
       "INVALID_REFERENCE_COMBINATION",
       "A message cannot reply to both a post and a message simultaneously.",
       400,
@@ -78,7 +67,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
   }
 
   if (!trimmedContent) {
-    throw new SendMessageError("EMPTY_CONTENT", "Content is empty.", 400);
+    throw new AppError<SendMessageErrorType>("EMPTY_CONTENT", "Content is empty.", 400);
   }
 
   const messageId = Bun.randomUUIDv7();
@@ -94,11 +83,15 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     );
 
     if (!context) {
-      throw new SendMessageError("CONVERSATION_NOT_FOUND", "Conversation not found.", 404);
+      throw new AppError<SendMessageErrorType>(
+        "CONVERSATION_NOT_FOUND",
+        "Conversation not found.",
+        404,
+      );
     }
 
     if (context.userLow !== normalizedSenderId && context.userHigh !== normalizedSenderId) {
-      throw new SendMessageError(
+      throw new AppError<SendMessageErrorType>(
         "CONVERSATION_NOT_FOUND",
         "Unauthorized access to conversation.",
         404,
@@ -107,26 +100,34 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
     if (normalizedReferencedPostId) {
       if (!context.referencedPostAuthorId) {
-        throw new SendMessageError("POST_NOT_FOUND", "Post not found.", 404);
+        throw new AppError<SendMessageErrorType>("POST_NOT_FOUND", "Post not found.", 404);
       }
       if (context.referencedPostAuthorId === normalizedSenderId) {
-        throw new SendMessageError("CANNOT_REFERENCE_OWN_POST", "Cannot reference own post.", 400);
+        throw new AppError<SendMessageErrorType>(
+          "CANNOT_REFERENCE_OWN_POST",
+          "Cannot reference own post.",
+          400,
+        );
       }
     }
 
     if (normalizedRepliedMessageId) {
       if (!context.repliedMessageConversationId) {
-        throw new SendMessageError("REPLIED_MESSAGE_NOT_FOUND", "Replied message not found.", 404);
+        throw new AppError<SendMessageErrorType>(
+          "REPLIED_MESSAGE_NOT_FOUND",
+          "Replied message not found.",
+          404,
+        );
       }
       if (context.repliedMessageIsDeleted) {
-        throw new SendMessageError(
+        throw new AppError<SendMessageErrorType>(
           "REPLIED_MESSAGE_UNSENT",
           "Cannot reply to a deleted message.",
           400,
         );
       }
       if (context.repliedMessageConversationId !== normalizedConversationId) {
-        throw new SendMessageError(
+        throw new AppError<SendMessageErrorType>(
           "REPLIED_MESSAGE_NOT_FOUND",
           "Replied message is not in this conversation.",
           400,
@@ -137,7 +138,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     const isBlocked = await hasBlockingRelationship(normalizedSenderId, context.receiverId);
 
     if (isBlocked || !context.isFriend) {
-      throw new SendMessageError("NOT_FRIENDS", "You can only message friends.", 403);
+      throw new AppError<SendMessageErrorType>("NOT_FRIENDS", "You can only message friends.", 403);
     }
 
     const messageResult = await withTx(async (tx) => {
@@ -157,7 +158,11 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
         });
 
       if (!insertedMessage) {
-        throw new SendMessageError("INTERNAL_ERROR", "Error writing message to database.", 500);
+        throw new AppError<SendMessageErrorType>(
+          "INTERNAL_ERROR",
+          "Error writing message to database.",
+          500,
+        );
       }
 
       await tx
@@ -240,13 +245,17 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
     return messageResult;
   } catch (error: unknown) {
-    if (error instanceof SendMessageError) throw error;
+    if (error instanceof AppError) throw error;
 
     if (isPgErrorCode(error, PgErrorCode.INVALID_TEXT_REPRESENTATION)) {
-      throw new SendMessageError("MISSING_INPUT", "Invalid format.", 400);
+      throw new AppError<SendMessageErrorType>("MISSING_INPUT", "Invalid format.", 400);
     }
 
     console.error(`[ERROR] Unexpected error in use case: Send message\n`, error);
-    throw new SendMessageError("INTERNAL_ERROR", "Internal server error sending message.", 500);
+    throw new AppError<SendMessageErrorType>(
+      "INTERNAL_ERROR",
+      "Internal server error sending message.",
+      500,
+    );
   }
 }

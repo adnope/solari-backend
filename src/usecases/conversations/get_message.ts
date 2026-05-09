@@ -2,6 +2,7 @@ import { isValidUuid } from "../../utils/uuid.ts";
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { conversations, messageReactions, messages } from "../../db/schema.ts";
+import { AppError } from "../app_error.ts";
 
 export type GetMessageReaction = {
   userId: string;
@@ -21,28 +22,20 @@ export type GetMessageResult = {
 
 export type GetMessageErrorType = "MISSING_INPUT" | "MESSAGE_NOT_FOUND" | "INTERNAL_ERROR";
 
-export class GetMessageError extends Error {
-  readonly type: GetMessageErrorType;
-  readonly statusCode: number;
-
-  constructor(type: GetMessageErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "GetMessageError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function getMessage(viewerId: string, messageId: string): Promise<GetMessageResult> {
   const normalizedViewerId = viewerId.trim();
   const normalizedMessageId = messageId.trim();
 
   if (!normalizedViewerId || !normalizedMessageId) {
-    throw new GetMessageError("MISSING_INPUT", "Viewer ID and Message ID are required.", 400);
+    throw new AppError<GetMessageErrorType>(
+      "MISSING_INPUT",
+      "Viewer ID and Message ID are required.",
+      400,
+    );
   }
 
   if (!isValidUuid(normalizedViewerId) || !isValidUuid(normalizedMessageId)) {
-    throw new GetMessageError("MESSAGE_NOT_FOUND", "Message not found.", 404);
+    throw new AppError<GetMessageErrorType>("MESSAGE_NOT_FOUND", "Message not found.", 404);
   }
 
   try {
@@ -82,7 +75,7 @@ export async function getMessage(viewerId: string, messageId: string): Promise<G
       .limit(1);
 
     if (!message) {
-      throw new GetMessageError("MESSAGE_NOT_FOUND", "Message not found.", 404);
+      throw new AppError<GetMessageErrorType>("MESSAGE_NOT_FOUND", "Message not found.", 404);
     }
 
     const reactionRows = await db
@@ -107,9 +100,13 @@ export async function getMessage(viewerId: string, messageId: string): Promise<G
       })),
     };
   } catch (error) {
-    if (error instanceof GetMessageError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Get message\n${error}`);
-    throw new GetMessageError("INTERNAL_ERROR", "Internal server error fetching message.", 500);
+    throw new AppError<GetMessageErrorType>(
+      "INTERNAL_ERROR",
+      "Internal server error fetching message.",
+      500,
+    );
   }
 }

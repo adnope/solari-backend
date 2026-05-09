@@ -10,6 +10,7 @@ import {
 } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
+import { AppError } from "../app_error.ts";
 
 export type ConversationPartner = {
   id: string;
@@ -47,18 +48,6 @@ export type GetConversationsResult = {
 
 export type GetConversationsErrorType = "MISSING_INPUT" | "INVALID_CURSOR" | "INTERNAL_ERROR";
 
-export class GetConversationsError extends Error {
-  readonly type: GetConversationsErrorType;
-  readonly statusCode: number;
-
-  constructor(type: GetConversationsErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "GetConversationsError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function getConversations(
   userId: string,
   limit = 20,
@@ -67,18 +56,18 @@ export async function getConversations(
   const normalizedUserId = userId.trim();
 
   if (!normalizedUserId) {
-    throw new GetConversationsError("MISSING_INPUT", "User ID is required.", 400);
+    throw new AppError<GetConversationsErrorType>("MISSING_INPUT", "User ID is required.", 400);
   }
 
   if (!isValidUuid(normalizedUserId)) {
-    throw new GetConversationsError("MISSING_INPUT", "Invalid user ID format.", 400);
+    throw new AppError<GetConversationsErrorType>("MISSING_INPUT", "Invalid user ID format.", 400);
   }
 
   let parsedCursor: string | undefined;
   if (cursor) {
     const parsed = new Date(cursor);
     if (Number.isNaN(parsed.getTime())) {
-      throw new GetConversationsError(
+      throw new AppError<GetConversationsErrorType>(
         "INVALID_CURSOR",
         "Cursor must be a valid ISO date string.",
         400,
@@ -214,7 +203,7 @@ export async function getConversations(
       const partner = partnerMap.get(partnerId);
 
       if (!partner) {
-        throw new GetConversationsError("INTERNAL_ERROR", "Partner not found.", 500);
+        throw new AppError<GetConversationsErrorType>("INTERNAL_ERROR", "Partner not found.", 500);
       }
 
       const isViewerLow = row.userLow === normalizedUserId;
@@ -263,10 +252,10 @@ export async function getConversations(
       nextCursor: items.length > 0 ? items[items.length - 1]!.updatedAt : null,
     };
   } catch (error) {
-    if (error instanceof GetConversationsError) throw error;
+    if (error instanceof AppError) throw error;
 
     console.error(`[ERROR] Unexpected error in use case: Get conversations\n${error}`);
-    throw new GetConversationsError(
+    throw new AppError<GetConversationsErrorType>(
       "INTERNAL_ERROR",
       "Internal server error fetching conversations.",
       500,

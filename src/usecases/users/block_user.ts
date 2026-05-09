@@ -7,6 +7,7 @@ import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { deleteCachedBlockingStateForPair } from "../../cache/block_relationship_cache.ts";
 import { deleteCachedNicknamePair } from "../../cache/nickname_cache.ts";
 import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
+import { AppError } from "../app_error.ts";
 
 export type BlockUserErrorType =
   | "MISSING_INPUT"
@@ -15,32 +16,20 @@ export type BlockUserErrorType =
   | "ALREADY_BLOCKED"
   | "INTERNAL_ERROR";
 
-export class BlockUserError extends Error {
-  readonly type: BlockUserErrorType;
-  readonly statusCode: number;
-
-  constructor(type: BlockUserErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "BlockUserError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 export async function blockUser(blockerId: string, targetUserId: string): Promise<void> {
   const normalizedBlockerId = blockerId.trim();
   const normalizedTargetId = targetUserId.trim();
 
   if (!normalizedBlockerId || !normalizedTargetId) {
-    throw new BlockUserError("MISSING_INPUT", "User IDs are required.", 400);
+    throw new AppError<BlockUserErrorType>("MISSING_INPUT", "User IDs are required.", 400);
   }
 
   if (!isValidUuid(normalizedBlockerId) || !isValidUuid(normalizedTargetId)) {
-    throw new BlockUserError("MISSING_INPUT", "Invalid user ID format.", 400);
+    throw new AppError<BlockUserErrorType>("MISSING_INPUT", "Invalid user ID format.", 400);
   }
 
   if (normalizedBlockerId === normalizedTargetId) {
-    throw new BlockUserError("CANNOT_BLOCK_SELF", "You cannot block yourself.", 400);
+    throw new AppError<BlockUserErrorType>("CANNOT_BLOCK_SELF", "You cannot block yourself.", 400);
   }
 
   const [userLow, userHigh]: [string, string] =
@@ -57,7 +46,7 @@ export async function blockUser(blockerId: string, targetUserId: string): Promis
         .limit(1);
 
       if (!targetUser) {
-        throw new BlockUserError("USER_NOT_FOUND", "User not found.", 404);
+        throw new AppError<BlockUserErrorType>("USER_NOT_FOUND", "User not found.", 404);
       }
 
       await tx.insert(blockedUsers).values({
@@ -112,19 +101,23 @@ export async function blockUser(blockerId: string, targetUserId: string): Promis
       ]);
     }
   } catch (error: unknown) {
-    if (error instanceof BlockUserError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     if (isPgErrorCode(error, PgErrorCode.UNIQUE_VIOLATION)) {
-      throw new BlockUserError("ALREADY_BLOCKED", "You have already blocked this user.", 409);
+      throw new AppError<BlockUserErrorType>(
+        "ALREADY_BLOCKED",
+        "You have already blocked this user.",
+        409,
+      );
     }
 
     if (isPgErrorCode(error, PgErrorCode.FOREIGN_KEY_VIOLATION)) {
-      throw new BlockUserError("USER_NOT_FOUND", "User not found.", 404);
+      throw new AppError<BlockUserErrorType>("USER_NOT_FOUND", "User not found.", 404);
     }
 
     console.error(`[ERROR] Unexpected error in use case: Block user\n`, error);
-    throw new BlockUserError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<BlockUserErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

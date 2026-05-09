@@ -4,9 +4,10 @@ import { withTx } from "../../db/client.ts";
 import { sessions, userOauthAccounts, userPasswords, users } from "../../db/schema.ts";
 import { createAccessToken } from "../../utils/jwt.ts";
 import { uploadFile } from "../../storage/s3.ts";
-import { AuthError } from "./error_type.ts";
+import type { AuthErrorType } from "./error_type.ts";
 import type { SigninResult } from "./sign_in.ts";
 import { REFRESH_TOKEN_TTL_MS } from "./sign_in.ts";
+import { AppError } from "../app_error.ts";
 
 type GoogleTokenPayload = {
   sub: string;
@@ -55,19 +56,27 @@ async function downloadAndUploadAvatar(pictureUrl: string): Promise<string | nul
 
 export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
   if (!idToken.trim()) {
-    throw new AuthError("INVALID_CREDENTIALS", "Missing Google ID token.", 400);
+    throw new AppError<AuthErrorType>("INVALID_CREDENTIALS", "Missing Google ID token.", 400);
   }
 
   const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
   if (!verifyRes.ok) {
-    throw new AuthError("INVALID_CREDENTIALS", "Invalid or expired Google token.", 401);
+    throw new AppError<AuthErrorType>(
+      "INVALID_CREDENTIALS",
+      "Invalid or expired Google token.",
+      401,
+    );
   }
 
   const payload = (await verifyRes.json()) as GoogleTokenPayload;
 
   const GOOGLE_CLIENT_ID = process.env["GOOGLE_CLIENT_ID"];
   if (GOOGLE_CLIENT_ID && payload.aud !== GOOGLE_CLIENT_ID) {
-    throw new AuthError("INVALID_CREDENTIALS", "Token was not issued for this application.", 401);
+    throw new AppError<AuthErrorType>(
+      "INVALID_CREDENTIALS",
+      "Token was not issued for this application.",
+      401,
+    );
   }
 
   try {
@@ -100,7 +109,7 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
 
         if (existingUser) {
           if (existingUser.passwordUserId) {
-            throw new AuthError(
+            throw new AppError<AuthErrorType>(
               "EMAIL_TAKEN",
               "Email is already tied to a password-created account. Please sign in with your password.",
               409,
@@ -184,8 +193,8 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
       };
     });
   } catch (error) {
-    if (error instanceof AuthError) throw error;
+    if (error instanceof AppError) throw error;
     console.error(`[ERROR] Unexpected error in use case: Sign in with Google\n${error}`);
-    throw new AuthError("INTERNAL_ERROR", "Failed to authenticate with Google.", 500);
+    throw new AppError<AuthErrorType>("INTERNAL_ERROR", "Failed to authenticate with Google.", 500);
   }
 }

@@ -4,6 +4,7 @@ import { db } from "../../db/client.ts";
 import { friendships } from "../../db/schema.ts";
 import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
+import { AppError } from "../app_error.ts";
 
 export type ViewFriendsErrorType =
   | "MISSING_USER_ID"
@@ -12,18 +13,6 @@ export type ViewFriendsErrorType =
   | "INVALID_SORT"
   | "USER_NOT_FOUND"
   | "INTERNAL_ERROR";
-
-export class ViewFriendsError extends Error {
-  readonly type: ViewFriendsErrorType;
-  readonly statusCode: number;
-
-  constructor(type: ViewFriendsErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "ViewFriendsError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
 
 export type Friend = {
   id: string;
@@ -41,7 +30,11 @@ export type ViewFriendsResult = {
 
 function normalizeLimit(limit = 20): number {
   if (!Number.isInteger(limit) || limit <= 0) {
-    throw new ViewFriendsError("INVALID_LIMIT", "Limit must be a positive integer.", 400);
+    throw new AppError<ViewFriendsErrorType>(
+      "INVALID_LIMIT",
+      "Limit must be a positive integer.",
+      400,
+    );
   }
   return Math.min(limit, 100);
 }
@@ -56,15 +49,27 @@ export async function viewFriends(
 
   try {
     if (!normalizedUserId || !isValidUuid(normalizedUserId)) {
-      throw new ViewFriendsError("MISSING_USER_ID", "User id is missing or invalid.", 400);
+      throw new AppError<ViewFriendsErrorType>(
+        "MISSING_USER_ID",
+        "User id is missing or invalid.",
+        400,
+      );
     }
 
     if (sort !== "newest" && sort !== "oldest") {
-      throw new ViewFriendsError("INVALID_SORT", "Sort must be 'newest' or 'oldest'.", 400);
+      throw new AppError<ViewFriendsErrorType>(
+        "INVALID_SORT",
+        "Sort must be 'newest' or 'oldest'.",
+        400,
+      );
     }
 
     if (cursor && Number.isNaN(Date.parse(cursor))) {
-      throw new ViewFriendsError("INVALID_CURSOR", "Cursor must be a valid ISO date string.", 400);
+      throw new AppError<ViewFriendsErrorType>(
+        "INVALID_CURSOR",
+        "Cursor must be a valid ISO date string.",
+        400,
+      );
     }
 
     const normalizedLimit = normalizeLimit(limit);
@@ -122,7 +127,7 @@ export async function viewFriends(
       const friend = userMap.get(friendId);
 
       if (!friend) {
-        throw new ViewFriendsError("INTERNAL_ERROR", "Internal server error.", 500);
+        throw new AppError<ViewFriendsErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
       }
 
       return {
@@ -142,11 +147,11 @@ export async function viewFriends(
       limit: normalizedLimit,
     };
   } catch (error: unknown) {
-    if (error instanceof ViewFriendsError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: View friends\n`, error);
-    throw new ViewFriendsError("INTERNAL_ERROR", "Internal server error.", 500);
+    throw new AppError<ViewFriendsErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

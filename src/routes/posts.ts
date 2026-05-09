@@ -1,29 +1,20 @@
 import { Elysia, t } from "elysia";
 import { requireAuth } from "./middleware/require_auth.ts";
-import { deletePost, DeletePostError } from "../usecases/posts/delete_post.ts";
-import { deleteReaction, DeleteReactionError } from "../usecases/posts/delete_reaction.ts";
-import { getPost, GetPostError } from "../usecases/posts/get_post.ts";
-import { getPostViewers, GetPostViewersError } from "../usecases/posts/get_post_viewers.ts";
-import { markPostAsViewed, MarkPostAsViewedError } from "../usecases/posts/mark_post_as_viewed.ts";
-import { reactPost, ReactPostError } from "../usecases/posts/react_post.ts";
-import {
-  viewPostReactions,
-  ViewPostReactionsError,
-} from "../usecases/posts/view_post_reactions.ts";
+import { deletePost } from "../usecases/posts/delete_post.ts";
+import { deleteReaction } from "../usecases/posts/delete_reaction.ts";
+import { getPost } from "../usecases/posts/get_post.ts";
+import { getPostViewers } from "../usecases/posts/get_post_viewers.ts";
+import { markPostAsViewed } from "../usecases/posts/mark_post_as_viewed.ts";
+import { reactPost } from "../usecases/posts/react_post.ts";
+import { viewPostReactions } from "../usecases/posts/view_post_reactions.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
-import { UploadPostError } from "../usecases/posts/upload_post.ts";
-import { finalizePostUpload, initiatePostUpload } from "../usecases/posts/upload_post.ts";
+import {
+  finalizePostUpload,
+  initiatePostUpload,
+  type UploadPostErrorType,
+} from "../usecases/posts/upload_post.ts";
 import { getPostUploadStatuses } from "../usecases/posts/get_post_upload_status.ts";
-
-class PostsRequestError extends Error {
-  constructor(
-    public type: string,
-    public override message: string,
-    public statusCode: number,
-  ) {
-    super(message);
-  }
-}
+import { AppError } from "../usecases/app_error.ts";
 
 const protectedPostsRouter = new Elysia()
   .use(requireAuth)
@@ -43,7 +34,7 @@ const protectedPostsRouter = new Elysia()
       }
 
       if (audienceType === "selected" && (!viewerIds || viewerIds.length === 0)) {
-        throw new UploadPostError(
+        throw new AppError<UploadPostErrorType>(
           "INVALID_AUDIENCE",
           "At least 1 viewer id must be specified if audience type is 'selected'",
           400,
@@ -51,7 +42,7 @@ const protectedPostsRouter = new Elysia()
       }
 
       if (audienceType === "all" && viewerIds && viewerIds.length > 0) {
-        throw new UploadPostError(
+        throw new AppError<UploadPostErrorType>(
           "INVALID_AUDIENCE",
           "No viewer ids should be specified when audience type is 'all'",
           400,
@@ -360,16 +351,6 @@ const protectedPostsRouter = new Elysia()
     },
   );
 
-const postsRouter = withApiErrorHandler(new Elysia(), {
-  PostsRequestError,
-  UploadPostError,
-  DeletePostError,
-  GetPostError,
-  ReactPostError,
-  DeleteReactionError,
-  ViewPostReactionsError,
-  MarkPostAsViewedError,
-  GetPostViewersError,
-}).use(protectedPostsRouter);
+const postsRouter = withApiErrorHandler(new Elysia()).use(protectedPostsRouter);
 
 export default postsRouter;

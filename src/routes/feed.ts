@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { requireAuth } from "./middleware/require_auth.ts";
-import { getFeed, GetFeedError, type GetFeedSort } from "../usecases/feed/get_feed.ts";
+import { getFeed, type GetFeedSort } from "../usecases/feed/get_feed.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 
 // Get user's feed (posts of friends)
@@ -55,8 +55,6 @@ const protectedFeedRouter = new Elysia().use(requireAuth).get(
   },
 );
 
-const feedRouter = withApiErrorHandler(new Elysia(), {
-  GetFeedError,
-}).use(protectedFeedRouter);
+const feedRouter = withApiErrorHandler(new Elysia()).use(protectedFeedRouter);
 
 export default feedRouter;

@@ -6,6 +6,7 @@ import { getFileUrl } from "../../storage/s3.ts";
 import { getAvatarUrlMapByUserId } from "../avatar_urls.ts";
 import { getNicknameMap, getUserSummariesByIds } from "../common_queries.ts";
 import { getPostDetailsByIds } from "../post_details.ts";
+import { AppError } from "../app_error.ts";
 
 export type FeedAuthor = {
   id: string;
@@ -45,25 +46,13 @@ export type GetFeedErrorType =
 
 export type GetFeedSort = "newest" | "oldest";
 
-export class GetFeedError extends Error {
-  readonly type: GetFeedErrorType;
-  readonly statusCode: number;
-
-  constructor(type: GetFeedErrorType, message: string, statusCode: number) {
-    super(message);
-    this.name = "GetFeedError";
-    this.type = type;
-    this.statusCode = statusCode;
-  }
-}
-
 function normalizeViewerId(viewerId: string): string {
   const value = viewerId.trim();
   if (!value) {
-    throw new GetFeedError("INVALID_FILTER", "Viewer ID is required.", 400);
+    throw new AppError<GetFeedErrorType>("INVALID_FILTER", "Viewer ID is required.", 400);
   }
   if (!isValidUuid(value)) {
-    throw new GetFeedError("INVALID_FILTER", "Invalid viewer ID.", 400);
+    throw new AppError<GetFeedErrorType>("INVALID_FILTER", "Invalid viewer ID.", 400);
   }
   return value;
 }
@@ -73,7 +62,11 @@ function normalizeCursor(cursor?: string): string | undefined {
 
   const parsed = new Date(cursor);
   if (Number.isNaN(parsed.getTime())) {
-    throw new GetFeedError("INVALID_CURSOR", "Cursor must be a valid ISO date string.", 400);
+    throw new AppError<GetFeedErrorType>(
+      "INVALID_CURSOR",
+      "Cursor must be a valid ISO date string.",
+      400,
+    );
   }
 
   return parsed.toISOString();
@@ -87,7 +80,7 @@ function normalizeAuthorIds(authorIds?: string[]): string[] | undefined {
   if (normalized.length === 0) return undefined;
 
   if (!normalized.every(isValidUuid)) {
-    throw new GetFeedError("INVALID_AUTHORS", "Invalid author UUIDs.", 400);
+    throw new AppError<GetFeedErrorType>("INVALID_AUTHORS", "Invalid author UUIDs.", 400);
   }
 
   return normalized;
@@ -98,7 +91,7 @@ function normalizeSort(sort: string): GetFeedSort {
     return sort;
   }
 
-  throw new GetFeedError("INVALID_SORT", "Sort must be 'newest' or 'oldest'.", 400);
+  throw new AppError<GetFeedErrorType>("INVALID_SORT", "Sort must be 'newest' or 'oldest'.", 400);
 }
 
 export async function getFeed(
@@ -119,7 +112,11 @@ export async function getFeed(
       const existingAuthors = await getUserSummariesByIds(normalizedAuthorIds);
 
       if (existingAuthors.size !== normalizedAuthorIds.length) {
-        throw new GetFeedError("INVALID_AUTHORS", "One or more author IDs do not exist.", 404);
+        throw new AppError<GetFeedErrorType>(
+          "INVALID_AUTHORS",
+          "One or more author IDs do not exist.",
+          404,
+        );
       }
     }
 
@@ -199,7 +196,11 @@ export async function getFeed(
         const author = authorMap.get(detail.authorId);
 
         if (!author) {
-          throw new GetFeedError("INTERNAL_ERROR", "Internal server error fetching feed.", 500);
+          throw new AppError<GetFeedErrorType>(
+            "INTERNAL_ERROR",
+            "Internal server error fetching feed.",
+            500,
+          );
         }
 
         const [url, thumbnailUrl] = await Promise.all([
@@ -236,11 +237,15 @@ export async function getFeed(
       nextCursor: items.length > 0 ? items[items.length - 1]!.createdAt : null,
     };
   } catch (error) {
-    if (error instanceof GetFeedError) {
+    if (error instanceof AppError) {
       throw error;
     }
 
     console.error(`[ERROR] Unexpected error in use case: Get feed\n${error}`);
-    throw new GetFeedError("INTERNAL_ERROR", "Internal server error fetching feed.", 500);
+    throw new AppError<GetFeedErrorType>(
+      "INTERNAL_ERROR",
+      "Internal server error fetching feed.",
+      500,
+    );
   }
 }
