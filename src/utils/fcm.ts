@@ -7,13 +7,24 @@ const auth = new GoogleAuth({
 
 const FCM_PROJECT_ID = process.env["FCM_PROJECT_ID"];
 
+let cachedAccessToken: { token: string; expiresAt: number } | null = null;
+
 export async function getGoogleAccessToken(): Promise<string> {
+  if (cachedAccessToken && cachedAccessToken.expiresAt > Date.now()) {
+    return cachedAccessToken.token;
+  }
+
   const client = await auth.getClient();
   const accessToken = await client.getAccessToken();
 
   if (!accessToken.token) {
     throw new Error("Failed to generate Google OAuth token.");
   }
+
+  cachedAccessToken = {
+    token: accessToken.token,
+    expiresAt: Date.now() + 50 * 60 * 1000,
+  };
 
   return accessToken.token;
 }
@@ -46,81 +57,74 @@ function getAndroidNotificationConfig(type: NotificationType): {
   }
 }
 
+type FcmMessagePayload = {
+  message: {
+    token: string;
+    data: Record<string, string>;
+    notification?: { title: string; body: string };
+    android?: { priority: "HIGH" | "NORMAL"; notification?: { channel_id: string } };
+    apns?: {
+      payload: {
+        aps: { alert: { title: string; body: string } };
+      };
+    };
+  };
+};
+
 export async function sendPushNotification(
   deviceToken: string,
   title: string,
   body: string,
   notificationType: NotificationType,
   extraData: Record<string, string> = {},
-) {
+): Promise<void> {
   if (!FCM_PROJECT_ID) {
-    console.error("FCM Error: FCM_PROJECT_ID is missing from environment variables.");
-    return;
+    throw new Error("FCM_PROJECT_ID is missing from environment variables.");
   }
 
   const fcmUrl = `https://fcm.googleapis.com/v1/projects/${FCM_PROJECT_ID}/messages:send`;
 
-  try {
-    const oauthToken = await getGoogleAccessToken();
-    const androidConfig = getAndroidNotificationConfig(notificationType);
+  const oauthToken = await getGoogleAccessToken();
+  const androidConfig = getAndroidNotificationConfig(notificationType);
 
-    const isDataOnly = notificationType === "NEW_POST_PUBLISHED";
+  const isDataOnly = notificationType === "NEW_POST_PUBLISHED";
 
-    const payload: any = {
-      message: {
-        token: deviceToken,
-        data: {
-          type: notificationType,
-          title,
-          body,
-          ...extraData,
-        },
-      },
-    };
-
-    if (!isDataOnly) {
-      payload.message.notification = {
+  const payload: FcmMessagePayload = {
+    message: {
+      token: deviceToken,
+      data: {
+        type: notificationType,
         title,
         body,
-      };
-      payload.message.android = {
-        priority: androidConfig.priority,
-        notification: {
-          channel_id: androidConfig.channel_id,
-        },
-      };
-    } else {
-      payload.message.android = {
-        priority: androidConfig.priority,
-      };
-      payload.message.apns = {
-        payload: {
-          aps: {
-            alert: {
-              title,
-              body,
-            },
-          },
-        },
-      };
-    }
-
-    const response = await fetch(fcmUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${oauthToken}`,
-        "Content-Type": "application/json",
+        ...extraData,
       },
-      body: JSON.stringify(payload),
-    });
+    },
+  };
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("FCM Send Error:", errorText);
-    } else {
-      console.log(`[FCM] Sent ${notificationType} notification to device: ${deviceToken}`);
-    }
-  } catch (error) {
-    console.error("FCM Request Failed:", error);
+  if (!isDataOnly) {
+    payload.message.notification = { title, body };
+    payload.message.android = {
+      priority: androidConfig.priority,
+      notification: { channel_id: androidConfig.channel_id },
+    };
+  } else {
+    payload.message.android = { priority: androidConfig.priority };
+    payload.message.apns = {
+      payload: { aps: { alert: { title, body } } },
+    };
+  }
+
+  const response = await fetch(fcmUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${oauthToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`FCM send failed (${response.status}): ${errorText}`);
   }
 }

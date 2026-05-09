@@ -1,6 +1,6 @@
 import { db } from "../../db/client.ts";
 import { postViews } from "../../db/schema.ts";
-import { isValidUuid } from "../../utils/uuid.ts";
+import { isValidUuid } from "../../utils/validation.ts";
 import { getPostAccessContext } from "../../db/queries/get_post_access_context.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 import { AppError } from "../app_error.ts";

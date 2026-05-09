@@ -71,7 +71,7 @@ export const withApiErrorHandler = (app: Elysia, options: ApiErrorHandlerOptions
       return {
         error: {
           type: "INTERNAL_ERROR",
-          message: error instanceof Error ? error.message : "Internal server error.",
+          message: "Internal server error.",
         },
       };
     });

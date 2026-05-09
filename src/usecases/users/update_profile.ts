@@ -1,4 +1,4 @@
-import { isValidUuid } from "../../utils/uuid.ts";
+import { isValidUuid } from "../../utils/validation.ts";
 import { and, eq, or } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { friendships, userOauthAccounts, users } from "../../db/schema.ts";
@@ -7,6 +7,7 @@ import { deleteCachedPublicProfile } from "../../cache/public_profile_cache.ts";
 import { deleteFile, getFileUrl, uploadFile } from "../../storage/s3.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
+import { isValidEmail } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
 
 export type UpdateProfileInput = {
@@ -39,13 +40,6 @@ export type UpdateProfileErrorType =
   | "LINKED_GOOGLE_ACCOUNT"
   | "STORAGE_ERROR"
   | "INTERNAL_ERROR";
-
-function isValidEmail(email: string): boolean {
-  const rfc2822Regex =
-    /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
-
-  return rfc2822Regex.test(email);
-}
 
 export async function updateProfile(input: UpdateProfileInput): Promise<UpdateProfileResult> {
   const normalizedUserId = input.userId.trim();

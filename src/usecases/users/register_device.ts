@@ -1,4 +1,4 @@
-import { isValidUuid } from "../../utils/uuid.ts";
+import { isValidUuid } from "../../utils/validation.ts";
 import { db } from "../../db/client.ts";
 import { userDevices } from "../../db/schema.ts";
 import { AppError } from "../app_error.ts";

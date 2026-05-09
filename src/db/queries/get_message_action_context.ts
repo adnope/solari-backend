@@ -1,7 +1,5 @@
 import { sql } from "drizzle-orm";
-import { db } from "../client.ts";
-
-export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+import { type DbTransaction } from "../client.ts";
 
 export type MessageActionContext = {
   messageId: string;

@@ -1,5 +1,5 @@
 import { and, eq, or, inArray } from "drizzle-orm";
-import { db } from "../db/client.ts";
+import { db, type DbExecutor } from "../db/client.ts";
 import { blockedUsers, friendNicknames, friendships, users } from "../db/schema.ts";
 import {
   cacheBlockedBy,
@@ -21,9 +21,6 @@ import {
   getCachedUserSummary,
   type CachedUserSummary,
 } from "../cache/user_summary_cache.ts";
-
-type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type DbExecutor = typeof db | DbTransaction;
 
 export type UserSummary = CachedUserSummary;
 

@@ -1,4 +1,4 @@
-import { isValidUuid } from "../../utils/uuid.ts";
+import { isValidUuid } from "../../utils/validation.ts";
 import { and, eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { conversations, messages, mutedConversations } from "../../db/schema.ts";
@@ -85,15 +85,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     if (!context) {
       throw new AppError<SendMessageErrorType>(
         "CONVERSATION_NOT_FOUND",
-        "Conversation not found.",
-        404,
-      );
-    }
-
-    if (context.userLow !== normalizedSenderId && context.userHigh !== normalizedSenderId) {
-      throw new AppError<SendMessageErrorType>(
-        "CONVERSATION_NOT_FOUND",
-        "Unauthorized access to conversation.",
+        "Conversation not found or access denied.",
         404,
       );
     }

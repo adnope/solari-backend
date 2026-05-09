@@ -1,54 +1,4 @@
-// import { DrizzleQueryError } from "drizzle-orm/errors";
-
-// export type PgLikeError = Error & {
-//   code?: string;
-//   constraint?: string;
-//   constraint_name?: string;
-//   detail?: string;
-//   fields?: {
-//     code?: string;
-//     constraint?: string;
-//     constraint_name?: string;
-//     [key: string]: unknown;
-//   };
-// };
-
-// export function unwrapDbError(error: unknown): PgLikeError | null {
-//   if (error instanceof DrizzleQueryError && error.cause && typeof error.cause === "object") {
-//     return error.cause as PgLikeError;
-//   }
-
-//   if (typeof error === "object" && error !== null) {
-//     return error as PgLikeError;
-//   }
-
-//   return null;
-// }
-
-// export function isPgError(error: unknown): error is PgLikeError & { code: string } {
-//   const target = unwrapDbError(error);
-//   if (!target) return false;
-
-//   const code = target.code ?? target.fields?.code;
-
-//   if (typeof code !== "string") {
-//     return false;
-//   }
-
-//   target.code = code;
-
-//   const constraint =
-//     target.constraint ??
-//     target.constraint_name ??
-//     target.fields?.constraint ??
-//     target.fields?.constraint_name;
-
-//   if (typeof constraint === "string") {
-//     target.constraint = constraint;
-//   }
-
-//   return true;
-// }
+import { DrizzleQueryError } from "drizzle-orm/errors";
 
 export const PgErrorCode = {
   NOT_NULL_VIOLATION: "23502",
@@ -60,20 +10,28 @@ export const PgErrorCode = {
 
 export type PgErrorCodeType = (typeof PgErrorCode)[keyof typeof PgErrorCode];
 
-export function getPgErrorCode(error: unknown): string | null {
-  if (typeof error !== "object" || error === null) return null;
-  const errObj = error as Record<string, unknown>;
+type PgLikeError = Error & {
+  code?: string;
+  constraint?: string;
+  constraint_name?: string;
+};
 
-  if ("code" in errObj && typeof errObj["code"] === "string") return errObj["code"];
-
-  if ("cause" in errObj) {
-    const cause = errObj["cause"];
-    if (typeof cause === "object" && cause !== null) {
-      const causeObj = cause as Record<string, unknown>;
-      if ("code" in causeObj && typeof causeObj["code"] === "string") return causeObj["code"];
-    }
+function unwrapDbError(error: unknown): PgLikeError | null {
+  if (error instanceof DrizzleQueryError && error.cause && typeof error.cause === "object") {
+    return error.cause as PgLikeError;
   }
+
+  if (error instanceof Error && "code" in error) {
+    return error as PgLikeError;
+  }
+
   return null;
+}
+
+export function getPgErrorCode(error: unknown): string | null {
+  const pgError = unwrapDbError(error);
+  if (!pgError?.code) return null;
+  return pgError.code;
 }
 
 export function isPgErrorCode(error: unknown, code: PgErrorCodeType): boolean {
@@ -81,26 +39,7 @@ export function isPgErrorCode(error: unknown, code: PgErrorCodeType): boolean {
 }
 
 export function getPgConstraintName(error: unknown): string | null {
-  if (typeof error !== "object" || error === null) return null;
-
-  const errObj = error as Record<string, unknown>;
-
-  const extractName = (obj: Record<string, unknown>) => {
-    if ("constraint_name" in obj && typeof obj["constraint_name"] === "string")
-      return obj["constraint_name"];
-    if ("constraint" in obj && typeof obj["constraint"] === "string") return obj["constraint"];
-    return null;
-  };
-
-  const rawName = extractName(errObj);
-  if (rawName) return rawName;
-
-  if ("cause" in errObj) {
-    const cause = errObj["cause"];
-    if (typeof cause === "object" && cause !== null) {
-      return extractName(cause as Record<string, unknown>);
-    }
-  }
-
-  return null;
+  const pgError = unwrapDbError(error);
+  if (!pgError) return null;
+  return pgError.constraint ?? pgError.constraint_name ?? null;
 }

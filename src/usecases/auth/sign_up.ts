@@ -1,6 +1,7 @@
 import { withTx } from "../../db/client.ts";
 import { userPasswords, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
+import { isValidEmail } from "../../utils/validation.ts";
 import type { AuthErrorType } from "./error_type.ts";
 import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
 import { AppError } from "../app_error.ts";
@@ -53,10 +54,7 @@ function normalizeEmail(email: string): string {
     throw new AppError<AuthErrorType>("MISSING_EMAIL", "Email is required.", 400);
   }
 
-  const rfc2822Regex =
-    /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
-
-  if (!rfc2822Regex.test(value)) {
+  if (!isValidEmail(value)) {
     throw new AppError<AuthErrorType>("INVALID_EMAIL", "Invalid email format.", 400);
   }
 

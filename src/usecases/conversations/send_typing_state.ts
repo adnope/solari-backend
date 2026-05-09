@@ -1,4 +1,4 @@
-import { isValidUuid } from "../../utils/uuid.ts";
+import { isValidUuid } from "../../utils/validation.ts";
 import { getTypingStateContext } from "../../db/queries/get_typing_state_context.ts";
 import { hasBlockingRelationship } from "../common_queries.ts";
 import { AppError } from "../app_error.ts";

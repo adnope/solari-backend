@@ -1,12 +1,53 @@
 import { Elysia } from "elysia";
+import { eq, and, gt } from "drizzle-orm";
 import { publishWebSocketEvent } from "../jobs/queue.ts";
 import { verifyAccessToken } from "../utils/jwt";
+import { db } from "../db/client.ts";
+import { sessions } from "../db/schema.ts";
+import {
+  getCachedAuthSession,
+  cacheAuthSession,
+  type CachedAuthSession,
+} from "../cache/auth_session_cache.ts";
 import type { WsClientEvent } from "../websocket/types.ts";
 import { sendTypingState } from "../usecases/conversations/send_typing_state.ts";
-import { AppError } from "../usecases/app_error.ts";
+
+async function getValidSession(
+  sessionId: string,
+  userId: string,
+): Promise<CachedAuthSession | null> {
+  const cached = await getCachedAuthSession(sessionId);
+
+  if (cached && cached.userId === userId) {
+    return cached;
+  }
+
+  const [session] = await db
+    .select({
+      sessionId: sessions.id,
+      userId: sessions.userId,
+      expiresAt: sessions.expiresAt,
+    })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.id, sessionId),
+        eq(sessions.userId, userId),
+        gt(sessions.expiresAt, new Date().toISOString()),
+      ),
+    )
+    .limit(1);
+
+  if (!session) {
+    return null;
+  }
+
+  await cacheAuthSession(session);
+  return session;
+}
 
 export const wsRoutes = new Elysia()
-  .derive(({ headers }) => {
+  .derive(async ({ headers }) => {
     try {
       const authHeader = headers["authorization"];
       const [scheme, token] = authHeader?.split(" ") ?? [];
@@ -16,9 +57,14 @@ export const wsRoutes = new Elysia()
       }
 
       const payload = verifyAccessToken(token);
+      const session = await getValidSession(payload.sid, payload.sub);
+
+      if (!session) {
+        return { userId: null };
+      }
 
       return {
-        userId: payload.sub as string,
+        userId: session.userId,
       };
     } catch (error) {
       return { userId: null };
@@ -62,10 +108,6 @@ export const wsRoutes = new Elysia()
               });
             })
             .catch((error: unknown) => {
-              if (error instanceof AppError) {
-                return;
-              }
-
               console.error("[WS] Failed to process typing state", error);
             });
         }

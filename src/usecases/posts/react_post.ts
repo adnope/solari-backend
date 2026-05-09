@@ -1,4 +1,4 @@
-import { isValidUuid } from "../../utils/uuid.ts";
+import { isValidUuid } from "../../utils/validation.ts";
 import { withTx } from "../../db/client.ts";
 import { postReactions } from "../../db/schema.ts";
 import { enqueuePushNotification } from "../../jobs/queue.ts";

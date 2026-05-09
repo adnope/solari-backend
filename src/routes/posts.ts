@@ -15,6 +15,7 @@ import {
 } from "../usecases/posts/upload_post.ts";
 import { getPostUploadStatuses } from "../usecases/posts/get_post_upload_status.ts";
 import { AppError } from "../usecases/app_error.ts";
+import type { CaptionMetadata } from "../db/schema.ts";
 
 const protectedPostsRouter = new Elysia()
   .use(requireAuth)
@@ -55,8 +56,8 @@ const protectedPostsRouter = new Elysia()
         authorId: authUserId,
         contentType: body.content_type,
         caption: caption,
-        captionType: body.caption_type as any,
-        captionMetadata: body.caption_metadata as any,
+        captionType: body.caption_type,
+        captionMetadata: body.caption_metadata as CaptionMetadata | undefined,
         audienceType: audienceType,
         viewerIds: viewerIds,
         width: body.width,

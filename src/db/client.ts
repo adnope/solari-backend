@@ -96,9 +96,10 @@ export const DATABASE_URL = connection.databaseUrl;
 export const queryClient = connection.queryClient;
 export const db = drizzle(queryClient);
 
-export async function withTx<T>(
-  fn: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => Promise<T>,
-): Promise<T> {
+export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type DbExecutor = typeof db | DbTransaction;
+
+export async function withTx<T>(fn: (tx: DbTransaction) => Promise<T>): Promise<T> {
   return await db.transaction(async (tx) => {
     return await fn(tx);
   });

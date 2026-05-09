@@ -1,8 +1,5 @@
 import { sql } from "drizzle-orm";
-import { db } from "../client.ts";
-
-export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type DbExecutor = typeof db | DbTransaction;
+import { db, type DbExecutor } from "../client.ts";
 
 export type PostAccessContext = {
   authorId: string;

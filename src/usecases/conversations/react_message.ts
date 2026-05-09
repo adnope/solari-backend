@@ -1,4 +1,4 @@
-import { isValidUuid } from "../../utils/uuid.ts";
+import { isValidUuid } from "../../utils/validation.ts";
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, messageReactions, messages } from "../../db/schema.ts";

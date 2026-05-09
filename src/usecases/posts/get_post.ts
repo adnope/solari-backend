@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { postVisibility } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
-import { isValidUuid } from "../../utils/uuid.ts";
+import { isValidUuid } from "../../utils/validation.ts";
 import { getNickname, getUserSummaryById, hasBlockingRelationship } from "../common_queries.ts";
 import { getPostDetailById } from "../post_details.ts";
 import type { CaptionMetadata } from "../../db/schema.ts";

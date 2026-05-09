@@ -1,4 +1,4 @@
-import { isValidUuid } from "../../utils/uuid.ts";
+import { isValidUuid } from "../../utils/validation.ts";
 import { isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 import { getNickname as getNicknameValue } from "../common_queries.ts";
 import { AppError } from "../app_error.ts";

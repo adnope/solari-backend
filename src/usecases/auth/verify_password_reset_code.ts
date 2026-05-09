@@ -1,6 +1,7 @@
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { passwordResetCodes, users } from "../../db/schema.ts";
+import { isValidEmail } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
 
 export type VerifyPasswordResetCodeInput = {
@@ -32,10 +33,7 @@ function normalizeEmail(email: string): string {
     );
   }
 
-  const rfc2822Regex =
-    /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
-
-  if (!rfc2822Regex.test(value)) {
+  if (!isValidEmail(value)) {
     throw new AppError<VerifyPasswordResetCodeErrorType>(
       "INVALID_EMAIL",
       "Invalid email format.",

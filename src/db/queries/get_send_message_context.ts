@@ -63,7 +63,9 @@ export async function getSendMessageContext(
     WITH conversation_cte AS (
       SELECT user_low AS "userLow", user_high AS "userHigh"
       FROM conversations
-      WHERE id = ${conversationId}::uuid
+      WHERE
+        id = ${conversationId}::uuid
+        AND (user_low = ${senderId}::uuid OR user_high = ${senderId}::uuid)
       LIMIT 1
     ),
     ${referencedPostCte}

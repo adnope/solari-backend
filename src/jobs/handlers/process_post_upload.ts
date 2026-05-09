@@ -108,7 +108,9 @@ export async function handlePostProcessing(
       const authorSummary = await getUserSummaryById(payload.authorId);
       if (authorSummary) {
         const friendsToNotify =
-          payload.audienceType === "all" ? allFriendIds : await getFriendIds(payload.authorId);
+          payload.audienceType === "all"
+            ? allFriendIds
+            : (payload.viewerIds ?? (await getFriendIds(payload.authorId)));
 
         const pushPromises = friendsToNotify.map((friendId) =>
           enqueuePushNotification({
