@@ -26,8 +26,9 @@ jobs:
 
           : "${SERVER_HOST:?SERVER_HOST is missing}"
           : "${SERVER_USER:?SERVER_USER is missing}"
-          : "${SERVER_PORT:=22}"
           : "${SERVER_SSH_KEY:?SERVER_SSH_KEY is missing}"
+
+          SERVER_PORT="${SERVER_PORT:-22}"
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -35,11 +36,18 @@ jobs:
           printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          ssh-keyscan -H -p "$SERVER_PORT" "$SERVER_HOST" >> ~/.ssh/known_hosts
+          echo "Checking TCP connectivity to SSH port..."
+          timeout 10 bash -c "</dev/tcp/$SERVER_HOST/$SERVER_PORT"
 
+          echo "Scanning SSH host key..."
+          ssh-keyscan -T 10 -H -p "$SERVER_PORT" "$SERVER_HOST" >> ~/.ssh/known_hosts
+
+          echo "Connecting over SSH..."
           ssh \
             -i ~/.ssh/deploy_key \
             -p "$SERVER_PORT" \
             -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 \
             "$SERVER_USER@$SERVER_HOST" \
             "cd /home/$SERVER_USER/solari-backend && ./deploy.sh"
