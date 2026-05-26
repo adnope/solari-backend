@@ -3,6 +3,8 @@ import { requireAuth } from "./middleware/require_auth.ts";
 import { deleteAccount } from "../usecases/users/delete_account.ts";
 import { getPublicProfile } from "../usecases/users/get_public_profile.ts";
 import { registerDevice } from "../usecases/users/register_device.ts";
+import { unregisterDevice } from "../usecases/users/unregister_device.ts";
+import { getDeviceStatus } from "../usecases/users/get_device_status.ts";
 import { updateProfile } from "../usecases/users/update_profile.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { updatePassword } from "../usecases/auth/update_password.ts";
@@ -111,6 +113,46 @@ const protectedUsersRouter = new Elysia()
       body: t.Object({
         device_token: t.String(),
         platform: t.String(),
+      }),
+    },
+  )
+
+  // Unregister a device for push notifications
+  .delete(
+    "/users/me/devices/:deviceToken",
+    async ({ authUserId, params, set }) => {
+      await unregisterDevice({
+        userId: authUserId,
+        deviceToken: params.deviceToken,
+      });
+
+      set.status = 200;
+      return {
+        message: "Device unregistered successfully.",
+      };
+    },
+    {
+      params: t.Object({
+        deviceToken: t.String(),
+      }),
+    },
+  )
+
+  // Get device notification status
+  .get(
+    "/users/me/devices/:deviceToken/status",
+    async ({ authUserId, params, set }) => {
+      const status = await getDeviceStatus({
+        userId: authUserId,
+        deviceToken: params.deviceToken,
+      });
+
+      set.status = 200;
+      return status;
+    },
+    {
+      params: t.Object({
+        deviceToken: t.String(),
       }),
     },
   )
