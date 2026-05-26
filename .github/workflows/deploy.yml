@@ -22,15 +22,24 @@ jobs:
           SERVER_PORT: ${{ secrets.SERVER_PORT }}
           SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
+          set -euo pipefail
+
+          : "${SERVER_HOST:?SERVER_HOST is missing}"
+          : "${SERVER_USER:?SERVER_USER is missing}"
+          : "${SERVER_PORT:=22}"
+          : "${SERVER_SSH_KEY:?SERVER_SSH_KEY is missing}"
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          echo "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          ssh-keyscan -p "$SERVER_PORT" "$SERVER_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H -p "$SERVER_PORT" "$SERVER_HOST" >> ~/.ssh/known_hosts
 
-          ssh -i ~/.ssh/deploy_key \
+          ssh \
+            -i ~/.ssh/deploy_key \
             -p "$SERVER_PORT" \
+            -o IdentitiesOnly=yes \
             "$SERVER_USER@$SERVER_HOST" \
             "cd /home/$SERVER_USER/solari-backend && ./deploy.sh"
