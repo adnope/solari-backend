@@ -2422,6 +2422,78 @@ POST /users/me/devices
 
 - [400 Bad Request] - Possible 'type' values: MISSING_INPUT, INVALID_PLATFORM.
 
+## Unregister a device
+
+- Endpoint:
+
+```
+DELETE /users/me/devices/:deviceToken
+```
+
+- Description: Unregisters a mobile device by its token, preventing it from receiving future push notifications.
+- Auth required: Yes
+
+### Request parameters:
+
+- deviceToken (string, Required): The unique registration token of the device to unregister (passed as a path parameter).
+- Example:
+
+```text
+DELETE /users/me/devices/fcm_token_1234567890
+```
+
+### Request body:
+
+- None
+
+### Responses:
+
+- [200 OK] - Device unregistered successfully.
+
+```json
+{
+  "message": "Device unregistered successfully."
+}
+```
+
+- [400 Bad Request] - Possible 'type' values: MISSING_INPUT.
+
+## Get device notification status
+
+- Endpoint:
+
+```
+GET /users/me/devices/:deviceToken/status
+```
+
+- Description: Checks whether a specific device token is registered for the authenticated user.
+- Auth required: Yes
+
+### Request parameters:
+
+- deviceToken (string, Required): The unique registration token of the device (passed as a path parameter).
+- Example:
+
+```text
+GET /users/me/devices/fcm_token_1234567890/status
+```
+
+### Request body:
+
+- None
+
+### Responses:
+
+- [200 OK] - Device status retrieved successfully.
+
+```json
+{
+  "is_enabled": true
+}
+```
+
+- [400 Bad Request] - Possible 'type' values: MISSING_INPUT.
+
 ## Get user's public profile
 
 - Endpoint:
