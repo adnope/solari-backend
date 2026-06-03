@@ -33,7 +33,7 @@ The application first tries `POSTGRES_DATABASE_URL`. If it is empty or the conne
 
 ### S3 Object Storage
 
-The backend uses an S3-compatible object store for media uploads. Docker Compose runs MinIO locally, but the same client can connect to any S3-compatible provider.
+The backend uses an S3-compatible object store for media uploads. Docker Compose runs SeaweedFS locally, but the same client can connect to any S3-compatible provider.
 
 The S3 client checks bucket access on startup. If `S3_CREATE_BUCKET_IF_MISSING=true`, it tries to create the bucket when the check fails. Otherwise, startup fails when the bucket is inaccessible. Keep auto-creation disabled for external or production providers unless the credentials are allowed to create buckets.
 
@@ -46,20 +46,20 @@ The S3 client checks bucket access on startup. If `S3_CREATE_BUCKET_IF_MISSING=t
 | `S3_PUBLIC_ASSET_URL`         | Optional public CDN or asset base URL for future public object URLs. It is not used for presigned URLs.                                       | `https://cdn.example.com`     |
 | `S3_ACCESS_KEY_ID`            | S3 access key ID.                                                                                                                             | Required                      |
 | `S3_SECRET_ACCESS_KEY`        | S3 secret access key.                                                                                                                         | Required                      |
-| `S3_FORCE_PATH_STYLE`         | Uses path-style bucket URLs when `true`. Use `true` for MinIO and many local/S3-compatible providers; use `false` for AWS S3.                 | `false`                       |
-| `S3_CREATE_BUCKET_IF_MISSING` | Creates the bucket on startup if the access check fails. Use `true` for local MinIO, and usually `false` for external providers.              | `false`                       |
+| `S3_FORCE_PATH_STYLE`         | Uses path-style bucket URLs when `true`. Use `true` for SeaweedFS and many local/S3-compatible providers; use `false` for AWS S3.             | `false`                       |
+| `S3_CREATE_BUCKET_IF_MISSING` | Creates the bucket on startup if the access check fails. Use `true` for local SeaweedFS, and usually `false` for external providers.          | `false`                       |
 
 Examples:
 
-For local Docker Compose with MinIO, use:
+For local Docker Compose with SeaweedFS, use:
 
 ```env
 S3_BUCKET_NAME=solari-media
 S3_REGION=us-east-1
-S3_ENDPOINT=http://s3:9000
-S3_PRESIGN_ENDPOINT=http://127.0.0.1:9000
-S3_ACCESS_KEY_ID=minioadmin
-S3_SECRET_ACCESS_KEY=minioadmin
+S3_ENDPOINT=http://s3:8333
+S3_PRESIGN_ENDPOINT=http://127.0.0.1:9091
+S3_ACCESS_KEY_ID=admin
+S3_SECRET_ACCESS_KEY=admin123
 S3_FORCE_PATH_STYLE=true
 S3_CREATE_BUCKET_IF_MISSING=true
 ```
@@ -149,7 +149,7 @@ In production, expose HTTPS through a reverse proxy:
 
 ```text
 api.example.com:443     -> 127.0.0.1:5050
-storage.example.com:443 -> 127.0.0.1:9000
+storage.example.com:443 -> 127.0.0.1:9091
 ```
 
 Set:

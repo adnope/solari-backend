@@ -102,22 +102,34 @@ services:
       start_period: 3s
 
   s3:
-    image: minio/minio:latest
+    image: chrislusf/seaweedfs:latest
     container_name: solari-storage
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
-    command: server /data --address ":9000" --console-address ":9001"
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_EXTERNAL_URL: ${S3_PRESIGN_ENDPOINT}
+    command:
+      - server
+      - -dir=/data
+      - -ip=0.0.0.0
+      - -ip.bind=0.0.0.0
+      - -master.port=9333
+      - -volume.port=8080
+      - -filer
+      - -filer.port=8888
+      - -s3
+      - -s3.port=8333
     ports:
-      - "127.0.0.1:9091:9000"
-      - "127.0.0.1:9092:9001"
+      - "127.0.0.1:9091:8333"
+      - "127.0.0.1:9333:9333"
+      - "127.0.0.1:8888:8888"
     volumes:
       - s3data:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9333/cluster/status || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5

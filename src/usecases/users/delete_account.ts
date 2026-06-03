@@ -254,7 +254,7 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
       await Promise.allSettled(
         [...new Set(keysToDelete)].map((key) =>
           deleteFile(key).catch((err) =>
-            console.error(`Failed to delete orphaned MinIO object: ${key}`, err),
+            console.error(`Failed to delete orphaned S3 object: ${key}`, err),
           ),
         ),
       );

@@ -70,7 +70,7 @@ export async function deletePost(authorId: string, postId: string): Promise<void
           try {
             await deleteFile(key);
           } catch (error) {
-            console.error(`Failed to delete MinIO object: ${key}`, error);
+            console.error(`Failed to delete S3 object: ${key}`, error);
           }
         }),
       ).catch(console.error);
