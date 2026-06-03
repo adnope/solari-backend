@@ -1,8 +1,9 @@
 import { imageSize } from "image-size";
-import { unlink } from "node:fs/promises";
+import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { runCommand } from "./subprocess.ts";
 
 export type MediaMetadata = {
   mediaType: "image" | "video";
@@ -31,11 +32,11 @@ export async function extractMediaMetadata(
     const tempFilePath = join(tmpdir(), `${randomUUID()}.media`);
 
     try {
-      await Bun.write(tempFilePath, buffer);
+      await writeFile(tempFilePath, buffer);
 
-      const proc = Bun.spawn(
+      const proc = await runCommand(
+        "ffprobe",
         [
-          "ffprobe",
           "-v",
           "error",
           "-select_streams",
@@ -46,17 +47,13 @@ export async function extractMediaMetadata(
           "json",
           tempFilePath,
         ],
-        { stdout: "pipe", stderr: "pipe" },
       );
 
-      const exitCode = await proc.exited;
-
-      if (exitCode !== 0) {
-        const errorStr = await new Response(proc.stderr).text();
-        throw new Error(`ffprobe failed. Error: ${errorStr}`);
+      if (proc.exitCode !== 0) {
+        throw new Error(`ffprobe failed. Error: ${proc.stderr.toString("utf8")}`);
       }
 
-      const outputStr = await new Response(proc.stdout).text();
+      const outputStr = proc.stdout.toString("utf8");
       const data = JSON.parse(outputStr);
       const stream = data.streams?.[0];
 

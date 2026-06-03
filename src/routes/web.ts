@@ -1,12 +1,12 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Elysia, t } from "elysia";
 import { getPublicWebProfile } from "../usecases/users/get_public_web_profile.ts";
 import { AppError } from "../usecases/app_error.ts";
 
-const faviconBase64 = readFileSync(join(import.meta.dir, "assets", "favicon.ico")).toString(
-  "base64",
-);
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const faviconBase64 = readFileSync(join(currentDir, "assets", "favicon.ico")).toString("base64");
 const faviconDataUri = `data:image/x-icon;base64,${faviconBase64}`;
 
 const escapeHtml = (value: string) =>

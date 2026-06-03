@@ -9,6 +9,7 @@ import {
   redisClient,
 } from "../../jobs/queue.ts";
 import type { UploadPostJobPayload } from "../../jobs/types.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
 import { calculateNewStreak } from "../../utils/streak.ts";
 import { getFriendIds } from "../common_queries.ts";
 import type { CaptionMetadata } from "../../db/schema.ts";
@@ -144,7 +145,7 @@ export async function initiatePostUpload(
   }
 
   const normalizedContentType = input.contentType.trim().toLowerCase();
-  const postId = Bun.randomUUIDv7();
+  const postId = createUuidV7();
 
   const fileExtension = normalizedContentType.split("/")[1]?.split(";")[0]?.trim() || "bin";
   const objectKey = `posts/${postId}.${fileExtension}`;
@@ -246,7 +247,7 @@ export async function finalizePostUpload(input: FinalizePostInput) {
         await tx
           .insert(userStreaks)
           .values({
-            id: Bun.randomUUIDv7(),
+            id: createUuidV7(),
             userId: normalizedAuthorId,
             currentStreak: streakMath.newStreak,
             longestStreak: streakMath.isNewRecord ? streakMath.newStreak : longestStreak,

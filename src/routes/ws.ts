@@ -1,7 +1,9 @@
 import { Elysia } from "elysia";
+import { node } from "@elysia/node";
 import { eq, and, gt } from "drizzle-orm";
 import { publishWebSocketEvent } from "../jobs/queue.ts";
-import { verifyAccessToken } from "../utils/jwt";
+import { verifyAccessToken } from "../utils/jwt.ts";
+import { wsPublisher } from "../websocket/publisher.ts";
 import { db } from "../db/client.ts";
 import { sessions } from "../db/schema.ts";
 import {
@@ -46,7 +48,7 @@ async function getValidSession(
   return session;
 }
 
-export const wsRoutes = new Elysia()
+export const wsRoutes = new Elysia({ adapter: node() })
   .derive(async ({ headers }) => {
     try {
       const authHeader = headers["authorization"];
@@ -79,7 +81,13 @@ export const wsRoutes = new Elysia()
         return;
       }
 
-      ws.subscribe(ws.data.userId);
+      wsPublisher.add(ws.data.userId, ws);
+    },
+
+    close(ws) {
+      if (ws.data.userId) {
+        wsPublisher.remove(ws.data.userId, ws);
+      }
     },
 
     message(ws, incomingData) {

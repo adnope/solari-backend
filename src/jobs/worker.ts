@@ -1,4 +1,5 @@
 import { Worker, type Job, type WorkerOptions } from "bullmq";
+import { pathToFileURL } from "node:url";
 import { handlePostProcessing } from "./handlers/process_post_upload.ts";
 import { handlePushNotification } from "./handlers/process_push_notification.ts";
 import { handleSendEmail } from "./handlers/send_email.ts";
@@ -142,6 +143,11 @@ export async function startWorker() {
   });
 }
 
-if (import.meta.main) {
-  startWorker();
+const entrypointUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;
+
+if (import.meta.url === entrypointUrl) {
+  startWorker().catch((error: unknown) => {
+    console.error("[ERROR] Worker failed to start.", error);
+    process.exit(1);
+  });
 }

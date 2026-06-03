@@ -1,4 +1,5 @@
 import { isValidUuid } from "../../utils/validation.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
 import { withTx } from "../../db/client.ts";
 import { postReactions } from "../../db/schema.ts";
 import { enqueuePushNotification } from "../../jobs/queue.ts";
@@ -70,7 +71,7 @@ export async function reactPost(input: ReactPostInput): Promise<ReactPostResult>
     );
   }
 
-  const reactionId = Bun.randomUUIDv7();
+  const reactionId = createUuidV7();
 
   try {
     const { reactionResult, pushData } = await withTx(async (tx) => {

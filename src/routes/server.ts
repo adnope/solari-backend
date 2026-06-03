@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { node } from "@elysia/node";
 import { sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { redisClient } from "../jobs/queue.ts";
@@ -58,7 +59,7 @@ const healthRouter = new Elysia().get("/health", async ({ set }) => {
   return health;
 });
 
-const app = new Elysia()
+const app = new Elysia({ adapter: node() })
   .use(healthRouter)
   .use(authRouter)
   .use(friendsRouter)

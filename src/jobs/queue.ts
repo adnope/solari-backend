@@ -1,14 +1,15 @@
-import { RedisClient } from "bun";
+import { Redis } from "ioredis";
 import { Queue, type JobsOptions, type QueueOptions } from "bullmq";
-import { wsPublisher } from "../websocket/publisher";
-import type { WsServerEvent } from "../websocket/types";
+import { createUuidV7 } from "../utils/ids.ts";
+import { wsPublisher } from "../websocket/publisher.ts";
+import type { WsServerEvent } from "../websocket/types.ts";
 import type {
   PushNotificationPayload,
   QueueName,
   QueueNameToPayLoadMap,
   SendEmailPayload,
   UploadPostJobPayload,
-} from "./types";
+} from "./types.ts";
 
 const redisHost = process.env["REDIS_HOST"] || "localhost";
 const redisPort = process.env["REDIS_PORT"] || "6379";
@@ -40,8 +41,8 @@ const defaultJobOptions: JobsOptions = {
 export const JOB_STATUS_TTL_SECONDS = 3600;
 const WS_EVENTS_CHANNEL = "ws-events";
 
-export const redisClient = new RedisClient(redisUrl);
-export const redisSubscriber = new RedisClient(redisUrl);
+export const redisClient = new Redis(redisUrl, { maxRetriesPerRequest: null });
+export const redisSubscriber = new Redis(redisUrl, { maxRetriesPerRequest: null });
 
 type JobQueue<K extends QueueName> = Queue<
   QueueNameToPayLoadMap[K],
@@ -118,7 +119,13 @@ export async function initRedis() {
       console.warn(`[WARN] Redis returned unexpected response: ${response}`);
     }
 
-    redisSubscriber.subscribe(WS_EVENTS_CHANNEL, (message) => {
+    await redisSubscriber.subscribe(WS_EVENTS_CHANNEL);
+
+    redisSubscriber.on("message", (channel: string, message: string) => {
+      if (channel !== WS_EVENTS_CHANNEL) {
+        return;
+      }
+
       try {
         const event = JSON.parse(message);
         console.log(`Sending websocket events to user: ${event.userId}`);
@@ -159,14 +166,14 @@ export async function enqueuePostUploadProcessing(payload: UploadPostJobPayload)
 
 export async function enqueuePushNotification(
   payload: PushNotificationPayload,
-  jobId: string = Bun.randomUUIDv7(),
+  jobId: string = createUuidV7(),
 ): Promise<string> {
   return enqueueJob("push-notification-processing", `push-notif-${jobId}`, payload);
 }
 
 export async function enqueueSendEmail(
   payload: SendEmailPayload,
-  jobId: string = Bun.randomUUIDv7(),
+  jobId: string = createUuidV7(),
 ): Promise<string> {
   return enqueueJob("send-email", jobId, payload);
 }

@@ -1,4 +1,5 @@
 import { isValidUuid } from "../../utils/validation.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { conversations, users } from "../../db/schema.ts";
@@ -45,7 +46,7 @@ export async function createConversation(
     normalizedUserId < normalizedTargetUserId
       ? [normalizedUserId, normalizedTargetUserId]
       : [normalizedTargetUserId, normalizedUserId];
-  const newConversationId = Bun.randomUUIDv7();
+  const newConversationId = createUuidV7();
 
   try {
     const existingUsers = await db

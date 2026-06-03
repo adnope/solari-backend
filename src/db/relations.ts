@@ -16,7 +16,7 @@ import {
   friendships,
   postVisibility,
   postViews,
-} from "./schema";
+} from "./schema.ts";
 
 export const userPasswordsRelations = relations(userPasswords, ({ one }) => ({
   user: one(users, {

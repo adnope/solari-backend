@@ -2,7 +2,9 @@ import { eq } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { db } from "../../db/client.ts";
 import { sessions, userPasswords, users } from "../../db/schema.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
 import { createAccessToken } from "../../utils/jwt.ts";
+import { verifyPassword } from "../../utils/password.ts";
 import { AppError } from "../app_error.ts";
 import type { AuthErrorType } from "./error_type.ts";
 
@@ -109,7 +111,7 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
       );
     }
 
-    const ok = await Bun.password.verify(password, row.passwordHash);
+    const ok = await verifyPassword(password, row.passwordHash);
     if (!ok) {
       throw new AppError<AuthErrorType>(
         "INVALID_CREDENTIALS",
@@ -122,7 +124,7 @@ export async function signIn(input: SigninInput): Promise<SigninResult> {
     const nowIso = now.toISOString();
     const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS).toISOString();
 
-    const sessionId = Bun.randomUUIDv7();
+    const sessionId = createUuidV7();
     const refreshToken = generateSecureToken();
     const refreshTokenHash = sha256Hex(refreshToken);
 

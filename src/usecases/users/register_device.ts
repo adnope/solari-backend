@@ -1,4 +1,5 @@
 import { isValidUuid } from "../../utils/validation.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
 import { db } from "../../db/client.ts";
 import { userDevices } from "../../db/schema.ts";
 import { AppError } from "../app_error.ts";
@@ -36,7 +37,7 @@ export async function registerDevice(input: RegisterDeviceInput): Promise<void> 
     );
   }
 
-  const deviceId = Bun.randomUUIDv7();
+  const deviceId = createUuidV7();
 
   try {
     await db

@@ -1,4 +1,5 @@
 import { isValidUuid } from "../../utils/validation.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
 import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { conversations, messageReactions, messages } from "../../db/schema.ts";
@@ -54,7 +55,7 @@ export async function reactMessage(input: ReactMessageInput): Promise<ReactMessa
     throw new AppError<ReactMessageErrorType>("INVALID_EMOJI", "Invalid emoji.", 400);
   }
 
-  const reactionId = Bun.randomUUIDv7();
+  const reactionId = createUuidV7();
 
   try {
     const { reactionResult, pushData, receiverId, conversationId } = await withTx(async (tx) => {

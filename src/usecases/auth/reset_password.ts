@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { passwordResetCodes, sessions, userPasswords, users } from "../../db/schema.ts";
 import { deleteCachedAuthSessions } from "../../cache/auth_session_cache.ts";
+import { hashPassword } from "../../utils/password.ts";
 import { isValidEmail } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
 
@@ -96,9 +97,7 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
         );
       }
 
-      const passwordHash = await Bun.password.hash(password, {
-        algorithm: "argon2id",
-      });
+      const passwordHash = await hashPassword(password);
 
       await tx
         .insert(userPasswords)

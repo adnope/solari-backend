@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { withTx } from "../../db/client.ts";
 import { sessions, userOauthAccounts, userPasswords, users } from "../../db/schema.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
 import { createAccessToken } from "../../utils/jwt.ts";
 import { uploadFile } from "../../storage/s3.ts";
 import type { AuthErrorType } from "./error_type.ts";
@@ -45,7 +46,7 @@ async function downloadAndUploadAvatar(pictureUrl: string): Promise<string | nul
     const buffer = new Uint8Array(arrayBuffer);
     const contentType = res.headers.get("content-type") || "image/jpeg";
 
-    const avatarKey = `avatars/${Bun.randomUUIDv7()}`;
+    const avatarKey = `avatars/${createUuidV7()}`;
     await uploadFile(avatarKey, buffer, contentType);
     return avatarKey;
   } catch (error) {
@@ -118,13 +119,13 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
 
           targetUserId = existingUser.id;
           await tx.insert(userOauthAccounts).values({
-            id: Bun.randomUUIDv7(),
+            id: createUuidV7(),
             userId: targetUserId,
             provider: "google",
             providerUserId: payload.sub,
           });
         } else {
-          targetUserId = Bun.randomUUIDv7();
+          targetUserId = createUuidV7();
 
           let username = sanitizeGoogleUsername(payload.email);
           let usernameTaken = true;
@@ -154,7 +155,7 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
           });
 
           await tx.insert(userOauthAccounts).values({
-            id: Bun.randomUUIDv7(),
+            id: createUuidV7(),
             userId: targetUserId,
             provider: "google",
             providerUserId: payload.sub,
@@ -165,7 +166,7 @@ export async function signInWithGoogle(idToken: string): Promise<SigninResult> {
       const now = new Date();
       const nowIso = now.toISOString();
       const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS).toISOString();
-      const sessionId = Bun.randomUUIDv7();
+      const sessionId = createUuidV7();
       const refreshToken = generateSecureToken();
       const refreshTokenHash = sha256Hex(refreshToken);
 

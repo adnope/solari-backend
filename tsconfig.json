@@ -2,17 +2,19 @@
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext"],
-    "target": "ESNext",
-    "module": "Preserve",
+    "target": "ES2024",
+    "module": "NodeNext",
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "allowJs": true,
 
-    // Bundler mode
-    "moduleResolution": "bundler",
+    // Node ESM output
+    "moduleResolution": "NodeNext",
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,
-    "noEmit": true,
+    "outDir": "dist",
+    "rootDir": "src",
 
     // Best practices
     "strict": true,
@@ -30,4 +32,6 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
   },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules"],
 }

@@ -1,4 +1,5 @@
 import { isValidUuid } from "../../utils/validation.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
 import { and, eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { conversations, messages, mutedConversations } from "../../db/schema.ts";
@@ -70,7 +71,7 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
     throw new AppError<SendMessageErrorType>("EMPTY_CONTENT", "Content is empty.", 400);
   }
 
-  const messageId = Bun.randomUUIDv7();
+  const messageId = createUuidV7();
   const createdAt = new Date().toISOString();
 
   try {

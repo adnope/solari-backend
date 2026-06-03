@@ -1,25 +1,57 @@
-import type { Server } from "bun";
 import type { WsServerEvent } from "./types.ts";
 
-interface WebSocketData {
-  userId: string;
+type WebSocketConnection = {
+  send(message: string): unknown;
+};
+
+const socketsByUserId = new Map<string, Set<WebSocketConnection>>();
+
+function getSocketSet(userId: string): Set<WebSocketConnection> {
+  const existing = socketsByUserId.get(userId);
+  if (existing) {
+    return existing;
+  }
+
+  const created = new Set<WebSocketConnection>();
+  socketsByUserId.set(userId, created);
+  return created;
 }
 
-let bunServer: Server<WebSocketData> | null = null;
-
 export const wsPublisher = {
-  init(server: Server<WebSocketData>) {
-    bunServer = server;
+  add(userId: string, socket: WebSocketConnection): void {
+    getSocketSet(userId).add(socket);
   },
 
-  sendToUser(userId: string, event: WsServerEvent) {
-    if (!bunServer) {
-      console.warn(
-        "[WARN] Attempted to publish WebSocket event before the server was initialized.",
-      );
+  remove(userId: string, socket: WebSocketConnection): void {
+    const sockets = socketsByUserId.get(userId);
+    if (!sockets) {
       return;
     }
 
-    bunServer.publish(userId, JSON.stringify(event));
+    sockets.delete(socket);
+    if (sockets.size === 0) {
+      socketsByUserId.delete(userId);
+    }
+  },
+
+  sendToUser(userId: string, event: WsServerEvent): void {
+    const sockets = socketsByUserId.get(userId);
+    if (!sockets || sockets.size === 0) {
+      return;
+    }
+
+    const payload = JSON.stringify(event);
+    for (const socket of sockets) {
+      try {
+        socket.send(payload);
+      } catch (error) {
+        sockets.delete(socket);
+        console.warn("[WARN] Failed to send WebSocket event.", error);
+      }
+    }
+
+    if (sockets.size === 0) {
+      socketsByUserId.delete(userId);
+    }
   },
 };

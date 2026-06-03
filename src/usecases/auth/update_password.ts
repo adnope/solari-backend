@@ -3,6 +3,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { withTx } from "../../db/client.ts";
 import { sessions, userPasswords, users } from "../../db/schema.ts";
 import { deleteCachedAuthSessions } from "../../cache/auth_session_cache.ts";
+import { hashPassword, verifyPassword } from "../../utils/password.ts";
 import { AppError } from "../app_error.ts";
 
 export type UpdatePasswordInput = {
@@ -121,7 +122,7 @@ export async function updatePassword(input: UpdatePasswordInput): Promise<void> 
         );
       }
 
-      const isOldPasswordValid = await Bun.password.verify(oldPassword, row.passwordHash);
+      const isOldPasswordValid = await verifyPassword(oldPassword, row.passwordHash);
       if (!isOldPasswordValid) {
         throw new AppError<UpdatePasswordErrorType>(
           "INVALID_OLD_PASSWORD",
@@ -130,9 +131,7 @@ export async function updatePassword(input: UpdatePasswordInput): Promise<void> 
         );
       }
 
-      const newPasswordHash = await Bun.password.hash(newPassword, {
-        algorithm: "argon2id",
-      });
+      const newPasswordHash = await hashPassword(newPassword);
 
       await tx
         .update(userPasswords)

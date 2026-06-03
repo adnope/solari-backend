@@ -18,6 +18,7 @@ import { deleteCachedPublicProfile } from "../../cache/public_profile_cache.ts";
 import { deleteCachedNicknames } from "../../cache/nickname_cache.ts";
 import { deleteCachedFriendIdsForUsers } from "../../cache/friend_cache.ts";
 import { deleteCachedUserSummary } from "../../cache/user_summary_cache.ts";
+import { verifyPassword } from "../../utils/password.ts";
 import { AppError } from "../app_error.ts";
 
 export type DeleteAccountInput = {
@@ -123,7 +124,7 @@ export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
           );
         }
 
-        const isPasswordValid = await Bun.password.verify(password, userRow.passwordHash);
+        const isPasswordValid = await verifyPassword(password, userRow.passwordHash);
         if (!isPasswordValid) {
           throw new AppError<DeleteAccountErrorType>(
             "INVALID_CREDENTIALS",

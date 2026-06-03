@@ -1,4 +1,5 @@
 import { isValidUuid } from "../../utils/validation.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
 import { withTx } from "../../db/client.ts";
 import { friendRequests } from "../../db/schema.ts";
 import { enqueuePushNotification, publishWebSocketEvent } from "../../jobs/queue.ts";
@@ -120,7 +121,7 @@ export async function sendFriendRequest(
         );
       }
 
-      const requestId = Bun.randomUUIDv7();
+      const requestId = createUuidV7();
 
       const [inserted] = await tx
         .insert(friendRequests)

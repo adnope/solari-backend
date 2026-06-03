@@ -1,6 +1,8 @@
 import { withTx } from "../../db/client.ts";
 import { userPasswords, users } from "../../db/schema.ts";
 import { getFileUrl } from "../../storage/s3.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
+import { hashPassword } from "../../utils/password.ts";
 import { isValidEmail } from "../../utils/validation.ts";
 import type { AuthErrorType } from "./error_type.ts";
 import { isPgErrorCode, getPgConstraintName, PgErrorCode } from "../postgres_error.ts";
@@ -82,10 +84,8 @@ export async function signUp(input: SignupInput): Promise<PublicUser> {
   const email = normalizeEmail(input.email);
   const password = validatePassword(input.password);
 
-  const passwordHash = await Bun.password.hash(password, {
-    algorithm: "argon2id",
-  });
-  const userId = Bun.randomUUIDv7();
+  const passwordHash = await hashPassword(password);
+  const userId = createUuidV7();
 
   try {
     return await withTx(async (tx) => {

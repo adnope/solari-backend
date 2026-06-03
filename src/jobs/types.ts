@@ -1,4 +1,4 @@
-import type { NotificationType } from "../utils/fcm";
+import type { NotificationType } from "../utils/fcm.ts";
 import type { CaptionMetadata } from "../db/schema.ts";
 
 export type UploadPostJobPayload = {

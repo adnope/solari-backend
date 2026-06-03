@@ -1,6 +1,7 @@
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { db } from "../../db/client.ts";
 import { passwordResetCodes, users } from "../../db/schema.ts";
+import { verifyPassword } from "../../utils/password.ts";
 import { isValidEmail } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
 
@@ -121,7 +122,7 @@ export async function verifyPasswordResetCode(
       );
     }
 
-    const ok = await Bun.password.verify(code, resetRow.codeHash);
+    const ok = await verifyPassword(code, resetRow.codeHash);
 
     if (!ok) {
       const nextAttemptCount = resetRow.attemptCount + 1;

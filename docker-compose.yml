@@ -4,13 +4,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: ${SERVER_ENV:-dev}
+      target: migrate
     env_file:
       - .env
-    command: bunx drizzle-kit migrate
-    volumes:
-      - .:/app
-      - /app/node_modules
+    command: npm run db:migrate
     depends_on:
       db:
         condition: service_healthy
@@ -33,10 +30,13 @@ services:
     expose:
       - "5050"
     volumes:
-      - .:/app
-      - /app/node_modules
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:5050/health || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:5050/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -56,9 +56,9 @@ services:
       - -c
       - |
         if [ "$${SERVER_ENV:-dev}" = "dev" ]; then
-          exec bun run worker:dev
+          exec npm run worker:dev
         else
-          exec bun run worker
+          exec npm run worker
         fi
     depends_on:
       db:
@@ -68,8 +68,7 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - .:/app
-      - /app/node_modules
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
 
   proxy:
     image: nginx:alpine
@@ -81,7 +80,7 @@ services:
       - api
 
   db:
-    image: postgres:16.13-alpine
+    image: postgres:17.9-alpine
     container_name: solari-postgres
     restart: unless-stopped
     env_file:
@@ -113,8 +112,8 @@ services:
       MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
     command: server /data --address ":9000" --console-address ":9001"
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:9091:9000"
+      - "127.0.0.1:9092:9001"
     volumes:
       - s3data:/data
     healthcheck:

@@ -2,7 +2,8 @@
 
 ## Prerequisites
 
-- [Bun](https://bun.com/)
+- [Node.js 22 LTS](https://nodejs.org/)
+- npm
 - [Docker and Docker Compose](https://www.docker.com/)
 
 ## 1. Environment Variables

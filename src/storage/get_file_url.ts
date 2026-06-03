@@ -1,4 +1,4 @@
-import { RedisClient } from "bun";
+import { Redis } from "ioredis";
 import { GetObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -23,7 +23,7 @@ export function createGetFileUrl({
   accessKeyId,
   redisUrl,
 }: CreateGetFileUrlOptions): GetFileUrl {
-  const presignedUrlCache = new RedisClient(redisUrl);
+  const presignedUrlCache = new Redis(redisUrl, { maxRetriesPerRequest: null });
   let lastPresignedUrlCacheWarningAt = 0;
 
   function encodeCacheKeyPart(value: string): string {

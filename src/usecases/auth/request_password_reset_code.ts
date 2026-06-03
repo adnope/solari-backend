@@ -3,6 +3,8 @@ import { and, eq } from "drizzle-orm";
 import { db, withTx } from "../../db/client.ts";
 import { passwordResetCodes, userOauthAccounts, userPasswords, users } from "../../db/schema.ts";
 import { enqueueSendEmail } from "../../jobs/queue.ts";
+import { createUuidV7 } from "../../utils/ids.ts";
+import { hashPassword } from "../../utils/password.ts";
 import { isValidEmail } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
 
@@ -75,12 +77,10 @@ export async function requestPasswordResetCode(email: string): Promise<void> {
     }
 
     const rawCode = generateSixDigitCode();
-    const codeHash = await Bun.password.hash(rawCode, {
-      algorithm: "argon2id",
-    });
+    const codeHash = await hashPassword(rawCode);
     const expiresAt = new Date(Date.now() + RESET_CODE_TTL_MS).toISOString();
 
-    const resetCodeId = Bun.randomUUIDv7();
+    const resetCodeId = createUuidV7();
     await withTx(async (tx) => {
       await tx.delete(passwordResetCodes).where(eq(passwordResetCodes.userId, user.id));
 
