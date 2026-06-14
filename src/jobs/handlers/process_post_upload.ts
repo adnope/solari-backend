@@ -17,12 +17,24 @@ export async function handlePostProcessing(
   const mediaType = payload.contentType.startsWith("video/") ? "video" : "image";
 
   try {
+    console.log(
+      `[DEBUG] [handlePostProcessing] Fetching file buffer from storage for key: ${payload.objectKey}`,
+    );
     const buffer = await getFileBuffer(payload.objectKey);
     const actualByteSize = buffer.byteLength;
+    console.log(
+      `[DEBUG] [handlePostProcessing] Successfully fetched file buffer (size: ${actualByteSize} bytes)`,
+    );
 
     let actualMetadata;
     try {
+      console.log(
+        `[DEBUG] [handlePostProcessing] Extracting media metadata for contentType: ${payload.contentType}`,
+      );
       actualMetadata = await extractMediaMetadata(buffer, payload.contentType);
+      console.log(
+        `[DEBUG] [handlePostProcessing] Extracted metadata: width=${actualMetadata.width}, height=${actualMetadata.height}, duration=${actualMetadata.durationMs}ms`,
+      );
     } catch (e) {
       console.error("[MEDIA PARSER] Failed to parse media:", e);
       throw new Error("Malicious or corrupted media file detected.");
@@ -50,10 +62,20 @@ export async function handlePostProcessing(
       throw new Error("Images cannot have a duration.");
     }
 
+    console.log(`[DEBUG] [handlePostProcessing] Generating thumbnail for media type: ${mediaType}`);
     const thumbBuffer = await generateThumbnail(buffer, mediaType);
+    console.log(`[DEBUG] [handlePostProcessing] Uploading thumbnail to key: ${thumbnailKey}`);
     await uploadFile(thumbnailKey, thumbBuffer, "image/webp");
-    const allFriendIds = payload.audienceType === "all" ? await getFriendIds(payload.authorId) : [];
+    console.log(`[DEBUG] [handlePostProcessing] Thumbnail uploaded successfully`);
 
+    const allFriendIds = payload.audienceType === "all" ? await getFriendIds(payload.authorId) : [];
+    console.log(
+      `[DEBUG] [handlePostProcessing] Found ${allFriendIds.length} friends for authorId: ${payload.authorId}`,
+    );
+
+    console.log(
+      `[DEBUG] [handlePostProcessing] Inserting database records for postId: ${payload.postId}`,
+    );
     await withTx(async (tx) => {
       await tx.insert(posts).values({
         id: payload.postId,
@@ -98,13 +120,22 @@ export async function handlePostProcessing(
         );
       }
     });
+    console.log(
+      `[DEBUG] [handlePostProcessing] Database records inserted successfully for postId: ${payload.postId}`,
+    );
 
+    console.log(
+      `[DEBUG] [handlePostProcessing] Publishing WebSocket POST_PROCESSED event for authorId: ${payload.authorId}`,
+    );
     await publishWebSocketEvent(payload.authorId, {
       type: "POST_PROCESSED",
       payload: { postId: payload.postId, status: "completed" },
     });
 
     try {
+      console.log(
+        `[DEBUG] [handlePostProcessing] Fetching user summary for authorId: ${payload.authorId}`,
+      );
       const authorSummary = await getUserSummaryById(payload.authorId);
       if (authorSummary) {
         const friendsToNotify =
@@ -112,6 +143,9 @@ export async function handlePostProcessing(
             ? allFriendIds
             : (payload.viewerIds ?? (await getFriendIds(payload.authorId)));
 
+        console.log(
+          `[DEBUG] [handlePostProcessing] Enqueueing push notifications for ${friendsToNotify.length} friends`,
+        );
         const pushPromises = friendsToNotify.map((friendId) =>
           enqueuePushNotification({
             recipientUserId: friendId,
@@ -126,6 +160,7 @@ export async function handlePostProcessing(
         );
 
         await Promise.allSettled(pushPromises);
+        console.log(`[DEBUG] [handlePostProcessing] Enqueueing push notifications completed`);
       }
     } catch (e) {
       console.error(`[HANDLER] Failed to enqueue push notifications for job ${jobId}:`, e);

@@ -34,20 +34,17 @@ export async function extractMediaMetadata(
     try {
       await writeFile(tempFilePath, buffer);
 
-      const proc = await runCommand(
-        "ffprobe",
-        [
-          "-v",
-          "error",
-          "-select_streams",
-          "v:0",
-          "-show_entries",
-          "stream=width,height,duration",
-          "-of",
-          "json",
-          tempFilePath,
-        ],
-      );
+      const proc = await runCommand("ffprobe", [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height,duration",
+        "-of",
+        "json",
+        tempFilePath,
+      ]);
 
       if (proc.exitCode !== 0) {
         throw new Error(`ffprobe failed. Error: ${proc.stderr.toString("utf8")}`);

@@ -124,6 +124,9 @@ function validateInitiateInput(input: InitiatePostUploadInput) {
 export async function initiatePostUpload(
   input: InitiatePostUploadInput,
 ): Promise<InitiatePostUploadResult> {
+  console.log(
+    `[DEBUG] [initiatePostUpload] Initiating post upload for authorId: ${input.authorId}, contentType: ${input.contentType}`,
+  );
   validateInitiateInput(input);
 
   const normalizedAuthorId = input.authorId.trim();
@@ -136,6 +139,9 @@ export async function initiatePostUpload(
 
     const allValid = uniqueViewerIds.every((viewerId) => friendIds.has(viewerId));
     if (!allValid) {
+      console.warn(
+        `[DEBUG] [initiatePostUpload] Audience validation failed for authorId: ${normalizedAuthorId}`,
+      );
       throw new AppError<UploadPostErrorType>(
         "INVALID_AUDIENCE",
         "One or more viewer IDs are invalid or not on your friends list.",
@@ -152,6 +158,9 @@ export async function initiatePostUpload(
 
   const UPLOAD_TTL = 600;
   try {
+    console.log(
+      `[DEBUG] [initiatePostUpload] Generating presigned upload URL for objectKey: ${objectKey}`,
+    );
     const uploadUrl = await getUploadPresignedUrl(objectKey, normalizedContentType, UPLOAD_TTL);
 
     const ticketData = {
@@ -165,8 +174,14 @@ export async function initiatePostUpload(
       timezone: input.timezone.trim(),
     };
 
+    console.log(
+      `[DEBUG] [initiatePostUpload] Creating upload ticket in Redis for postId: ${postId}`,
+    );
     await redisClient.set(`upload_ticket:${postId}`, JSON.stringify(ticketData), "EX", UPLOAD_TTL);
 
+    console.log(
+      `[DEBUG] [initiatePostUpload] Post upload initiated successfully. postId: ${postId}`,
+    );
     return {
       postId,
       objectKey,
@@ -189,6 +204,9 @@ export type FinalizePostInput = {
 };
 
 export async function finalizePostUpload(input: FinalizePostInput) {
+  console.log(
+    `[DEBUG] [finalizePostUpload] Finalize request received for postId: ${input.postId}, authorId: ${input.authorId}`,
+  );
   if (!input.authorId || !input.postId || !input.objectKey) {
     throw new AppError<UploadPostErrorType>("MISSING_INPUT", "Missing required fields.", 400);
   }
@@ -202,9 +220,13 @@ export async function finalizePostUpload(input: FinalizePostInput) {
   const ticketKey = `upload_ticket:${normalizedPostId}`;
 
   try {
+    console.log(`[DEBUG] [finalizePostUpload] Fetching upload ticket from Redis: ${ticketKey}`);
     const ticketString = await redisClient.get(ticketKey);
 
     if (!ticketString) {
+      console.warn(
+        `[DEBUG] [finalizePostUpload] Ticket not found or expired for key: ${ticketKey}`,
+      );
       throw new AppError<UploadPostErrorType>(
         "TICKET_EXPIRED",
         "Upload session expired or invalid. Please try uploading again.",
@@ -215,6 +237,9 @@ export async function finalizePostUpload(input: FinalizePostInput) {
     const ticketData = JSON.parse(ticketString);
 
     if (ticketData.authorId !== normalizedAuthorId) {
+      console.warn(
+        `[DEBUG] [finalizePostUpload] Author ID mismatch! Ticket authorId: ${ticketData.authorId}, Input authorId: ${normalizedAuthorId}`,
+      );
       throw new AppError<UploadPostErrorType>(
         "UNAUTHORIZED",
         "You are not authorized to finalize this post.",
@@ -222,6 +247,9 @@ export async function finalizePostUpload(input: FinalizePostInput) {
       );
     }
 
+    console.log(
+      `[DEBUG] [finalizePostUpload] Processing user streaks transaction for userId: ${normalizedAuthorId}`,
+    );
     await withTx(async (tx) => {
       const [streakRow] = await tx
         .select()
@@ -239,6 +267,10 @@ export async function finalizePostUpload(input: FinalizePostInput) {
         longestStreak,
         lastPostDateUtc,
         ticketData.timezone,
+      );
+
+      console.log(
+        `[DEBUG] [finalizePostUpload] Streak math result: currentStreak: ${currentStreak}, longestStreak: ${longestStreak}, newStreak: ${streakMath.newStreak}, isValidIncrement: ${streakMath.isValidIncrement}`,
       );
 
       if (streakMath.isValidIncrement) {
@@ -264,8 +296,15 @@ export async function finalizePostUpload(input: FinalizePostInput) {
             },
           });
 
+        console.log(
+          `[DEBUG] [finalizePostUpload] Updated user streak in DB to: ${streakMath.newStreak}`,
+        );
+
         const milestones = [3, 7, 10, 30, 50, 100];
         if (milestones.includes(streakMath.newStreak)) {
+          console.log(
+            `[DEBUG] [finalizePostUpload] Enqueueing streak milestone push notification for user: ${normalizedAuthorId}`,
+          );
           void enqueuePushNotification({
             recipientUserId: normalizedAuthorId,
             title: `🔥 ${streakMath.newStreak} Day Streak!`,
@@ -288,7 +327,12 @@ export async function finalizePostUpload(input: FinalizePostInput) {
       viewerIds: ticketData.viewerIds,
     };
 
+    console.log(
+      `[DEBUG] [finalizePostUpload] Enqueueing post processing job for postId: ${normalizedPostId}`,
+    );
     await enqueuePostUploadProcessing(jobPayload);
+
+    console.log(`[DEBUG] [finalizePostUpload] Deleting upload ticket from Redis: ${ticketKey}`);
     await redisClient.del(ticketKey);
 
     return {
