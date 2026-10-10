@@ -39,6 +39,8 @@ const baseClientConfig: S3ClientConfig = {
   region,
   credentials,
   forcePathStyle,
+  requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED",
 };
 
 export const s3Client = new S3Client({

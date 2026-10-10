@@ -1,3 +1,5 @@
+name: slb
+
 services:
   db-init:
     container_name: solari-db-init
@@ -92,7 +94,7 @@ services:
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:${POSTGRES_PORT:-5432}"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./volumes/pgdata:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -126,9 +128,9 @@ services:
       - "127.0.0.1:9333:9333"
       - "127.0.0.1:8888:8888"
     volumes:
-      - s3data:/data
+      - ./volumes/s3data:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9333/cluster/status || exit 1"]
+      test: ["CMD-SHELL", "curl -sS --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8333/ | grep -Eq '^(200|403)$'"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -143,15 +145,10 @@ services:
     ports:
       - "127.0.0.1:${REDIS_HOST_PORT:-6379}:${REDIS_PORT:-6379}"
     volumes:
-      - redisdata:/data
+      - ./volumes/redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
       start_period: 3s
-
-volumes:
-  pgdata:
-  s3data:
-  redisdata:
