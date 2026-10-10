@@ -6,3 +6,6 @@ firebase-service-account.json
 .cursor/
 .codex
 AGENTS.md
+volumes/
+*.dump
+*.tar.zst

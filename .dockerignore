@@ -1,12 +1,16 @@
 .zed
 node_modules
+dist
 tests
 .dockerignore
 .env
+firebase-service-account.json
 .gitignore
 .prettierrc
 docker-compose.yml
 Dockerfile
 README.md
-tsconfig.json
 .git
+volumes/
+*.dump
+*.tar.zst
