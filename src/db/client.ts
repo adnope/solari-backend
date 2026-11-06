@@ -52,7 +52,11 @@ async function connect(databaseUrl: string): Promise<QueryClient> {
 
   try {
     await queryClient`SELECT 1`;
-    console.log(`[INFO] Connected to database at: ${databaseUrl}`);
+    const parsedUrl = new URL(databaseUrl);
+    const databaseName = parsedUrl.pathname.replace(/^\//, "");
+    console.log(
+      `[INFO] Connected to PostgreSQL at ${parsedUrl.hostname}:${parsedUrl.port || "5432"}/${databaseName}.`,
+    );
     return queryClient;
   } catch (error) {
     await closeQueryClient(queryClient);
